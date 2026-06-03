@@ -8,34 +8,148 @@ const api = axios.create({
   timeout: 30000,
 });
 
-// Get token safely from different possible storage formats
+const normalizeToken = (value) => {
+  if (!value || typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
+
+  if (trimmed.startsWith("Bearer ")) {
+    return trimmed.replace("Bearer ", "").trim();
+  }
+
+  return trimmed;
+};
+
+const isTokenLike = (value) => {
+  const token = normalizeToken(value);
+  if (!token) return false;
+
+  return token.split(".").length >= 2 || token.length > 25;
+};
+
+const findTokenDeep = (value, depth = 0) => {
+  if (!value || depth > 5) return null;
+
+  if (typeof value === "string") {
+    const token = normalizeToken(value);
+    return isTokenLike(token) ? token : null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const token = findTokenDeep(item, depth + 1);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  if (typeof value === "object") {
+    const priorityKeys = [
+      "token",
+      "accessToken",
+      "authToken",
+      "jwt",
+      "access_token",
+      "idToken",
+      "id_token",
+    ];
+
+    for (const key of priorityKeys) {
+      const token = findTokenDeep(value[key], depth + 1);
+      if (token) return token;
+    }
+
+    for (const item of Object.values(value)) {
+      const token = findTokenDeep(item, depth + 1);
+      if (token) return token;
+    }
+  }
+
+  return null;
+};
+
 const getStoredToken = () => {
-  const directToken =
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    sessionStorage.getItem("token");
+  const directCandidates = [
+    localStorage.getItem("token"),
+    localStorage.getItem("authToken"),
+    localStorage.getItem("accessToken"),
+    localStorage.getItem("bbc_token"),
+    sessionStorage.getItem("token"),
+    sessionStorage.getItem("authToken"),
+    sessionStorage.getItem("accessToken"),
+    sessionStorage.getItem("bbc_token"),
+  ];
 
-  if (directToken) return directToken;
+  for (const item of directCandidates) {
+    const token = normalizeToken(item);
+    if (isTokenLike(token)) return token;
+  }
 
-  const possibleKeys = ["auth-storage", "authStore", "bigbean-auth"];
+  const knownStorageKeys = [
+    "auth-storage",
+    "authStore",
+    "auth-store",
+    "bigbean-auth",
+    "bbc_auth_storage",
+    "bbc-auth-storage",
+    "user-storage",
+  ];
 
-  for (const key of possibleKeys) {
+  for (const key of knownStorageKeys) {
     try {
-      const stored = localStorage.getItem(key);
+      const stored = localStorage.getItem(key) || sessionStorage.getItem(key);
       if (!stored) continue;
 
       const parsed = JSON.parse(stored);
-
-      const token =
-        parsed?.state?.token ||
-        parsed?.state?.user?.token ||
-        parsed?.token ||
-        parsed?.user?.token;
+      const token = findTokenDeep(parsed);
 
       if (token) return token;
     } catch {
       // ignore invalid json
     }
+  }
+
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      const value = localStorage.getItem(key);
+
+      if (!value) continue;
+
+      if (isTokenLike(value)) return normalizeToken(value);
+
+      try {
+        const parsed = JSON.parse(value);
+        const token = findTokenDeep(parsed);
+        if (token) return token;
+      } catch {
+        // ignore non-json value
+      }
+    }
+  } catch {
+    // ignore storage access issue
+  }
+
+  try {
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      const value = sessionStorage.getItem(key);
+
+      if (!value) continue;
+
+      if (isTokenLike(value)) return normalizeToken(value);
+
+      try {
+        const parsed = JSON.parse(value);
+        const token = findTokenDeep(parsed);
+        if (token) return token;
+      } catch {
+        // ignore non-json value
+      }
+    }
+  } catch {
+    // ignore storage access issue
   }
 
   return null;
@@ -49,8 +163,42 @@ const shouldAppendOutletId = (config) => {
   const url = String(config.url || "");
 
   if (method !== "get") return false;
-  if (url.includes("/auth/login") || url.includes("/auth/me")) return false;
-  if (config.params && Object.prototype.hasOwnProperty.call(config.params, "outlet_id")) return false;
+
+  // Global/admin/master APIs should not receive selected outlet_id automatically.
+  // This fixes User Management showing 0 users because /users was becoming /users?outlet_id=all.
+  const skipUrls = [
+    "/auth/login",
+    "/auth/me",
+    "/auth/change-password",
+
+    "/users",
+    "/users/",
+    "/roles",
+    "/role-access",
+    "/role-access/roles",
+
+    "/masters/outlets",
+    "/masters/categories",
+    "/masters/suppliers",
+    "/masters/raw-materials",
+    "/masters/menu-items",
+    "/masters/units",
+    "/masters/expense-heads",
+    "/masters/payment-modes",
+    "/masters/online-platforms",
+    "/masters/dine-in-portals",
+  ];
+
+  if (skipUrls.some((item) => url === item || url.startsWith(item))) {
+    return false;
+  }
+
+  if (
+    config.params &&
+    Object.prototype.hasOwnProperty.call(config.params, "outlet_id")
+  ) {
+    return false;
+  }
 
   return true;
 };
@@ -60,13 +208,14 @@ api.interceptors.request.use(
     const token = getStoredToken();
 
     if (token) {
+      config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
 
     if (token && shouldAppendOutletId(config)) {
       config.params = {
         ...(config.params || {}),
-        outlet_id: getSelectedOutletId()
+        outlet_id: getSelectedOutletId(),
       };
     }
 
@@ -75,14 +224,36 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+const clearAuthStorage = () => {
+  const keys = [
+    "token",
+    "authToken",
+    "accessToken",
+    "bbc_token",
+    "user",
+    "auth-storage",
+    "authStore",
+    "auth-store",
+    "bigbean-auth",
+    "bbc_auth_storage",
+    "bbc-auth-storage",
+  ];
+
+  keys.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+};
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+
+    if (status === 401) {
       console.warn("Unauthorized. Please login again.");
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      clearAuthStorage();
+      window.location.href = "/login";
     }
 
     return Promise.reject(error);
@@ -92,7 +263,7 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (data) => api.post("/auth/login", data),
   me: () => api.get("/auth/me"),
-  changePassword: (data) => api.post("/auth/change-password", data)
+  changePassword: (data) => api.post("/auth/change-password", data),
 };
 
 export const userAPI = {
@@ -103,18 +274,18 @@ export const userAPI = {
   updateUser: (id, data) => api.put(`/users/${id}`, data),
   deleteUser: (id) => api.delete(`/users/${id}`),
   assignUserToOutlet: (id, data) => api.post(`/users/${id}/assign-outlet`, data),
-  toggleUserStatus: (id) => api.patch(`/users/${id}/toggle-status`)
+  toggleUserStatus: (id) => api.patch(`/users/${id}/toggle-status`),
 };
 
 export const roleAPI = {
-  getRoles: () => api.get("/roles")
+  getRoles: () => api.get("/roles"),
 };
 
 export const roleAccessAPI = {
   getRoles: () => api.get("/role-access/roles"),
   getPermissions: (roleId) => api.get(`/role-access/${roleId}`),
   updatePermissions: (roleId, permissions) =>
-    api.put(`/role-access/${roleId}`, { permissions })
+    api.put(`/role-access/${roleId}`, { permissions }),
 };
 
 export const getStoredPermissions = () => {
@@ -128,8 +299,8 @@ export const getStoredPermissions = () => {
 export const dashboardAPI = {
   getSummary: (params = {}) =>
     api.get("/dashboard/summary", {
-      params: { outlet_id: getSelectedOutletId(), ...params }
-    })
+      params: { outlet_id: getSelectedOutletId(), ...params },
+    }),
 };
 
 export const masterAPI = {
@@ -162,73 +333,85 @@ export const masterAPI = {
   getExpenseHeads: (params) => api.get("/masters/expense-heads", { params }),
   getPaymentModes: (params) => api.get("/masters/payment-modes", { params }),
   getOnlinePlatforms: (params) => api.get("/masters/online-platforms", { params }),
-  getDineInPortals: (params) => api.get("/masters/dine-in-portals", { params })
+  getDineInPortals: (params) => api.get("/masters/dine-in-portals", { params }),
 };
 
 export const dailyAccountsAPI = {
-  getCashbooks: (params) => api.get('/daily-accounts/cashbooks', { params }),
-  createCashbook: (data) => api.post('/daily-accounts/cashbooks', data),
+  getCashbooks: (params) => api.get("/daily-accounts/cashbooks", { params }),
+  createCashbook: (data) => api.post("/daily-accounts/cashbooks", data),
   updateCashbook: (id, data) => api.put(`/daily-accounts/cashbooks/${id}`, data),
-  verifyCashbook: (id, data) => api.post(`/daily-accounts/cashbooks/${id}/verify`, data),
-  
-  getExpenses: (params) => api.get('/daily-accounts/expenses', { params }),
-  createExpense: (formData) => api.post('/daily-accounts/expenses', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  approveExpense: (id, data) => api.post(`/daily-accounts/expenses/${id}/approve`, data),
-  
-  createBankDeposit: (formData) => api.post('/daily-accounts/bank-deposits', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  
-  getDayClosings: (params) => api.get('/daily-accounts/day-closing', { params }),
-  createDayClosing: (data) => api.post('/daily-accounts/day-closing', data),
-  verifyDayClosing: (id, data) => api.post(`/daily-accounts/day-closing/${id}/verify`, data)
+  verifyCashbook: (id, data) =>
+    api.post(`/daily-accounts/cashbooks/${id}/verify`, data),
+
+  getExpenses: (params) => api.get("/daily-accounts/expenses", { params }),
+  createExpense: (formData) =>
+    api.post("/daily-accounts/expenses", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  approveExpense: (id, data) =>
+    api.post(`/daily-accounts/expenses/${id}/approve`, data),
+
+  createBankDeposit: (formData) =>
+    api.post("/daily-accounts/bank-deposits", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
+  getDayClosings: (params) => api.get("/daily-accounts/day-closing", { params }),
+  createDayClosing: (data) => api.post("/daily-accounts/day-closing", data),
+  verifyDayClosing: (id, data) =>
+    api.post(`/daily-accounts/day-closing/${id}/verify`, data),
 };
 
 export const uploadAPI = {
-  uploadOpeningStock: (formData) => api.post('/uploads/opening-stock', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  uploadClosingStock: (formData) => api.post('/uploads/closing-stock', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  uploadMaterialPurchase: (formData) => api.post('/uploads/material-purchase', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  uploadItemSales: (formData) => api.post('/uploads/item-sales', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  getUploadHistory: (type, params) => api.get(`/uploads/history/${type}`, { params }),
-  getUploadErrors: (uploadId) => api.get(`/uploads/errors/${uploadId}`)
+  uploadOpeningStock: (formData) =>
+    api.post("/uploads/opening-stock", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  uploadClosingStock: (formData) =>
+    api.post("/uploads/closing-stock", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  uploadMaterialPurchase: (formData) =>
+    api.post("/uploads/material-purchase", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  uploadItemSales: (formData) =>
+    api.post("/uploads/item-sales", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  getUploadHistory: (type, params) =>
+    api.get(`/uploads/history/${type}`, { params }),
+  getUploadErrors: (uploadId) => api.get(`/uploads/errors/${uploadId}`),
 };
 
 export const reportAPI = {
-  getMonthlyPL: (params) => api.get('/reports/monthly-pl', { params }),
-  getActualConsumption: (params) => api.get('/reports/actual-consumption', { params }),
-  getTheoreticalConsumption: (params) => api.get('/reports/theoretical-consumption', { params }),
-  getDailyCashbook: (params) => api.get('/reports/daily-cashbook', { params }),
-  getExpenseReport: (params) => api.get('/reports/expenses', { params })
+  getMonthlyPL: (params) => api.get("/reports/monthly-pl", { params }),
+  getActualConsumption: (params) =>
+    api.get("/reports/actual-consumption", { params }),
+  getTheoreticalConsumption: (params) =>
+    api.get("/reports/theoretical-consumption", { params }),
+  getDailyCashbook: (params) => api.get("/reports/daily-cashbook", { params }),
+  getExpenseReport: (params) => api.get("/reports/expenses", { params }),
 };
 
 export const recipeAPI = {
-  getRecipes: (params) => api.get('/recipes', { params }),
+  getRecipes: (params) => api.get("/recipes", { params }),
   getRecipe: (id) => api.get(`/recipes/${id}`),
-  createRecipe: (data) => api.post('/recipes', data),
+  createRecipe: (data) => api.post("/recipes", data),
   updateRecipe: (id, data) => api.put(`/recipes/${id}`, data),
-  deleteRecipe: (id) => api.delete(`/recipes/${id}`)
+  deleteRecipe: (id) => api.delete(`/recipes/${id}`),
 };
 
 export const payoutAPI = {
-  getOnlinePayouts: (params) => api.get('/payouts/online', { params }),
-  createOnlinePayout: (data) => api.post('/payouts/online', data),
+  getOnlinePayouts: (params) => api.get("/payouts/online", { params }),
+  createOnlinePayout: (data) => api.post("/payouts/online", data),
   updateOnlinePayout: (id, data) => api.put(`/payouts/online/${id}`, data),
   deleteOnlinePayout: (id) => api.delete(`/payouts/online/${id}`),
-  
-  getDineInPayouts: (params) => api.get('/payouts/dine-in', { params }),
-  createDineInPayout: (data) => api.post('/payouts/dine-in', data),
+
+  getDineInPayouts: (params) => api.get("/payouts/dine-in", { params }),
+  createDineInPayout: (data) => api.post("/payouts/dine-in", data),
   updateDineInPayout: (id, data) => api.put(`/payouts/dine-in/${id}`, data),
-  deleteDineInPayout: (id) => api.delete(`/payouts/dine-in/${id}`)
+  deleteDineInPayout: (id) => api.delete(`/payouts/dine-in/${id}`),
 };
 
 export default api;

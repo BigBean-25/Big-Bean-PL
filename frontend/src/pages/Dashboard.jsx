@@ -5,20 +5,15 @@ import {
   DollarSign,
   ShoppingCart,
   AlertCircle,
-  Package,
-  Users,
   BookOpen,
   UploadCloud,
   Search,
-  ChevronUp,
-  ChevronDown,
   ArrowUpRight,
   Calendar,
   RefreshCw,
   Download,
   Filter,
   Coffee,
-  ClipboardList,
   FileText,
   Wallet,
   CheckCircle2,
@@ -39,7 +34,11 @@ import {
 } from "recharts";
 import toast from "react-hot-toast";
 import useAuthStore from "../store/authStore";
-import { dashboardAPI, getSelectedOutletId, getStoredPermissions } from "../services/api";
+import {
+  dashboardAPI,
+  getSelectedOutletId,
+  getStoredPermissions,
+} from "../services/api";
 
 const getPrimaryColor = () => {
   try {
@@ -78,15 +77,6 @@ const fmtK = (n = 0) => {
 
   return `₹${value}`;
 };
-
-const outletData = [
-  { outlet: "RR Nagar", sales: 45000, expenses: 32000, profit: 13000 },
-  { outlet: "Koramangala", sales: 52000, expenses: 38000, profit: 14000 },
-  { outlet: "HSR Layout", sales: 48000, expenses: 35000, profit: 13000 },
-  { outlet: "M5 E-City", sales: 41000, expenses: 30000, profit: 11000 },
-  { outlet: "Jayanagar", sales: 43800, expenses: 31800, profit: 12000 },
-  { outlet: "Indiranagar", sales: 49600, expenses: 36200, profit: 13400 },
-];
 
 const trendData = [
   { day: "Mon", sales: 12400, expenses: 8200 },
@@ -207,12 +197,12 @@ const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-md border border-[#3B405A] bg-[#2F3349] px-4 py-3 text-xs shadow-2xl">
-      <p className="mb-2 font-semibold text-[#A5A8B6]">{label}</p>
+    <div className="max-w-[220px] rounded-md border border-[#3B405A] bg-[#2F3349] px-4 py-3 text-xs shadow-2xl">
+      <p className="mb-2 truncate font-semibold text-[#A5A8B6]">{label}</p>
 
       <div className="space-y-1">
         {payload.map((item) => (
-          <p key={item.name} style={{ color: item.color }}>
+          <p key={item.name} className="truncate" style={{ color: item.color }}>
             {item.name}:{" "}
             <span className="font-semibold text-white">{fmt(item.value)}</span>
           </p>
@@ -226,11 +216,11 @@ const MiniBars = ({ color = "#7367F0" }) => {
   const bars = [60, 42, 28, 52, 68, 45, 72];
 
   return (
-    <div className="flex h-16 items-end gap-3">
+    <div className="flex h-16 max-w-full items-end gap-2 overflow-hidden sm:gap-3">
       {bars.map((height, index) => (
         <div
           key={index}
-          className="w-2 rounded-full bg-[#E8E7F0]"
+          className="w-2 shrink-0 rounded-full bg-[#E8E7F0]"
           style={{ height: `${height}px` }}
         >
           <div
@@ -247,7 +237,7 @@ const MiniBars = ({ color = "#7367F0" }) => {
 };
 
 const MiniLine = ({ color = "#28C76F" }) => (
-  <svg viewBox="0 0 180 70" className="h-16 w-full">
+  <svg viewBox="0 0 180 70" className="h-16 w-full max-w-full overflow-hidden">
     <path
       d="M0 40 C20 38, 28 52, 50 52 C76 52, 82 15, 110 22 C135 28, 145 44, 180 35"
       fill="none"
@@ -276,16 +266,20 @@ const StatCard = ({
   const positive = Number(change) >= 0;
 
   return (
-    <div className="rounded-md border border-[#EBE9F1] bg-white p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] dark:border-[#3B405A] dark:bg-[#2F3349] md:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[18px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[20px]">{title}</p>
-          <p className="mt-1 text-[14px] text-[#A8AAAE] md:text-[15px]">{subtitle}</p>
+    <div className="min-w-0 overflow-hidden rounded-md border border-[#EBE9F1] bg-white p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] dark:border-[#3B405A] dark:bg-[#2F3349] md:p-6">
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="truncate text-[18px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[20px]">
+            {title}
+          </p>
+          <p className="mt-1 truncate text-[14px] text-[#A8AAAE] md:text-[15px]">
+            {subtitle}
+          </p>
         </div>
 
-        {type === "icon" && (
+        {type === "icon" && Icon && (
           <div
-            className="flex h-12 w-12 items-center justify-center rounded-md"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md"
             style={{ backgroundColor: bg }}
           >
             <Icon size={24} style={{ color }} />
@@ -293,17 +287,17 @@ const StatCard = ({
         )}
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 min-w-0">
         {type === "bar" && <MiniBars color={color} />}
         {type === "line" && <MiniLine color={color} />}
 
-        <div className="mt-5 flex items-end justify-between gap-3">
-          <h3 className="text-[26px] font-semibold leading-none text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[30px]">
+        <div className="mt-5 flex min-w-0 items-end justify-between gap-3">
+          <h3 className="min-w-0 truncate text-[24px] font-semibold leading-none text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[30px]">
             {value}
           </h3>
 
           <span
-            className="rounded px-2.5 py-1 text-[14px] font-medium"
+            className="shrink-0 rounded px-2.5 py-1 text-[13px] font-medium md:text-[14px]"
             style={{
               color: positive ? "#28C76F" : "#EA5455",
               backgroundColor: positive ? "#E9F9EF" : "#FCEAEA",
@@ -360,7 +354,8 @@ const Dashboard = () => {
   const isAdmin =
     roleName === "Super Admin" ||
     roleName === "Admin" ||
-    roleName === "Developer";
+    roleName === "Developer" ||
+    roleName === "Technical Admin";
 
   const totalSales = Number(summary?.net_sales || 0);
   const totalExpenses = Number(summary?.daily_expenses || 0);
@@ -368,6 +363,7 @@ const Dashboard = () => {
 
   const fetchSummary = async () => {
     setLoading(true);
+
     try {
       const response = await dashboardAPI.getSummary();
       setSummary(response.data?.data || {});
@@ -381,8 +377,10 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchSummary();
+
     const handler = () => fetchSummary();
     window.addEventListener("bbc:selected-outlet-change", handler);
+
     return () => window.removeEventListener("bbc:selected-outlet-change", handler);
   }, []);
 
@@ -443,55 +441,60 @@ const Dashboard = () => {
 
   return (
     <div
-      className={`min-h-screen ${bgClass}`}
+      className={`min-h-screen w-full max-w-full overflow-x-hidden ${bgClass}`}
       style={{
         fontFamily:
           '"Public Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <div className="max-w-full space-y-4 md:space-y-6">
-        <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-          <div>
-            <h1 className={`text-[24px] font-semibold ${mainTextClass}`}>
+      <div className="w-full max-w-full overflow-x-hidden space-y-4 md:space-y-6">
+        <div className="flex w-full max-w-full flex-col justify-between gap-4 xl:flex-row xl:items-center">
+          <div className="min-w-0">
+            <h1 className={`break-words text-[22px] font-semibold md:text-[24px] ${mainTextClass}`}>
               Good morning, {firstName} 👋
             </h1>
 
-            <p className={`mt-1 text-[15px] ${mutedClass}`}>
-              {today} · {roleName} · {selectedOutletId === "all" ? "Company overview" : "Selected outlet overview"}
+            <p className={`mt-1 break-words text-[14px] md:text-[15px] ${mutedClass}`}>
+              {today} · {roleName} ·{" "}
+              {selectedOutletId === "all"
+                ? "Company overview"
+                : "Selected outlet overview"}
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-3">
             <button
               type="button"
-              className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+              className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
             >
-              <Calendar size={18} />
-              May 2026
+              <Calendar size={18} className="shrink-0" />
+              <span className="truncate">May 2026</span>
             </button>
 
             <button
               type="button"
               onClick={handleRefresh}
-              className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+              className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
             >
-              <RefreshCw size={18} />
-              Refresh
+              <RefreshCw size={18} className="shrink-0" />
+              <span className="truncate">Refresh</span>
             </button>
 
             <button
               type="button"
               onClick={handleExport}
-              className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] sm:w-auto"
+              className="flex min-w-0 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
               style={{ backgroundColor: primaryColor }}
             >
-              <Download size={18} />
-              {permissions.isReadOnly ? "Download" : "Export"}
+              <Download size={18} className="shrink-0" />
+              <span className="truncate">
+                {permissions.isReadOnly ? "Download" : "Export"}
+              </span>
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5 xl:gap-6">
           <StatCard
             title="Gross Sales"
             subtitle={loading ? "Loading..." : "PetPooja sales"}
@@ -534,41 +537,41 @@ const Dashboard = () => {
             bg="#E9F9EF"
           />
 
-          <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className={`text-[20px] font-semibold ${mainTextClass}`}>
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className={`truncate text-[18px] font-semibold md:text-[20px] ${mainTextClass}`}>
                   Revenue Growth
                 </h3>
-                <p className={`mt-1 text-[15px] ${mutedClass}`}>
+                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
                   Weekly Report
                 </p>
               </div>
 
               <button
                 type="button"
-                className="rounded-md p-2 text-white"
+                className="shrink-0 rounded-md p-2 text-white"
                 style={{ backgroundColor: primaryColor }}
               >
                 <Coffee size={20} />
               </button>
             </div>
 
-            <div className="mt-7 flex items-end justify-between gap-5">
-              <div>
-                <p className={`text-[28px] font-semibold md:text-[34px] ${mainTextClass}`}>
+            <div className="mt-7 flex min-w-0 items-end justify-between gap-4">
+              <div className="min-w-0">
+                <p className={`truncate text-[26px] font-semibold md:text-[34px] ${mainTextClass}`}>
                   ₹4,673
                 </p>
-                <span className="mt-3 inline-flex rounded px-2.5 py-1 text-[14px] font-medium text-[#28C76F] bg-[#E9F9EF]">
+                <span className="mt-3 inline-flex rounded bg-[#E9F9EF] px-2.5 py-1 text-[14px] font-medium text-[#28C76F]">
                   +15.2%
                 </span>
               </div>
 
-              <div className="flex h-[120px] items-end gap-3">
+              <div className="flex h-[120px] max-w-[150px] shrink-0 items-end gap-2 overflow-hidden sm:gap-3">
                 {[42, 58, 72, 90, 110, 92, 72].map((height, index) => (
                   <div
                     key={index}
-                    className="w-4 rounded-full bg-[#DDF5E8]"
+                    className="w-3 shrink-0 rounded-full bg-[#DDF5E8] sm:w-4"
                     style={{ height }}
                   >
                     <div
@@ -585,7 +588,7 @@ const Dashboard = () => {
         </div>
 
         {isAdmin && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="grid w-full max-w-full grid-cols-1 gap-4 lg:grid-cols-3">
             {[
               {
                 icon: AlertCircle,
@@ -615,7 +618,7 @@ const Dashboard = () => {
                 <button
                   key={alert.title}
                   type="button"
-                  className="flex items-center gap-4 rounded-md border border-[#EBE9F1] bg-white p-4 text-left shadow-[0_2px_12px_rgba(47,43,61,0.06)] transition hover:-translate-y-0.5 dark:border-[#3B405A] dark:bg-[#2F3349]"
+                  className="flex min-w-0 items-center gap-4 overflow-hidden rounded-md border border-[#EBE9F1] bg-white p-4 text-left shadow-[0_2px_12px_rgba(47,43,61,0.06)] transition hover:-translate-y-0.5 dark:border-[#3B405A] dark:bg-[#2F3349]"
                 >
                   <div
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md"
@@ -625,37 +628,37 @@ const Dashboard = () => {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6]">
+                    <p className="truncate text-[15px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6]">
                       {alert.title}
                     </p>
-                    <p className="mt-0.5 text-[13px] text-[#6F6B7D] dark:text-[#A5A8B6]">
+                    <p className="mt-0.5 line-clamp-2 text-[13px] text-[#6F6B7D] dark:text-[#A5A8B6]">
                       {alert.sub}
                     </p>
                   </div>
 
-                  <ArrowUpRight size={17} style={{ color: alert.color }} />
+                  <ArrowUpRight size={17} className="shrink-0" style={{ color: alert.color }} />
                 </button>
               );
             })}
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_460px]">
-          <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-              <div>
-                <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+        <div className="grid w-full max-w-full grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-start">
+              <div className="min-w-0">
+                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
                   Earning Reports
                 </h3>
-                <p className={`mt-1 text-[15px] ${mutedClass}`}>
+                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
                   Yearly Earnings Overview
                 </p>
               </div>
 
-              <button className={`text-[28px] ${mutedClass}`}>⋮</button>
+              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
             </div>
 
-            <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-5">
+            <div className="mt-8 grid w-full max-w-full grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-4">
               {[
                 { key: "orders", label: "Orders", icon: ShoppingCart },
                 { key: "sales", label: "Sales", icon: TrendingUp },
@@ -670,7 +673,9 @@ const Dashboard = () => {
                     key={tab.key}
                     type="button"
                     onClick={() => setActiveTab(tab.key)}
-                    className={`flex h-[115px] flex-col items-center justify-center rounded-md border border-dashed text-center transition ${isDark ? "border-[#3B405A]" : ""}`}
+                    className={`flex h-[105px] min-w-0 flex-col items-center justify-center rounded-md border border-dashed text-center transition md:h-[115px] ${
+                      isDark ? "border-[#3B405A]" : ""
+                    }`}
                     style={{
                       borderColor: active ? primaryColor : "#DBDADE",
                       backgroundColor: active ? `${primaryColor}08` : "transparent",
@@ -678,27 +683,33 @@ const Dashboard = () => {
                     }}
                   >
                     <div
-                      className="mb-3 flex h-11 w-11 items-center justify-center rounded-md"
+                      className="mb-3 flex h-10 w-10 items-center justify-center rounded-md md:h-11 md:w-11"
                       style={{
-                        backgroundColor: active ? `${primaryColor}18` : isDark ? "#25293C" : "#F3F2F7",
+                        backgroundColor: active
+                          ? `${primaryColor}18`
+                          : isDark
+                          ? "#25293C"
+                          : "#F3F2F7",
                       }}
                     >
-                      <Icon size={23} />
+                      <Icon size={22} />
                     </div>
-                    <span className="text-[16px] font-medium">{tab.label}</span>
+                    <span className="max-w-full truncate px-2 text-[14px] font-medium md:text-[16px]">
+                      {tab.label}
+                    </span>
                   </button>
                 );
               })}
 
               <button
                 type="button"
-                className="flex h-[115px] flex-col items-center justify-center rounded-md border border-dashed border-[#DBDADE] text-center text-[#A8AAAE] dark:border-[#3B405A]"
+                className="flex h-[105px] min-w-0 flex-col items-center justify-center rounded-md border border-dashed border-[#DBDADE] text-center text-[#A8AAAE] dark:border-[#3B405A] md:h-[115px]"
               >
                 <span className="text-[34px] leading-none">+</span>
               </button>
             </div>
 
-            <div className="mt-8 h-[300px]">
+            <div className="mt-8 h-[260px] w-full min-w-0 overflow-hidden md:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={earningData} barCategoryGap="35%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#EBE9F1" vertical={false} />
@@ -706,14 +717,14 @@ const Dashboard = () => {
                     dataKey="month"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: "#A8AAAE", fontSize: 13 }}
+                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
                   />
                   <YAxis
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={fmtK}
-                    tick={{ fill: "#A8AAAE", fontSize: 13 }}
-                    width={55}
+                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
+                    width={48}
                   />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: "#F8F7FA" }} />
                   <Bar
@@ -727,29 +738,29 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
                   Sales
                 </h3>
-                <p className={`mt-1 text-[15px] ${mutedClass}`}>
+                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
                   Last 6 Months
                 </p>
               </div>
 
-              <button className={`text-[28px] ${mutedClass}`}>⋮</button>
+              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
             </div>
 
-            <div className="mt-8 h-[245px]">
+            <div className="mt-8 h-[230px] w-full min-w-0 overflow-hidden md:h-[245px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={salesMix}
                     cx="50%"
                     cy="50%"
-                    innerRadius={66}
-                    outerRadius={98}
+                    innerRadius={58}
+                    outerRadius={92}
                     paddingAngle={3}
                     dataKey="value"
                     strokeWidth={0}
@@ -764,64 +775,67 @@ const Dashboard = () => {
             </div>
 
             <div className="mt-4 space-y-3">
-              {salesMix.map((item) => (
-                <div key={item.name} className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className={`truncate text-[14px] ${mutedClass}`}>
-                      {item.name}
-                    </span>
-                  </div>
+              {salesMix.map((item) => {
+                const percentage =
+                  totalSales > 0 ? Math.round((item.value / totalSales) * 100) : 0;
 
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className={`text-[14px] font-semibold ${mainTextClass}`}>
-                      {fmtK(item.value)}
-                    </span>
-                    <span className={`text-[13px] ${mutedClass}`}>
-                      {Math.round((item.value / totalSales) * 100)}%
-                    </span>
+                return (
+                  <div key={item.name} className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className={`truncate text-[14px] ${mutedClass}`}>
+                        {item.name}
+                      </span>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className={`text-[14px] font-semibold ${mainTextClass}`}>
+                        {fmtK(item.value)}
+                      </span>
+                      <span className={`text-[13px] ${mutedClass}`}>{percentage}%</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_430px]">
-          <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-            <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-              <div>
-                <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+        <div className="grid w-full max-w-full grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,430px)]">
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-start">
+              <div className="min-w-0">
+                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
                   Sales vs Expenses
                 </h3>
-                <p className={`mt-1 text-[15px] ${mutedClass}`}>
+                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
                   Weekly operational performance
                 </p>
               </div>
 
-              <div className="flex rounded-md border border-[#DBDADE] p-1 dark:border-[#3B405A]">
+              <div className="grid w-full grid-cols-3 rounded-md border border-[#DBDADE] p-1 dark:border-[#3B405A] md:w-auto">
                 {["week", "month", "year"].map((item) => (
                   <button
                     key={item}
                     type="button"
                     onClick={() => setPeriod(item)}
-                    className="rounded px-4 py-2 text-[13px] font-semibold capitalize"
+                    className="min-w-0 rounded px-3 py-2 text-[13px] font-semibold capitalize md:px-4"
                     style={
                       period === item
                         ? { backgroundColor: primaryColor, color: "#fff" }
-                        : { color: "#6F6B7D" }
+                        : { color: isDark ? "#A5A8B6" : "#6F6B7D" }
                     }
                   >
-                    {item}
+                    <span className="truncate">{item}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="mt-8 h-[300px]">
+            <div className="mt-8 h-[260px] w-full min-w-0 overflow-hidden md:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={trendData}>
                   <defs>
@@ -836,13 +850,18 @@ const Dashboard = () => {
                   </defs>
 
                   <CartesianGrid strokeDasharray="3 3" stroke="#EBE9F1" vertical={false} />
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#A8AAAE" }} />
+                  <XAxis
+                    dataKey="day"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
+                  />
                   <YAxis
                     tickFormatter={fmtK}
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: "#A8AAAE" }}
-                    width={55}
+                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
+                    width={48}
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Area
@@ -868,20 +887,22 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
                   Recent Transactions
                 </h3>
-                <p className={`mt-1 text-[15px] ${mutedClass}`}>All outlets</p>
+                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
+                  {selectedOutletId === "all" ? "All outlets" : "Selected outlet"}
+                </p>
               </div>
 
-              <button className={`text-[28px] ${mutedClass}`}>⋮</button>
+              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px] xl:grid-cols-1">
-              <div className="relative">
+            <div className="mt-5 grid w-full grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px] xl:grid-cols-1">
+              <div className="relative min-w-0">
                 <Search
                   size={18}
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
@@ -891,11 +912,11 @@ const Dashboard = () => {
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search transactions..."
-                  className="h-11 w-full rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
+                  className="h-11 w-full min-w-0 rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
                 />
               </div>
 
-              <div className="relative">
+              <div className="relative min-w-0">
                 <Filter
                   size={17}
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
@@ -903,7 +924,7 @@ const Dashboard = () => {
                 <select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="h-11 w-full appearance-none rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
+                  className="h-11 w-full min-w-0 appearance-none rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
                 >
                   <option value="all">All</option>
                   <option value="success">Success</option>
@@ -915,7 +936,7 @@ const Dashboard = () => {
 
             <div className="mt-5 space-y-2">
               {filteredTransactions.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#DBDADE] p-8 text-center">
+                <div className="rounded-md border border-dashed border-[#DBDADE] p-8 text-center dark:border-[#3B405A]">
                   <Search size={26} className="mx-auto text-[#A8AAAE]" />
                   <p className={`mt-3 text-[15px] font-semibold ${mainTextClass}`}>
                     No transactions found
@@ -928,7 +949,7 @@ const Dashboard = () => {
                 filteredTransactions.map((tx) => (
                   <div
                     key={tx.id}
-                    className="flex items-center justify-between gap-3 rounded-md p-3 transition hover:bg-[#F8F7FA] dark:hover:bg-[#25293C]"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md p-3 transition hover:bg-[#F8F7FA] dark:hover:bg-[#25293C]"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div
@@ -977,36 +998,38 @@ const Dashboard = () => {
             <button
               type="button"
               onClick={() => navigate("/sales/item-sales")}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-md border border-[#DBDADE] px-4 py-3 text-[15px] font-medium text-[#6F6B7D] hover:bg-[#F8F7FA] dark:border-[#3B405A] dark:text-[#A5A8B6] dark:hover:bg-[#25293C]"
+              className="mt-5 flex w-full min-w-0 items-center justify-center gap-2 rounded-md border border-[#DBDADE] px-4 py-3 text-[15px] font-medium text-[#6F6B7D] hover:bg-[#F8F7FA] dark:border-[#3B405A] dark:text-[#A5A8B6] dark:hover:bg-[#25293C]"
             >
-              View All Transactions
-              <ArrowUpRight size={16} />
+              <span className="truncate">View All Transactions</span>
+              <ArrowUpRight size={16} className="shrink-0" />
             </button>
           </div>
         </div>
 
-        <div className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <div>
-              <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+        <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+          <div className="flex min-w-0 flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0">
+              <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
                 Quick Actions
               </h3>
-              <p className={`mt-1 text-[15px] ${mutedClass}`}>
+              <p className={`mt-1 break-words text-[14px] md:text-[15px] ${mutedClass}`}>
                 Frequently used Big Bean Café operations
               </p>
             </div>
 
-            <div className="flex items-center gap-2 rounded-md bg-[#F8F7FA] px-4 py-2 text-[13px] font-medium text-[#6F6B7D] dark:bg-[#25293C] dark:text-[#A5A8B6]">
-              <CheckCircle2 size={16} className="text-[#28C76F]" />
-              Last refreshed{" "}
-              {lastUpdated.toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+            <div className="flex min-w-0 items-center gap-2 rounded-md bg-[#F8F7FA] px-4 py-2 text-[13px] font-medium text-[#6F6B7D] dark:bg-[#25293C] dark:text-[#A5A8B6]">
+              <CheckCircle2 size={16} className="shrink-0 text-[#28C76F]" />
+              <span className="truncate">
+                Last refreshed{" "}
+                {lastUpdated.toLocaleTimeString("en-IN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-6 grid w-full max-w-full grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             {quickActions.map((action) => {
               const Icon = action.icon;
 
@@ -1015,16 +1038,16 @@ const Dashboard = () => {
                   key={action.label}
                   type="button"
                   onClick={() => navigate(action.path)}
-                  className="group flex flex-col items-center gap-3 rounded-md border border-[#EBE9F1] bg-[#F8F7FA] p-5 text-center transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_4px_18px_rgba(47,43,61,0.12)] dark:border-[#3B405A] dark:bg-[#25293C] dark:hover:bg-[#2F3349]"
+                  className="group flex min-w-0 flex-col items-center gap-3 overflow-hidden rounded-md border border-[#EBE9F1] bg-[#F8F7FA] p-5 text-center transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_4px_18px_rgba(47,43,61,0.12)] dark:border-[#3B405A] dark:bg-[#25293C] dark:hover:bg-[#2F3349]"
                 >
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-md"
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md"
                     style={{ backgroundColor: action.bg }}
                   >
                     <Icon size={22} style={{ color: action.color }} />
                   </div>
 
-                  <span className="text-[14px] font-medium text-[#5D596C] dark:text-[#D0D2D6]">
+                  <span className="max-w-full truncate text-[14px] font-medium text-[#5D596C] dark:text-[#D0D2D6]">
                     {action.label}
                   </span>
                 </button>

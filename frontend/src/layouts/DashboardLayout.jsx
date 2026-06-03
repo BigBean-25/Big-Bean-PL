@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -257,6 +257,79 @@ const DashboardLayout = () => {
   const [selectedOutletId, setSelectedOutletId] = useState(
     localStorage.getItem("bbc_selected_outlet_id") || "all"
   );
+
+  const sidebarNavRef = useRef(null);
+  const stableScrollRef = useRef({
+    pageTop: 0,
+    pageLeft: 0,
+    sidebarTop: 0,
+  });
+
+  const getWindowScrollTop = () =>
+    window.scrollY ||
+    window.pageYOffset ||
+    document.documentElement.scrollTop ||
+    document.body.scrollTop ||
+    0;
+
+  const saveStableScroll = () => {
+    stableScrollRef.current = {
+      pageTop: getWindowScrollTop(),
+      pageLeft: window.scrollX || window.pageXOffset || 0,
+      sidebarTop: sidebarNavRef.current?.scrollTop || 0,
+    };
+
+    try {
+      sessionStorage.setItem(
+        "bbc_layout_scroll_snapshot",
+        JSON.stringify(stableScrollRef.current)
+      );
+    } catch {
+      // ignore storage issues
+    }
+  };
+
+  const restoreStableScroll = () => {
+    let snapshot = stableScrollRef.current;
+
+    try {
+      const saved = sessionStorage.getItem("bbc_layout_scroll_snapshot");
+      if (saved) {
+        snapshot = { ...snapshot, ...JSON.parse(saved) };
+      }
+    } catch {
+      // ignore storage issues
+    }
+
+    const applyScroll = () => {
+      if (sidebarNavRef.current) {
+        sidebarNavRef.current.scrollTop = snapshot.sidebarTop || 0;
+      }
+
+      window.scrollTo({
+        top: snapshot.pageTop || 0,
+        left: snapshot.pageLeft || 0,
+        behavior: "auto",
+      });
+
+      document.documentElement.scrollTop = snapshot.pageTop || 0;
+      document.body.scrollTop = snapshot.pageTop || 0;
+    };
+
+    requestAnimationFrame(() => {
+      applyScroll();
+      requestAnimationFrame(() => {
+        applyScroll();
+        setTimeout(applyScroll, 80);
+      });
+    });
+  };
+
+  const runWithoutScrollJump = (callback) => {
+    saveStableScroll();
+    callback?.();
+    restoreStableScroll();
+  };
 
   const [prefersDark, setPrefersDark] = useState(
     window.matchMedia?.("(prefers-color-scheme: dark)")?.matches || false
@@ -575,6 +648,14 @@ const DashboardLayout = () => {
     setExpandedMenus((prev) => ({ ...prev, ...activeMenus }));
   }, [location.pathname, menuItems]);
 
+  useLayoutEffect(() => {
+    restoreStableScroll();
+  }, [location.pathname]);
+
+  useEffect(() => {
+    restoreStableScroll();
+  }, [expandedMenus]);
+
   const hasAccess = (roles = []) => {
     if (roles.includes("all")) return true;
     return roles.includes(roleName);
@@ -659,10 +740,17 @@ const DashboardLayout = () => {
   };
 
   const goTo = (path) => {
-    navigate(path);
+    saveStableScroll();
+
+    navigate(path, {
+      preventScrollReset: true,
+    });
+
     setSearchOpen(false);
     setQuery("");
     setMobileOpen(false);
+
+    setTimeout(restoreStableScroll, 0);
   };
 
   const handleOutletChange = (event) => {
@@ -1183,7 +1271,11 @@ const DashboardLayout = () => {
         <div className="flex h-[72px] items-center justify-between px-6">
           <Link
             to="/"
-            onClick={() => mobile && setMobileOpen(false)}
+            preventScrollReset
+            onClick={() => {
+              saveStableScroll();
+              if (mobile) setMobileOpen(false);
+            }}
             className="flex min-w-0 items-center gap-3"
           >
             <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl">
@@ -1217,9 +1309,11 @@ const DashboardLayout = () => {
           <button
             type="button"
             onClick={() =>
-              mobile
-                ? setMobileOpen(false)
-                : setLayout(sidebarOpen ? "collapsed" : "vertical")
+              runWithoutScrollJump(() =>
+                mobile
+                  ? setMobileOpen(false)
+                  : setLayout(sidebarOpen ? "collapsed" : "vertical")
+              )
             }
             className={`rounded-full p-2 transition ${
               effectiveSidebarDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"
@@ -1235,7 +1329,11 @@ const DashboardLayout = () => {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-4 pb-5">
+        <nav
+          ref={sidebarNavRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-5"
+          style={{ scrollbarGutter: "stable" }}
+        >
           <div className="space-y-1">
             {menuItems.map((item) => {
               if (!canShowMenu(item)) return null;
@@ -1250,10 +1348,12 @@ const DashboardLayout = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        setExpandedMenus((prev) => ({
-                          ...prev,
-                          [item.key]: !prev[item.key],
-                        }))
+                        runWithoutScrollJump(() =>
+                          setExpandedMenus((prev) => ({
+                            ...prev,
+                            [item.key]: !prev[item.key],
+                          }))
+                        )
                       }
                       style={active ? activeStyle : undefined}
                       className={`flex w-full items-center justify-between rounded-md px-4 py-2.5 text-[15px] transition ${
@@ -1285,11 +1385,11 @@ const DashboardLayout = () => {
                           const subActive = isActive(sub.path);
 
                           return (
-                            <Link
+                            <button
                               key={sub.path}
-                              to={sub.path}
-                              onClick={() => mobile && setMobileOpen(false)}
-                              className={`flex items-center gap-3 rounded-md px-4 py-2.5 text-[15px] transition ${
+                              type="button"
+                              onClick={() => goTo(sub.path)}
+                              className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left text-[15px] transition ${
                                 subActive
                                   ? ""
                                   : effectiveSidebarDark
@@ -1300,7 +1400,7 @@ const DashboardLayout = () => {
                             >
                               <Circle size={9} />
                               <span className="truncate">{sub.title}</span>
-                            </Link>
+                            </button>
                           );
                         })}
                       </div>
@@ -1310,12 +1410,12 @@ const DashboardLayout = () => {
               }
 
               return (
-                <Link
+                <button
                   key={item.path}
-                  to={item.path}
-                  onClick={() => mobile && setMobileOpen(false)}
+                  type="button"
+                  onClick={() => goTo(item.path)}
                   style={active ? activeStyle : undefined}
-                  className={`flex items-center gap-3 rounded-md px-4 py-2.5 text-[15px] transition ${
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left text-[15px] transition ${
                     active
                       ? ""
                       : effectiveSidebarDark
@@ -1327,7 +1427,7 @@ const DashboardLayout = () => {
                   {(sidebarOpen || mobile) && (
                     <span className="truncate font-medium">{item.title}</span>
                   )}
-                </Link>
+                </button>
               );
             })}
           </div>

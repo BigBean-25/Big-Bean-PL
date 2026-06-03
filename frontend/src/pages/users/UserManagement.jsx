@@ -23,6 +23,16 @@ import {
 import { userAPI, roleAPI, masterAPI } from "../../services/api";
 import toast from "react-hot-toast";
 
+const DEFAULT_OUTLETS = [
+  { id: 1, outlet_name: "RR Nagar", outlet_code: "RR" },
+  { id: 2, outlet_name: "Koramangala", outlet_code: "KOR" },
+  { id: 3, outlet_name: "M5 E-City", outlet_code: "M5" },
+  { id: 4, outlet_name: "HSR Layout", outlet_code: "HSR" },
+  { id: 5, outlet_name: "Jayanagar", outlet_code: "JYN" },
+  { id: 6, outlet_name: "Indiranagar", outlet_code: "IND" },
+  { id: 7, outlet_name: "Kammanahalli", outlet_code: "KAM" },
+];
+
 const getPrimaryColor = () => {
   try {
     return localStorage.getItem("bbc_primary_color") || "#7367F0";
@@ -47,9 +57,65 @@ const getThemeMode = () => {
   }
 };
 
-const getRows = (response) => {
-  const data = response?.data?.data || response?.data || [];
-  return Array.isArray(data) ? data : [];
+const getRows = (response, key = "") => {
+  const root = response?.data || response || {};
+
+  const candidates = [
+    key ? root?.[key] : null,
+    key ? root?.data?.[key] : null,
+    root?.data,
+    root?.users,
+    root?.roles,
+    root?.outlets,
+    root?.items,
+    root?.rows,
+    root?.results,
+    root,
+  ];
+
+  const found = candidates.find((item) => Array.isArray(item));
+  return found || [];
+};
+
+const normalizeOutlet = (outlet = {}, index = 0) => {
+  const rawId =
+    outlet.id ||
+    outlet.outlet_id ||
+    outlet.value ||
+    outlet.store_id ||
+    outlet.branch_id ||
+    index + 1;
+
+  const id = Number(rawId);
+
+  return {
+    ...outlet,
+    id,
+    outlet_name:
+      outlet.outlet_name ||
+      outlet.name ||
+      outlet.label ||
+      outlet.outlet ||
+      outlet.branch_name ||
+      outlet.store_name ||
+      outlet.title ||
+      outlet.outlet_code ||
+      `Outlet ${id}`,
+    outlet_code:
+      outlet.outlet_code ||
+      outlet.code ||
+      outlet.short_code ||
+      outlet.store_code ||
+      `OUT-${id}`,
+  };
+};
+
+const normalizeOutlets = (rows = []) => {
+  const normalized = rows
+    .map((item, index) => normalizeOutlet(item, index))
+    .filter((item) => item.id && item.outlet_name);
+
+  return normalized.length > 0 ? normalized : DEFAULT_OUTLETS;
 };
 
 const formatDate = (value) => {
@@ -81,27 +147,128 @@ const getInitials = (name = "") => {
   return String(parts[0]?.[0] || "U").toUpperCase();
 };
 
-const getOutletIds = (user) => {
-  if (Array.isArray(user?.outlet_ids)) return user.outlet_ids.map(Number);
+const parseIds = (value) => {
+  if (!value) return [];
 
-  if (typeof user?.outlet_ids === "string" && user.outlet_ids.trim()) {
-    return user.outlet_ids
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        Number(
+          typeof item === "object"
+            ? item.id || item.outlet_id || item.value || item.store_id || item.branch_id
+            : item
+        )
+      )
+      .filter(Boolean);
+  }
+
+  if (typeof value === "number") {
+    return [Number(value)].filter(Boolean);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+
+    if (["all", "all outlets"].includes(trimmed.toLowerCase())) {
+      return [];
+    }
+
+    try {
+      if (trimmed.startsWith("[")) {
+        return JSON.parse(trimmed).map(Number).filter(Boolean);
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+
+    return trimmed
       .split(",")
-      .map((id) => Number(id))
+      .map((id) => Number(id.trim()))
       .filter(Boolean);
   }
 
   return [];
 };
 
-const getOutletNames = (user) => {
-  return (
+const getOutletIds = (user) => {
+  const possibleValues = [
+    user?.outlet_ids,
+    user?.assigned_outlet_ids,
+    user?.mapped_outlet_ids,
+    user?.outlet_id,
+    user?.assigned_outlets,
+    user?.outlets,
+  ];
+
+  for (const value of possibleValues) {
+    const ids = parseIds(value);
+    if (ids.length > 0) return ids;
+  }
+
+  return [];
+};
+
+const getAllOutletNames = (allOutlets = []) => {
+  return allOutlets
+    .map((outlet) => outlet.outlet_name || outlet.name || outlet.outlet_code)
+    .filter(Boolean)
+    .join(", ");
+};
+
+const getDirectOutletNames = (user) => {
+  const directValue =
     user?.assigned_outlets ||
     user?.outlet_names ||
+    user?.mapped_outlets ||
     user?.outlets ||
     user?.outlet_name ||
-    ""
-  );
+    "";
+
+  if (Array.isArray(directValue)) {
+    const names = directValue
+      .map((item) => {
+        if (typeof item === "object") {
+          return item.outlet_name || item.name || item.label || item.outlet_code;
+        }
+
+        return item;
+      })
+      .filter(Boolean)
+      .join(", ");
+
+    if (names && !["all", "all outlets"].includes(names.toLowerCase())) {
+      return names;
+    }
+  }
+
+  if (typeof directValue === "string" && directValue.trim()) {
+    const value = directValue.trim();
+
+    if (!["all", "all outlets"].includes(value.toLowerCase())) {
+      return value;
+    }
+  }
+
+  return "";
+};
+
+const getOutletNames = (user, allOutlets = []) => {
+  const outletIds = getOutletIds(user);
+
+  if (outletIds.length > 0) {
+    const mappedNames = allOutlets
+      .filter((outlet) => outletIds.includes(Number(outlet.id)))
+      .map((outlet) => outlet.outlet_name || outlet.name || outlet.outlet_code)
+      .filter(Boolean)
+      .join(", ");
+
+    if (mappedNames) return mappedNames;
+  }
+
+  const directNames = getDirectOutletNames(user);
+  if (directNames) return directNames;
+
+  return getAllOutletNames(allOutlets) || getAllOutletNames(DEFAULT_OUTLETS);
 };
 
 const emptyForm = () => ({
@@ -117,7 +284,7 @@ const emptyForm = () => ({
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [outlets, setOutlets] = useState([]);
+  const [outlets, setOutlets] = useState(DEFAULT_OUTLETS);
 
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -134,6 +301,9 @@ const UserManagement = () => {
   const [roleFilter, setRoleFilter] = useState("all");
   const [outletFilter, setOutletFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedTopbarOutletId, setSelectedTopbarOutletId] = useState(
+    localStorage.getItem("bbc_selected_outlet_id") || "all"
+  );
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -153,6 +323,33 @@ const UserManagement = () => {
     fetchInitialData();
   }, []);
 
+  useEffect(() => {
+    const getLatestSelectedOutlet = () =>
+      localStorage.getItem("bbc_selected_outlet_id") || "all";
+
+    const handleOutletChange = (event) => {
+      const nextOutletId = event?.detail || getLatestSelectedOutlet();
+      setSelectedTopbarOutletId(String(nextOutletId || "all"));
+    };
+
+    window.addEventListener("bbc:selected-outlet-change", handleOutletChange);
+    window.addEventListener("selected-outlet-change", handleOutletChange);
+
+    const intervalId = window.setInterval(() => {
+      const latestOutletId = String(getLatestSelectedOutlet());
+
+      setSelectedTopbarOutletId((current) =>
+        current === latestOutletId ? current : latestOutletId
+      );
+    }, 500);
+
+    return () => {
+      window.removeEventListener("bbc:selected-outlet-change", handleOutletChange);
+      window.removeEventListener("selected-outlet-change", handleOutletChange);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const fetchInitialData = async () => {
     setLoading(true);
 
@@ -166,7 +363,7 @@ const UserManagement = () => {
   const fetchUsers = async () => {
     try {
       const response = await userAPI.getUsers();
-      setUsers(getRows(response));
+      setUsers(getRows(response, "users"));
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch users");
     }
@@ -175,7 +372,7 @@ const UserManagement = () => {
   const fetchRoles = async () => {
     try {
       const response = await roleAPI.getRoles();
-      setRoles(getRows(response));
+      setRoles(getRows(response, "roles"));
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch roles");
     }
@@ -184,9 +381,10 @@ const UserManagement = () => {
   const fetchOutlets = async () => {
     try {
       const response = await masterAPI.getOutlets();
-      setOutlets(getRows(response));
+      setOutlets(normalizeOutlets(getRows(response, "outlets")));
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch outlets");
+      setOutlets(DEFAULT_OUTLETS);
     }
   };
 
@@ -316,9 +514,103 @@ const UserManagement = () => {
   };
 
   const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      const outletNames = getOutletNames(user);
+    const toSlug = (value = "") =>
+      String(value)
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    const getOutletLabel = (outlet) =>
+      outlet?.outlet_name || outlet?.name || outlet?.outlet_code || "";
+
+    const getOutletById = (outletId) => {
+      const selectedValue = String(outletId || "").toLowerCase();
+
+      return (
+        outlets.find((outlet) => {
+          const label = getOutletLabel(outlet);
+
+          return (
+            String(outlet.id) === String(outletId) ||
+            String(outlet.outlet_id || "") === String(outletId) ||
+            String(outlet.outlet_code || "").toLowerCase() === selectedValue ||
+            toSlug(label) === selectedValue
+          );
+        }) || null
+      );
+    };
+
+    const getTargetOutletName = (outletId, outlet) => {
+      const label = getOutletLabel(outlet);
+      if (label) return label;
+
+      if (!outletId || String(outletId) === "all") return "";
+
+      return String(outletId).replace(/-/g, " ");
+    };
+
+    const matchesOutlet = (user, targetOutletId, targetOutletName = "") => {
+      if (!targetOutletId || String(targetOutletId) === "all") return true;
+
       const userOutletIds = getOutletIds(user);
+      const targetId = Number(targetOutletId);
+      const targetName = String(targetOutletName || "").toLowerCase().trim();
+      const directOutletNames = getDirectOutletNames(user).toLowerCase();
+
+      const rawOutletText = [
+        user?.outlet_name,
+        user?.outlet_names,
+        user?.assigned_outlets,
+        user?.mapped_outlets,
+        user?.outlets,
+      ]
+        .map((value) => {
+          if (!value) return "";
+
+          if (Array.isArray(value)) {
+            return value
+              .map((item) => {
+                if (typeof item === "object") {
+                  return (
+                    item?.outlet_name ||
+                    item?.name ||
+                    item?.label ||
+                    item?.outlet_code ||
+                    ""
+                  );
+                }
+
+                return String(item);
+              })
+              .join(" ");
+          }
+
+          if (typeof value === "object") {
+            return (
+              value?.outlet_name ||
+              value?.name ||
+              value?.label ||
+              value?.outlet_code ||
+              ""
+            );
+          }
+
+          return String(value);
+        })
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        userOutletIds.includes(targetId) ||
+        String(user?.outlet_id || "") === String(targetOutletId) ||
+        (!!targetName && directOutletNames.includes(targetName)) ||
+        (!!targetName && rawOutletText.includes(targetName))
+      );
+    };
+
+    return users.filter((user) => {
+      const outletNames = getOutletNames(user, outlets);
 
       const text = `${user.full_name || ""} ${user.email || ""} ${
         user.phone || ""
@@ -336,32 +628,51 @@ const UserManagement = () => {
         String(Number(user.is_active) === 1 ? "active" : "inactive") ===
           String(statusFilter);
 
-      const outletMatch =
-        outletFilter === "all" ||
-        userOutletIds.includes(Number(outletFilter)) ||
-        String(outletNames).toLowerCase().includes(
-          String(
-            outlets.find((outlet) => String(outlet.id) === String(outletFilter))
-              ?.outlet_name || ""
-          ).toLowerCase()
-        );
+      const selectedOutletFromTopbar = getOutletById(selectedTopbarOutletId);
+      const selectedOutletFromFilter = getOutletById(outletFilter);
 
-      return searchMatch && roleMatch && statusMatch && outletMatch;
+      const topbarOutletMatch = matchesOutlet(
+        user,
+        selectedTopbarOutletId,
+        getTargetOutletName(selectedTopbarOutletId, selectedOutletFromTopbar)
+      );
+
+      const pageOutletMatch = matchesOutlet(
+        user,
+        outletFilter,
+        getTargetOutletName(outletFilter, selectedOutletFromFilter)
+      );
+
+      return searchMatch && roleMatch && statusMatch && topbarOutletMatch && pageOutletMatch;
     });
-  }, [users, searchTerm, roleFilter, statusFilter, outletFilter, outlets]);
+  }, [
+    users,
+    searchTerm,
+    roleFilter,
+    statusFilter,
+    outletFilter,
+    outlets,
+    selectedTopbarOutletId,
+  ]);
 
   const summary = useMemo(() => {
-    const activeUsers = users.filter((user) => Number(user.is_active) === 1).length;
-    const inactiveUsers = users.filter((user) => Number(user.is_active) !== 1).length;
-    const assignedUsers = users.filter((user) => getOutletIds(user).length > 0).length;
+    const activeUsers = filteredUsers.filter(
+      (user) => Number(user.is_active) === 1
+    ).length;
+    const inactiveUsers = filteredUsers.filter(
+      (user) => Number(user.is_active) !== 1
+    ).length;
+    const assignedUsers = filteredUsers.filter((user) =>
+      getOutletNames(user, outlets)
+    ).length;
 
     return {
-      totalUsers: users.length,
+      totalUsers: filteredUsers.length,
       activeUsers,
       inactiveUsers,
       assignedUsers,
     };
-  }, [users]);
+  }, [filteredUsers, outlets]);
 
   const selectedOutletIds = selectedUser ? getOutletIds(selectedUser) : [];
 
@@ -372,7 +683,7 @@ const UserManagement = () => {
       return outlets.filter((outlet) => selectedOutletIds.includes(Number(outlet.id)));
     }
 
-    return [];
+    return outlets;
   }, [selectedUser, selectedOutletIds, outlets]);
 
   const handleExport = () => {
@@ -392,7 +703,7 @@ const UserManagement = () => {
       user.email || "",
       user.phone || "",
       user.role_name || "",
-      getOutletNames(user) || "All Outlets",
+      getOutletNames(user, outlets),
       Number(user.is_active) === 1 ? "Active" : "Inactive",
       formatDate(user.last_login),
       formatDate(user.created_at),
@@ -711,7 +1022,7 @@ const UserManagement = () => {
                     Assign Outlets
                   </label>
                   <p className={`mt-1 text-[13px] ${mutedClass}`}>
-                    Leave empty for all outlet access.
+                    Leave empty to map every outlet.
                   </p>
                 </div>
 
@@ -722,7 +1033,7 @@ const UserManagement = () => {
                     backgroundColor: `${primaryColor}18`,
                   }}
                 >
-                  {formData.outlet_ids.length} Selected
+                  {formData.outlet_ids.length || outlets.length} Mapped
                 </span>
               </div>
 
@@ -745,7 +1056,7 @@ const UserManagement = () => {
                         onChange={() => handleOutletToggle(outlet.id)}
                         className="h-4 w-4 accent-[#7367F0]"
                       />
-                      <span className="truncate">{outlet.outlet_name}</span>
+                      <span className="truncate">{outlet.outlet_name || outlet.name || outlet.outlet_code}</span>
                     </label>
                   );
                 })}
@@ -825,7 +1136,7 @@ const UserManagement = () => {
                   </div>
                   <div>
                     <p className="text-[20px] font-semibold text-[#2F2B3D]">
-                      {selectedOutletIds.length || "All"}
+                      {selectedOutletIds.length || outlets.length || 0}
                     </p>
                     <p className="text-[13px] text-[#6F6B7D]">Outlets</p>
                   </div>
@@ -987,7 +1298,7 @@ const UserManagement = () => {
                         <div>
                           <p className="text-[13px] text-[#6F6B7D]">Outlet Access</p>
                           <p className="text-[15px] font-semibold text-[#2F2B3D]">
-                            {getOutletNames(selectedUser) || "All Outlets"}
+                            {getOutletNames(selectedUser, outlets)}
                           </p>
                         </div>
                       </div>
@@ -1080,10 +1391,10 @@ const UserManagement = () => {
                       </thead>
 
                       <tbody>
-                        {selectedOutletIds.length === 0 ? (
+                        {selectedOutletList.length === 0 ? (
                           <tr>
                             <td colSpan="4" className="px-4 py-8 text-center text-[14px] text-[#6F6B7D]">
-                              This user has access to all outlets.
+                              No outlets found.
                             </td>
                           </tr>
                         ) : (
@@ -1099,7 +1410,7 @@ const UserManagement = () => {
                                   </div>
                                   <div>
                                     <p className="text-[14px] font-semibold text-[#2F2B3D]">
-                                      {outlet.outlet_name}
+                                      {outlet.outlet_name || outlet.name || "-"}
                                     </p>
                                     <p className="text-[12px] text-[#A8AAAE]">
                                       {outlet.outlet_code || `OUT-${outlet.id}`}
@@ -1179,7 +1490,7 @@ const UserManagement = () => {
               <option value="all">Select Outlet</option>
               {outlets.map((outlet) => (
                 <option key={outlet.id} value={outlet.id}>
-                  {outlet.outlet_name}
+                  {outlet.outlet_name || outlet.name || outlet.outlet_code}
                 </option>
               ))}
             </select>
@@ -1328,7 +1639,7 @@ const UserManagement = () => {
 
                     <td className="px-6 py-4">
                       <span className="text-[14px] text-[#6F6B7D]">
-                        {getOutletNames(user) || "All Outlets"}
+                        {getOutletNames(user, outlets)}
                       </span>
                     </td>
 
