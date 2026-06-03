@@ -513,6 +513,50 @@ const UserManagement = () => {
     }
   };
 
+  const selectedTopbarOutlet = useMemo(() => {
+    if (String(selectedTopbarOutletId) === "all") return null;
+
+    const selectedValue = String(selectedTopbarOutletId || "").toLowerCase();
+
+    const toSlug = (value = "") =>
+      String(value)
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    return (
+      outlets.find((outlet) => {
+        const label =
+          outlet?.outlet_name || outlet?.name || outlet?.outlet_code || "";
+
+        return (
+          String(outlet.id) === String(selectedTopbarOutletId) ||
+          String(outlet.outlet_id || "") === String(selectedTopbarOutletId) ||
+          String(outlet.outlet_code || "").toLowerCase() === selectedValue ||
+          toSlug(label) === selectedValue
+        );
+      }) || null
+    );
+  }, [outlets, selectedTopbarOutletId]);
+
+  const outletFilterOptions = useMemo(() => {
+    if (String(selectedTopbarOutletId) === "all") {
+      return outlets;
+    }
+
+    return selectedTopbarOutlet ? [selectedTopbarOutlet] : [];
+  }, [outlets, selectedTopbarOutlet, selectedTopbarOutletId]);
+
+  useEffect(() => {
+    if (String(selectedTopbarOutletId) === "all") {
+      setOutletFilter("all");
+      return;
+    }
+
+    setOutletFilter(String(selectedTopbarOutletId));
+  }, [selectedTopbarOutletId]);
+
   const filteredUsers = useMemo(() => {
     const toSlug = (value = "") =>
       String(value)
@@ -1483,12 +1527,24 @@ const UserManagement = () => {
             </select>
 
             <select
-              value={outletFilter}
+              value={
+                String(selectedTopbarOutletId) === "all"
+                  ? outletFilter
+                  : String(selectedTopbarOutletId)
+              }
               onChange={(event) => setOutletFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              disabled={String(selectedTopbarOutletId) !== "all"}
+              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass} ${
+                String(selectedTopbarOutletId) !== "all"
+                  ? "cursor-not-allowed opacity-75"
+                  : ""
+              }`}
             >
-              <option value="all">Select Outlet</option>
-              {outlets.map((outlet) => (
+              {String(selectedTopbarOutletId) === "all" && (
+                <option value="all">All Outlets</option>
+              )}
+
+              {outletFilterOptions.map((outlet) => (
                 <option key={outlet.id} value={outlet.id}>
                   {outlet.outlet_name || outlet.name || outlet.outlet_code}
                 </option>
