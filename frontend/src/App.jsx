@@ -17,19 +17,25 @@ import {
 } from "lucide-react";
 
 import useAuthStore from "./store/authStore";
+import { authAPI } from "./services/api";
 
 import Login from "./pages/Login";
 import DashboardLayout from "./layouts/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 
 import Outlets from "./pages/masters/Outlets";
+import MastersHub from "./pages/masters/MastersHub";
 import Categories from "./pages/masters/Categories";
 import Suppliers from "./pages/masters/Suppliers";
+import OutletVendors from "./pages/masters/OutletVendors";
+import VendorPurchases from "./pages/daily-accounts/VendorPurchases";
 import RawMaterials from "./pages/masters/RawMaterials";
 import MenuItems from "./pages/masters/MenuItems";
+import LocationManagement from "./pages/masters/LocationManagement";
 
 import DailyCashbook from "./pages/daily-accounts/DailyCashbook";
 import DailyCashExpenses from "./pages/daily-accounts/DailyCashExpenses";
+import BankDeposits from "./pages/daily-accounts/BankDeposits";
 import DayClosing from "./pages/daily-accounts/DayClosing";
 import DayClosingChecklist from "./pages/daily-accounts/DayClosingChecklist";
 
@@ -37,8 +43,12 @@ import OpeningStockUpload from "./pages/stock/OpeningStockUpload";
 import ClosingStockUpload from "./pages/stock/ClosingStockUpload";
 
 import MaterialPurchaseUpload from "./pages/purchases/MaterialPurchaseUpload";
+import SupplierPayments from "./pages/purchases/SupplierPayments";
 
 import ItemSalesUpload from "./pages/sales/ItemSalesUpload";
+import DailySalesUpload from "./pages/sales/DailySalesUpload";
+import MonthlySalesUpload from "./pages/sales/MonthlySalesUpload";
+import ItemTaxUpload from "./pages/sales/ItemTaxUpload";
 
 import RecipeList from "./pages/recipe/RecipeList";
 import RecipeForm from "./pages/recipe/RecipeForm";
@@ -48,6 +58,14 @@ import DineInPayouts from "./pages/payouts/DineInPayouts";
 
 import MonthlyPLReport from "./pages/reports/MonthlyPLReport";
 import ActualConsumptionReport from "./pages/reports/ActualConsumptionReport";
+import TheoreticalConsumptionReport from "./pages/reports/TheoreticalConsumptionReport";
+import SupplierPendingReport from "./pages/reports/SupplierPendingReport";
+import PurchaseGSTReport from "./pages/reports/PurchaseGSTReport";
+import SalesGSTReport from "./pages/reports/SalesGSTReport";
+import GSTR1Report from "./pages/reports/GSTR1Report";
+import ReportsHub from "./pages/reports/ReportsHub";
+import ConsumptionVarianceReport from "./pages/reports/ConsumptionVarianceReport";
+import OutletComparisonReport from "./pages/reports/OutletComparisonReport";
 import DailyCashbookReport from "./pages/reports/DailyCashbookReport";
 import ExpenseReport from "./pages/reports/ExpenseReport";
 
@@ -55,6 +73,11 @@ import UserManagement from "./pages/users/UserManagement";
 import RoleAccess from "./pages/users/RoleAccess";
 
 import EmployeeSalary from "./pages/payroll/EmployeeSalary";
+import UtilityBills from "./pages/month-end/UtilityBills";
+import FixedCostsEntry from "./pages/settings/FixedCostsEntry";
+import Warehouse from "./pages/warehouse/Warehouse";
+import CentralKitchen from "./pages/central-kitchen/CentralKitchen";
+import ReceiveDispatch from "./pages/central-kitchen/ReceiveDispatch";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -170,6 +193,19 @@ function ProtectedAccessFallback() {
 }
 
 function App() {
+  useEffect(() => {
+    const token = useAuthStore.getState().token;
+    if (!token) return;
+
+    authAPI.me().catch((error) => {
+      const status = error.response?.status;
+      if (status === 401 || status === 404) {
+        useAuthStore.getState().logout();
+        window.location.href = "/login";
+      }
+    });
+  }, []);
+
   return (
     <Router>
       <ScrollToTop />
@@ -225,12 +261,14 @@ function App() {
           <Route path="role-access" element={<RoleAccess />} />
 
           <Route path="masters">
-            <Route index element={<Navigate to="/masters/outlets" replace />} />
+            <Route index element={<MastersHub />} />
             <Route path="outlets" element={<Outlets />} />
             <Route path="categories" element={<Categories />} />
             <Route path="suppliers" element={<Suppliers />} />
+            <Route path="outlet-vendors" element={<OutletVendors />} />
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="menu-items" element={<MenuItems />} />
+            <Route path="locations" element={<LocationManagement />} />
           </Route>
 
           <Route path="daily-accounts">
@@ -240,8 +278,10 @@ function App() {
             />
             <Route path="cashbook" element={<DailyCashbook />} />
             <Route path="expenses" element={<DailyCashExpenses />} />
+            <Route path="bank-deposits" element={<BankDeposits />} />
             <Route path="day-closing" element={<DayClosing />} />
             <Route path="checklist" element={<DayClosingChecklist />} />
+            <Route path="vendor-purchases" element={<VendorPurchases />} />
           </Route>
 
           <Route path="payroll">
@@ -250,6 +290,15 @@ function App() {
               element={<Navigate to="/payroll/employee-salary" replace />}
             />
             <Route path="employee-salary" element={<EmployeeSalary />} />
+          </Route>
+
+          <Route path="month-end">
+            <Route
+              index
+              element={<Navigate to="/month-end/utility-bills" replace />}
+            />
+            <Route path="utility-bills" element={<UtilityBills />} />
+            <Route path="fixed-costs" element={<FixedCostsEntry />} />
           </Route>
 
           <Route path="stock">
@@ -270,11 +319,15 @@ function App() {
               path="material-purchase"
               element={<MaterialPurchaseUpload />}
             />
+            <Route path="supplier-payments" element={<SupplierPayments />} />
           </Route>
 
           <Route path="sales">
             <Route index element={<Navigate to="/sales/item-sales" replace />} />
             <Route path="item-sales" element={<ItemSalesUpload />} />
+            <Route path="daily-upload" element={<DailySalesUpload />} />
+            <Route path="monthly-upload" element={<MonthlySalesUpload />} />
+            <Route path="item-tax-upload" element={<ItemTaxUpload />} />
           </Route>
 
           <Route path="recipes">
@@ -292,7 +345,7 @@ function App() {
           <Route path="reports">
             <Route
               index
-              element={<Navigate to="/reports/monthly-pl" replace />}
+              element={<ReportsHub />}
             />
             <Route path="monthly-pl" element={<MonthlyPLReport />} />
             <Route
@@ -304,7 +357,39 @@ function App() {
               element={<DailyCashbookReport />}
             />
             <Route path="expense-report" element={<ExpenseReport />} />
+            <Route
+              path="theoretical-consumption"
+              element={<TheoreticalConsumptionReport />}
+            />
+            <Route
+              path="supplier-pending"
+              element={<SupplierPendingReport />}
+            />
+            <Route
+              path="purchase-gst"
+              element={<PurchaseGSTReport />}
+            />
+            <Route
+              path="sales-gst"
+              element={<SalesGSTReport />}
+            />
+            <Route
+              path="gstr1"
+              element={<GSTR1Report />}
+            />
+            <Route
+              path="consumption-variance"
+              element={<ConsumptionVarianceReport />}
+            />
+            <Route
+              path="outlet-comparison"
+              element={<OutletComparisonReport />}
+            />
           </Route>
+
+          <Route path="warehouse/:tab?" element={<Warehouse />} />
+          <Route path="central-kitchen/:tab?" element={<CentralKitchen />} />
+          <Route path="central-kitchen-receive" element={<ReceiveDispatch />} />
 
           <Route path="*" element={<NotFound />} />
         </Route>

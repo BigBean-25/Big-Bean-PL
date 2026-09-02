@@ -4,10 +4,12 @@
 -- Date: May 29, 2026
 -- =====================================================
 
--- Drop and recreate database
-DROP DATABASE IF EXISTS bigbean_cafe;
-CREATE DATABASE bigbean_cafe CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE bigbean_cafe;
+-- Create database if it does not yet exist
+CREATE DATABASE IF NOT EXISTS `bigbeancafe_db`
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE `bigbeancafe_db`;
 
 -- =====================================================
 -- SECTION 1: ROLES AND USERS
@@ -121,6 +123,10 @@ CREATE TABLE raw_materials (
   min_stock_qty DECIMAL(10,3) DEFAULT 0,
   max_stock_qty DECIMAL(10,3) DEFAULT 0,
   reorder_level DECIMAL(10,3) DEFAULT 0,
+  description TEXT,
+  item_type ENUM('Raw Material','Packaging','Consumable','Asset','Other') NOT NULL DEFAULT 'Raw Material',
+  hsn_code VARCHAR(20),
+  gst_rate DECIMAL(5,2),
   is_active TINYINT(1) DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -136,6 +142,9 @@ CREATE TABLE menu_items (
   item_name VARCHAR(150) NOT NULL,
   category_id INT,
   selling_price DECIMAL(10,2) DEFAULT 0,
+  description TEXT,
+  hsn_code VARCHAR(20),
+  gst_rate DECIMAL(5,2),
   is_active TINYINT(1) DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -456,6 +465,8 @@ CREATE TABLE material_purchase_items (
   tax DECIMAL(10,2) DEFAULT 0,
   total_amount DECIMAL(12,2) NOT NULL,
   invoice_no VARCHAR(100),
+  paid_by ENUM('Outlet','Management') NOT NULL DEFAULT 'Outlet',
+  payment_mode VARCHAR(30),
   remarks TEXT,
   original_row JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

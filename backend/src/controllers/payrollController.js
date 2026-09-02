@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { logAudit, logApproval } from '../utils/logger.js';
+import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
 export const getEmployeeSalaries = async (req, res) => {
   try {
@@ -54,10 +55,38 @@ export const getEmployeeSalaries = async (req, res) => {
   }
 };
 
+const SALARY_NUMERIC_FIELDS = ['total_employee_salary', 'incentive_bonus', 'staff_accommodation', 'other_staff_cost'];
+
+const validateSalaryPayload = (body) => {
+  const month = Number(body.month);
+  const year = Number(body.year);
+  if (!month || month < 1 || month > 12) return 'A valid month (1-12) is required';
+  if (!year || year < 2000 || year > 2100) return 'A valid year is required';
+  if (!body.outlet_id) return 'Outlet is required';
+  for (const field of SALARY_NUMERIC_FIELDS) {
+    if (body[field] !== undefined && body[field] !== null && body[field] !== '' && Number(body[field]) < 0) {
+      return `${field.replace(/_/g, ' ')} cannot be negative`;
+    }
+  }
+  return null;
+};
+
 export const createEmployeeSalary = async (req, res) => {
   try {
+    const validationError = validateSalaryPayload(req.body);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
     const salaryData = {
-      ...req.body,
+      month: Number(req.body.month),
+      year: Number(req.body.year),
+      outlet_id: req.body.outlet_id,
+      total_employee_salary: req.body.total_employee_salary ?? 0,
+      incentive_bonus: req.body.incentive_bonus ?? 0,
+      staff_accommodation: req.body.staff_accommodation ?? 0,
+      other_staff_cost: req.body.other_staff_cost ?? 0,
+      remarks: req.body.remarks || null,
       created_by: req.user.id,
       status: 'Draft'
     };
@@ -85,6 +114,17 @@ export const createEmployeeSalary = async (req, res) => {
     );
 
     await logAudit(req.user.id, 'CREATE', 'employee_salary_monthly', result.insertId, null, salaryData, 'Created employee salary record');
+
+    await notifyAdmins({
+      actorId: req.user.id,
+      outletId: salaryData.outlet_id,
+      type: 'info',
+      title: 'Salary Record Submitted',
+      message: `Employee salary record for ${salaryData.month}/${salaryData.year} has been submitted.`,
+      referenceType: 'salary',
+      referenceId: result.insertId,
+      navPath: '/payroll/employee-salary'
+    });
 
     res.status(201).json({
       success: true,
@@ -120,8 +160,23 @@ export const updateEmployeeSalary = async (req, res) => {
       });
     }
 
-    const fields = Object.keys(req.body);
-    const values = Object.values(req.body);
+    const validationError = validateSalaryPayload({ ...existing[0], ...req.body });
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
+    const editableData = {
+      month: req.body.month !== undefined ? Number(req.body.month) : undefined,
+      year: req.body.year !== undefined ? Number(req.body.year) : undefined,
+      outlet_id: req.body.outlet_id,
+      total_employee_salary: req.body.total_employee_salary,
+      incentive_bonus: req.body.incentive_bonus,
+      staff_accommodation: req.body.staff_accommodation,
+      other_staff_cost: req.body.other_staff_cost,
+      remarks: req.body.remarks,
+    };
+    const fields = Object.keys(editableData).filter((f) => editableData[f] !== undefined);
+    const values = fields.map((f) => editableData[f]);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 
     await query(
@@ -199,6 +254,13 @@ export const verifyEmployeeSalary = async (req, res) => {
     if (Number(existing[0].created_by) === Number(req.user.id)) {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own salary record' });
     }
+    const requiredFromStatus = action === 'Submitted' ? 'Draft' : 'Submitted';
+    if (existing[0].status !== requiredFromStatus) {
+      return res.status(400).json({
+        success: false,
+        message: `Salary record must be ${requiredFromStatus} before it can be marked ${action}`
+      });
+    }
 
     await query(
       `UPDATE employee_salary_monthly SET status = ?, verified_by = ?, verified_at = NOW() WHERE id = ?`,
@@ -206,6 +268,17 @@ export const verifyEmployeeSalary = async (req, res) => {
     );
 
     await logApproval(req.user.id, 'employee_salary_monthly', id, action, null);
+
+    await notifyUser({
+      userId: existing[0].created_by,
+      outletId: existing[0].outlet_id,
+      type: action === 'Verified' ? 'success' : 'info',
+      title: `Salary Record ${action}`,
+      message: `Employee salary record for ${existing[0].month}/${existing[0].year} has been ${action.toLowerCase()}.`,
+      referenceType: 'salary',
+      referenceId: id,
+      navPath: '/payroll/employee-salary'
+    });
 
     res.status(200).json({
       success: true,

@@ -21,6 +21,8 @@ import {
   MoreVertical,
 } from "lucide-react";
 import { userAPI, roleAPI, masterAPI } from "../../services/api";
+import { displayLabel } from "../../utils/displayLabels";
+import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
 
 const DEFAULT_OUTLETS = [
@@ -282,6 +284,8 @@ const emptyForm = () => ({
 });
 
 const UserManagement = () => {
+  const currentUser = useAuthStore((state) => state.user);
+
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [outlets, setOutlets] = useState(DEFAULT_OUTLETS);
@@ -290,12 +294,14 @@ const UserManagement = () => {
   const [editingUser, setEditingUser] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [historyUser, setHistoryUser] = useState(null);
 
   const [formData, setFormData] = useState(emptyForm);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -436,24 +442,64 @@ const UserManagement = () => {
     setShowForm(false);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
+  const handleDelete = async (id, user) => {
+    if (Number(id) === Number(currentUser?.id)) return;
+    if (!window.confirm("Permanently delete this user?\nThis action cannot be undone.")) return;
 
     setDeletingId(id);
 
     try {
       await userAPI.deleteUser(id);
-      toast.success("User deleted successfully");
+      toast.success("User deleted permanently");
 
-      if (selectedUser?.id === id) {
+      setUsers((prev) => prev.filter((u) => Number(u.id) !== Number(id)));
+
+      if (selectedUser && Number(selectedUser.id) === Number(id)) {
         setSelectedUser(null);
+      }
+
+      if (editingUser && Number(editingUser.id) === Number(id)) {
+        setEditingUser(null);
+        setShowForm(false);
       }
 
       await fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Delete failed");
+      if (error.response?.status === 409 && error.response?.data?.code === "USER_HAS_HISTORY") {
+        setHistoryUser(user || users.find((u) => Number(u.id) === Number(id)));
+      } else {
+        toast.error(error.response?.data?.message || "Delete failed");
+      }
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleToggleStatus = async (user, next) => {
+    if (Number(user.id) === Number(currentUser?.id)) return;
+    const nextActive = next === 1 || next === true;
+    const action = nextActive ? "Activate" : "Deactivate";
+    const message = nextActive
+      ? "Activate this user?\nThey will be able to log in again."
+      : "Deactivate this user?\nThey will no longer be able to log in, but their historical data will remain.";
+    if (!window.confirm(message)) return;
+
+    setTogglingId(user.id);
+    try {
+      await userAPI.toggleUserStatus(user.id, { is_active: nextActive ? 1 : 0 });
+      toast.success(`User ${nextActive ? "activated" : "deactivated"} successfully`);
+      const patch = { is_active: nextActive ? 1 : 0 };
+      setUsers((prev) =>
+        prev.map((u) => (Number(u.id) === Number(user.id) ? { ...u, ...patch } : u))
+      );
+      if (selectedUser && Number(selectedUser.id) === Number(user.id)) {
+        setSelectedUser((prev) => (prev ? { ...prev, ...patch } : null));
+      }
+      await fetchUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Update failed");
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -797,7 +843,7 @@ const UserManagement = () => {
       }}
     >
       <Shield size={14} />
-      {role || "User"}
+      {displayLabel(role) || "User"}
     </span>
   );
 
@@ -1033,7 +1079,7 @@ const UserManagement = () => {
                   <option value="">Select Role</option>
                   {roles.map((role) => (
                     <option key={role.id} value={role.id}>
-                      {role.role_name}
+                      {displayLabel(role.role_name)}
                     </option>
                   ))}
                 </select>
@@ -1211,7 +1257,7 @@ const UserManagement = () => {
                 <DetailItem label="Username:" value={selectedUser.full_name} />
                 <DetailItem label="Email:" value={selectedUser.email} />
                 <DetailItem label="Status:" value={Number(selectedUser.is_active) === 1 ? "Active" : "Inactive"} />
-                <DetailItem label="Role:" value={selectedUser.role_name} />
+                <DetailItem label="Role:" value={displayLabel(selectedUser.role_name)} />
                 <DetailItem label="User ID:" value={selectedUser.id ? `USR-${selectedUser.id}` : "-"} />
                 <DetailItem label="Contact:" value={selectedUser.phone || "-"} />
                 <DetailItem label="Language:" value="English" />
@@ -1230,11 +1276,47 @@ const UserManagement = () => {
 
                 <button
                   type="button"
-                  onClick={() => handleDelete(selectedUser.id)}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 py-2.5 text-[15px] font-semibold text-[#EA5455]"
+                  onClick={() =>
+                    selectedUser.is_active === 1 || selectedUser.is_active === true
+                      ? handleToggleStatus(selectedUser, 0)
+                      : handleToggleStatus(selectedUser, 1)
+                  }
+                  disabled={Number(selectedUser.id) === Number(currentUser?.id) || togglingId === selectedUser.id}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[#EEF9FC] px-4 py-2.5 text-[15px] font-semibold text-[#00A6B7] disabled:opacity-50"
+                  title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot change your own status" : (selectedUser.is_active === 1 || selectedUser.is_active === true ? "Deactivate" : "Activate")}
                 >
-                  <Trash2 size={17} />
-                  Delete
+                  {togglingId === selectedUser.id ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : (
+                    <>
+                      {selectedUser.is_active === 1 || selectedUser.is_active === true ? (
+                        <>
+                          <X size={17} /> Deactivate
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={17} /> Activate
+                        </>
+                      )}
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDelete(selectedUser.id, selectedUser)}
+                  disabled={Number(selectedUser.id) === Number(currentUser?.id) || deletingId === selectedUser.id}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 py-2.5 text-[15px] font-semibold text-[#EA5455] disabled:opacity-50"
+                  title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                >
+                  {deletingId === selectedUser.id ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 size={17} />
+                      Delete
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -1328,7 +1410,7 @@ const UserManagement = () => {
                         <div>
                           <p className="text-[13px] text-[#6F6B7D]">Role</p>
                           <p className="text-[15px] font-semibold text-[#2F2B3D]">
-                            {selectedUser.role_name || "-"}
+                            {displayLabel(selectedUser.role_name) || "-"}
                           </p>
                         </div>
                       </div>
@@ -1521,7 +1603,7 @@ const UserManagement = () => {
               <option value="all">Select Role</option>
               {roles.map((role) => (
                 <option key={role.id} value={role.id}>
-                  {role.role_name}
+                  {displayLabel(role.role_name)}
                 </option>
               ))}
             </select>
@@ -1637,8 +1719,70 @@ const UserManagement = () => {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] border-collapse">
+          <div>
+            <div className={`block md:hidden divide-y ${isDark ? "divide-[#3B405A]" : "divide-[#EBE9F1]"}`}>
+              {filteredUsers.map((user) => (
+                <div key={user.id} className="space-y-3 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <UserAvatar user={user} size="sm" />
+                      <div className="min-w-0">
+                        <p className={`truncate text-[15px] font-semibold ${mainTextClass}`}>{user.full_name || "-"}</p>
+                        <p className={`truncate text-[13px] ${mutedClass}`}>{user.email || "-"}</p>
+                      </div>
+                    </div>
+                    <StatusBadge active={user.is_active} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <RoleBadge role={user.role_name} />
+                  </div>
+                  <div className={`space-y-1 text-[13px] ${mutedClass}`}>
+                    <p><span className={`font-medium ${mainTextClass}`}>Outlets:</span> {getOutletNames(user, outlets)}</p>
+                    {user.phone && <p><span className={`font-medium ${mainTextClass}`}>Phone:</span> {user.phone}</p>}
+                    <p className="text-[12px]">Last login: {formatDate(user.last_login)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
+                      disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
+                    >
+                      {togglingId === user.id ? <Loader2 size={16} className="animate-spin" /> : user.is_active === 1 || user.is_active === true ? <X size={16} /> : <CheckCircle size={16} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(user.id, user)}
+                      disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                    >
+                      {deletingId === user.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleView(user)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#7367F0] hover:text-[#7367F0] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title="View Details"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(user)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title="Edit"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full min-w-[1100px] border-collapse">
               <thead>
                 <tr className="border-b border-[#EBE9F1]">
                   <th className="px-6 py-4 text-left">
@@ -1716,10 +1860,26 @@ const UserManagement = () => {
                       <div className="flex items-center gap-3 text-[#6F6B7D]">
                         <button
                           type="button"
-                          onClick={() => handleDelete(user.id)}
-                          disabled={deletingId === user.id}
+                          onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
+                          disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                          className="transition hover:text-[#00A6B7] disabled:opacity-50"
+                          title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
+                        >
+                          {togglingId === user.id ? (
+                            <Loader2 size={20} className="animate-spin" />
+                          ) : user.is_active === 1 || user.is_active === true ? (
+                            <X size={20} />
+                          ) : (
+                            <CheckCircle size={20} />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(user.id, user)}
+                          disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
                           className="transition hover:text-[#EA5455] disabled:opacity-50"
-                          title="Delete"
+                          title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
                         >
                           {deletingId === user.id ? (
                             <Loader2 size={20} className="animate-spin" />
@@ -1755,9 +1915,50 @@ const UserManagement = () => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>
+
+      {historyUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Cannot Delete User</h2>
+              <button
+                type="button"
+                onClick={() => setHistoryUser(null)}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This user has historical records and cannot be permanently deleted. You can deactivate this account instead.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setHistoryUser(null)}
+                className="h-11 flex-1 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const user = historyUser;
+                  setHistoryUser(null);
+                  handleToggleStatus(user, 0);
+                }}
+                className="h-11 flex-1 rounded-xl bg-[#00A6B7] text-sm font-bold text-white hover:bg-[#008c9a]"
+              >
+                Deactivate User
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,0 +1,1233 @@
+{
+  "tables": {
+    "item_sales_uploads": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "batch_id",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "file_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "file_path",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_rows",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "success_rows",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "failed_rows",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "status",
+          "DATA_TYPE": "enum",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "Pending",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "uploaded_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "batch_id",
+          "CONSTRAINT_NAME": "batch_id",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "item_sales_uploads_ibfk_1",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "uploaded_by",
+          "CONSTRAINT_NAME": "item_sales_uploads_ibfk_2",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "item_sales_items": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "upload_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "date",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "category_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "category_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "menu_item_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "item_code",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "item_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "qty_sold",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "gross_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "discount",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "tax",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "net_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "payment_mode",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "order_type",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "platform",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "remarks",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "original_row",
+          "DATA_TYPE": "longtext",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "upload_id",
+          "CONSTRAINT_NAME": "item_sales_items_ibfk_1",
+          "REFERENCED_TABLE_NAME": "item_sales_uploads",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "item_sales_items_ibfk_2",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "category_id",
+          "CONSTRAINT_NAME": "item_sales_items_ibfk_3",
+          "REFERENCED_TABLE_NAME": "categories",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "menu_item_id",
+          "CONSTRAINT_NAME": "item_sales_items_ibfk_4",
+          "REFERENCED_TABLE_NAME": "menu_items",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "menu_items": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "item_code",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "item_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "category_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "selling_price",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "is_active",
+          "DATA_TYPE": "tinyint",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "1",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        },
+        {
+          "COLUMN_NAME": "updated_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "item_code",
+          "CONSTRAINT_NAME": "item_code",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "category_id",
+          "CONSTRAINT_NAME": "menu_items_ibfk_1",
+          "REFERENCED_TABLE_NAME": "categories",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "recipe_items": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "recipe_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "raw_material_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "qty_per_item",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "unit_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "waste_percentage",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "extra_cost",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "remarks",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "recipe_id",
+          "CONSTRAINT_NAME": "recipe_items_ibfk_1",
+          "REFERENCED_TABLE_NAME": "recipes",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "raw_material_id",
+          "CONSTRAINT_NAME": "recipe_items_ibfk_2",
+          "REFERENCED_TABLE_NAME": "raw_materials",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "unit_id",
+          "CONSTRAINT_NAME": "recipe_items_ibfk_3",
+          "REFERENCED_TABLE_NAME": "units",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "recipes": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "menu_item_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "recipe_category",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "for_outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "portion",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "prep_time",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "cooking_time",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "finishing_time",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "status",
+          "DATA_TYPE": "enum",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "Active",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "version_no",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "1",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "effective_from",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "approved_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        },
+        {
+          "COLUMN_NAME": "updated_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "menu_item_id",
+          "CONSTRAINT_NAME": "recipes_ibfk_1",
+          "REFERENCED_TABLE_NAME": "menu_items",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "for_outlet_id",
+          "CONSTRAINT_NAME": "recipes_ibfk_2",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "approved_by",
+          "CONSTRAINT_NAME": "recipes_ibfk_3",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "created_by",
+          "CONSTRAINT_NAME": "recipes_ibfk_4",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "upload_error_logs": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "upload_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "upload_type",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "row_number",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "error_message",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "row_data",
+          "DATA_TYPE": "longtext",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        }
+      ]
+    },
+    "petpooja_sales_uploads": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "batch_number",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "upload_date",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "upload_date_from",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "upload_date_to",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "file_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "file_path",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_items",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "gross_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_discount",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "net_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_tax",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "final_collection",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "status",
+          "DATA_TYPE": "enum",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "Pending",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "uploaded_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "approved_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "approved_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "rejection_reason",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        },
+        {
+          "COLUMN_NAME": "updated_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "batch_number",
+          "CONSTRAINT_NAME": "batch_number",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "petpooja_sales_uploads_ibfk_1",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "uploaded_by",
+          "CONSTRAINT_NAME": "petpooja_sales_uploads_ibfk_2",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "approved_by",
+          "CONSTRAINT_NAME": "petpooja_sales_uploads_ibfk_3",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "petpooja_sales_items": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "upload_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "category",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "item_name",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "sap_code",
+          "DATA_TYPE": "varchar",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "quantity",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "net_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "discount",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_tax",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "gross_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "upload_id",
+          "CONSTRAINT_NAME": "petpooja_sales_items_ibfk_1",
+          "REFERENCED_TABLE_NAME": "petpooja_sales_uploads",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "petpooja_sales_items_ibfk_2",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    },
+    "daily_cashbooks": {
+      "columns": [
+        {
+          "COLUMN_NAME": "id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "auto_increment"
+        },
+        {
+          "COLUMN_NAME": "date",
+          "DATA_TYPE": "date",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "opening_cash",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "cash_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "card_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "upi_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "zomato_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "swiggy_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "own_app_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "ownly_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "swiggy_dineout_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "zomato_dining_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "district_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "eazydiner_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "other_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "total_sales",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "STORED GENERATED"
+        },
+        {
+          "COLUMN_NAME": "cash_expenses",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "bank_deposit",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "cash_transfer_to_ho",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "closing_cash",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "STORED GENERATED"
+        },
+        {
+          "COLUMN_NAME": "actual_cash_in_hand",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "0.00",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "cash_difference",
+          "DATA_TYPE": "decimal",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": "STORED GENERATED"
+        },
+        {
+          "COLUMN_NAME": "remarks",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "status",
+          "DATA_TYPE": "enum",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": "Draft",
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "entered_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "verified_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "verified_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "created_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED"
+        },
+        {
+          "COLUMN_NAME": "updated_at",
+          "DATA_TYPE": "timestamp",
+          "IS_NULLABLE": "NO",
+          "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+          "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+        },
+        {
+          "COLUMN_NAME": "locked_by",
+          "DATA_TYPE": "int",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "locked_at",
+          "DATA_TYPE": "datetime",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        },
+        {
+          "COLUMN_NAME": "lock_reason",
+          "DATA_TYPE": "text",
+          "IS_NULLABLE": "YES",
+          "COLUMN_DEFAULT": null,
+          "EXTRA": ""
+        }
+      ],
+      "keys": [
+        {
+          "COLUMN_NAME": "id",
+          "CONSTRAINT_NAME": "PRIMARY",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "date",
+          "CONSTRAINT_NAME": "unique_date_outlet",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "unique_date_outlet",
+          "REFERENCED_TABLE_NAME": null,
+          "REFERENCED_COLUMN_NAME": null
+        },
+        {
+          "COLUMN_NAME": "outlet_id",
+          "CONSTRAINT_NAME": "daily_cashbooks_ibfk_1",
+          "REFERENCED_TABLE_NAME": "outlets",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "entered_by",
+          "CONSTRAINT_NAME": "daily_cashbooks_ibfk_2",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        },
+        {
+          "COLUMN_NAME": "verified_by",
+          "CONSTRAINT_NAME": "daily_cashbooks_ibfk_3",
+          "REFERENCED_TABLE_NAME": "users",
+          "REFERENCED_COLUMN_NAME": "id"
+        }
+      ]
+    }
+  }
+}

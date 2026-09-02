@@ -1,3 +1,5 @@
+USE `bigbeancafe_db`;
+
 CREATE TABLE IF NOT EXISTS user_outlets (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
@@ -55,17 +57,18 @@ CREATE TABLE IF NOT EXISTS petpooja_item_sales (
   CONSTRAINT fk_pp_item_sales_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES users(id)
 );
 
+-- Note: stock_movements/outlet_stock are intentionally NOT altered here — neither
+-- table is created anywhere in the schema and neither is part of the required
+-- table list, so there is nothing to add outlet_id/status/lock columns to.
 ALTER TABLE daily_cashbooks ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE daily_cash_expenses ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE day_closings ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE opening_stock_uploads ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE closing_stock_uploads ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE material_purchase_uploads ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
-ALTER TABLE employee_salary ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
+ALTER TABLE employee_salary_monthly ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE online_payouts ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 ALTER TABLE dine_in_payouts ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
-ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
-ALTER TABLE outlet_stock ADD COLUMN IF NOT EXISTS outlet_id INT NULL;
 
 ALTER TABLE daily_cashbooks ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 ALTER TABLE daily_cash_expenses ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
@@ -73,7 +76,7 @@ ALTER TABLE day_closings ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted
 ALTER TABLE opening_stock_uploads ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 ALTER TABLE closing_stock_uploads ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 ALTER TABLE material_purchase_uploads ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
-ALTER TABLE employee_salary ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
+ALTER TABLE employee_salary_monthly ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 ALTER TABLE online_payouts ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 ALTER TABLE dine_in_payouts ADD COLUMN IF NOT EXISTS status ENUM('Draft','Submitted','Verified','Approved','Rejected','Locked') NOT NULL DEFAULT 'Draft';
 
@@ -83,7 +86,7 @@ ALTER TABLE day_closings ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN
 ALTER TABLE opening_stock_uploads ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
 ALTER TABLE closing_stock_uploads ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
 ALTER TABLE material_purchase_uploads ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
-ALTER TABLE employee_salary ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
+ALTER TABLE employee_salary_monthly ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
 ALTER TABLE online_payouts ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
 ALTER TABLE dine_in_payouts ADD COLUMN IF NOT EXISTS locked_by INT NULL, ADD COLUMN IF NOT EXISTS locked_at DATETIME NULL, ADD COLUMN IF NOT EXISTS lock_reason TEXT NULL;
 
@@ -93,8 +96,6 @@ CREATE INDEX idx_day_closings_outlet ON day_closings(outlet_id);
 CREATE INDEX idx_opening_stock_uploads_outlet ON opening_stock_uploads(outlet_id);
 CREATE INDEX idx_closing_stock_uploads_outlet ON closing_stock_uploads(outlet_id);
 CREATE INDEX idx_material_purchase_uploads_outlet ON material_purchase_uploads(outlet_id);
-CREATE INDEX idx_employee_salary_outlet ON employee_salary(outlet_id);
+CREATE INDEX idx_employee_salary_monthly_outlet ON employee_salary_monthly(outlet_id);
 CREATE INDEX idx_online_payouts_outlet ON online_payouts(outlet_id);
 CREATE INDEX idx_dine_in_payouts_outlet ON dine_in_payouts(outlet_id);
-CREATE INDEX idx_stock_movements_outlet ON stock_movements(outlet_id);
-CREATE INDEX idx_outlet_stock_outlet ON outlet_stock(outlet_id);

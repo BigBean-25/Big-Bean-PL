@@ -6,17 +6,20 @@ import {
   X,
   Eye,
   Search,
-  Download,
   Loader2,
   RefreshCw,
   Calendar,
   Wallet,
   CreditCard,
   FileText,
+  FileSpreadsheet,
   Store,
 } from "lucide-react";
-import { payoutAPI, masterAPI } from "../../services/api";
+import { payoutAPI, masterAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
+import exportToExcel from "../../utils/exportToExcel";
+import PayoutRejectModal from "../../components/PayoutRejectModal";
 
 const getRows = (response) => {
   const data = response?.data?.data || response?.data || [];
@@ -44,6 +47,29 @@ const monthName = (month) =>
   new Date(2000, Number(month || 1) - 1).toLocaleString("default", {
     month: "long",
   });
+
+const monthShortName = (month) =>
+  new Date(2000, Number(month || 1) - 1).toLocaleString("default", {
+    month: "short",
+  });
+
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return value;
+    const day = d.getDate();
+    const month = d.toLocaleString("default", { month: "short" });
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    return `${day} ${month} ${year} ${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+  } catch {
+    return value;
+  }
+};
 
 const getThemeMode = () => {
   try {
@@ -99,6 +125,13 @@ const OnlinePayouts = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [actioningId, setActioningId] = useState(null);
+  const [rejectModal, setRejectModal] = useState({
+    open: false,
+    payout: null,
+    loading: false,
+  });
+  const { user } = useAuthStore();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [outletFilter, setOutletFilter] = useState("all");
@@ -109,6 +142,12 @@ const OnlinePayouts = () => {
 
   const isDark = getThemeMode() === "dark";
   const primaryColor = getPrimaryColor();
+
+  const permissions = useMemo(
+    () => getStoredPermissions()?.online_payouts || {},
+    []
+  );
+  const can = (action) => Boolean(permissions[action]);
 
   const cardClass = isDark
     ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]"
@@ -325,6 +364,61 @@ const OnlinePayouts = () => {
     }
   };
 
+  const handleWorkflow = async (id, action) => {
+    if (action === "reject") {
+      const payout =
+        payouts.find((p) => p.id === id) ||
+        (selectedPayout?.id === id ? selectedPayout : null);
+      if (!payout) return;
+      setRejectModal({ open: true, payout, loading: false });
+      return;
+    }
+
+    let handler;
+    if (action === "submit") {
+      handler = payoutAPI.submitOnlinePayout;
+    } else if (action === "verify") {
+      handler = payoutAPI.verifyOnlinePayout;
+    } else {
+      return;
+    }
+    if (typeof handler !== "function") return;
+    setActioningId(id);
+    try {
+      await handler(id);
+      toast.success(`Online payout ${action}ed`);
+      await fetchPayouts();
+      if (selectedPayout?.id === id) {
+        const refreshed = (await payoutAPI.getOnlinePayouts()).data?.data?.find((p) => p.id === id);
+        setSelectedPayout(refreshed || null);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || `${action} failed`);
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleRejectConfirm = async (reason) => {
+    const id = rejectModal.payout?.id;
+    if (!id) return;
+
+    setRejectModal((prev) => ({ ...prev, loading: true }));
+    try {
+      await payoutAPI.rejectOnlinePayout(id, reason);
+      toast.success("Payout rejected successfully.");
+      setRejectModal({ open: false, payout: null, loading: false });
+      await fetchPayouts();
+      if (selectedPayout?.id === id) {
+        const refreshed = (await payoutAPI.getOnlinePayouts()).data?.data?.find((p) => p.id === id);
+        setSelectedPayout(refreshed || null);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Reject failed");
+      setRejectModal((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
@@ -356,15 +450,18 @@ const OnlinePayouts = () => {
         platform_id: formData.platform_id,
         month: Number(formData.month),
         year: Number(formData.year),
-        gross_sales: num(formData.gross_sales),
-        commission_percent: num(formData.commission_percent),
-        commission_amount: num(formData.commission_amount),
-        tcs_percent: num(formData.tcs_percent),
-        tcs_amount: num(formData.tcs_amount),
-        tds_percent: num(formData.tds_percent),
-        tds_amount: num(formData.tds_amount),
+        gross_order_value: num(formData.gross_sales),
+        customer_paid_amount: num(formData.gross_sales),
+        discount: 0,
+        taxes: 0,
+        platform_commission: num(formData.commission_amount),
+        payment_gateway_charges: 0,
+        packaging_charges: 0,
+        delivery_charges: 0,
+        tcs: num(formData.tcs_amount),
+        tds: num(formData.tds_amount),
         other_deductions: num(formData.other_deductions),
-        net_payout: num(formData.net_payout),
+        actual_payout_received: 0,
       };
 
       if (editingId) {
@@ -480,58 +577,101 @@ const OnlinePayouts = () => {
     };
   }, [filteredPayouts]);
 
-  const handleExport = () => {
-    const headers = [
-      "Month",
-      "Year",
-      "Outlet",
-      "Platform",
-      "Gross Sales",
-      "Commission %",
-      "Commission Amount",
-      "TCS %",
-      "TCS Amount",
-      "TDS %",
-      "TDS Amount",
-      "Other Deductions",
-      "Net Payout",
+  const handleExport = async () => {
+    if (!filteredPayouts.length) {
+      toast.error("No data available to export.");
+      return;
+    }
+
+    const outletLabel =
+      outletFilter === "all"
+        ? "All Outlets"
+        : getOutletName({ outlet_id: Number(outletFilter) });
+
+    let periodLabel = "All Periods";
+    let periodFile = "All-Periods";
+    if (monthFilter !== "all" && yearFilter !== "all") {
+      periodLabel = `${monthName(Number(monthFilter))} ${yearFilter}`;
+      periodFile = `${monthShortName(Number(monthFilter))}-${yearFilter}`;
+    } else if (yearFilter !== "all") {
+      periodLabel = `All Months ${yearFilter}`;
+      periodFile = `All-Months-${yearFilter}`;
+    } else if (monthFilter !== "all") {
+      periodLabel = `${monthName(Number(monthFilter))} All Years`;
+      periodFile = `${monthShortName(Number(monthFilter))}-All-Years`;
+    }
+
+    const outletFile = outletLabel.replace(/\s+/g, "-");
+    const filename = `Online_Payouts_${outletFile}_${periodFile}.xlsx`;
+
+    const columns = [
+      { label: "Month", type: "text", width: 16 },
+      { label: "Year", type: "integer", width: 10 },
+      { label: "Outlet", type: "text", width: 28 },
+      { label: "Platform", type: "text", width: 18 },
+      { label: "Gross Sales", type: "currency", width: 16 },
+      { label: "Customer Paid Amount", type: "currency", width: 18 },
+      { label: "Commission Amount", type: "currency", width: 16 },
+      { label: "Payment Gateway Charges", type: "currency", width: 18 },
+      { label: "TCS", type: "currency", width: 14 },
+      { label: "TDS", type: "currency", width: 14 },
+      { label: "Other Deductions", type: "currency", width: 16 },
+      { label: "Expected Net Payout", type: "currency", width: 18 },
+      { label: "Actual Payout Received", type: "currency", width: 18 },
+      { label: "Difference", type: "currency", width: 14 },
+      { label: "Status", type: "text", width: 14 },
+      { label: "Created By", type: "text", width: 22 },
+      { label: "Created At", type: "datetime", width: 22 },
+      { label: "Submitted By", type: "text", width: 22 },
+      { label: "Submitted At", type: "datetime", width: 22 },
+      { label: "Verified By", type: "text", width: 22 },
+      { label: "Verified At", type: "datetime", width: 22 },
+      { label: "Rejected By", type: "text", width: 22 },
+      { label: "Rejected At", type: "datetime", width: 22 },
+      { label: "Rejection Reason", type: "text", width: 35, wrap: true },
     ];
 
     const rows = filteredPayouts.map((payout) => [
       monthName(payout.month),
-      payout.year || "",
+      payout.year,
       getOutletName(payout),
       getPlatformName(payout),
-      payout.gross_sales || 0,
-      payout.commission_percent || 0,
-      payout.commission_amount || 0,
-      payout.tcs_percent || 0,
-      payout.tcs_amount || 0,
-      payout.tds_percent || 0,
-      payout.tds_amount || 0,
-      payout.other_deductions || 0,
-      payout.net_payout || 0,
+      payout.gross_sales,
+      payout.customer_paid_amount,
+      payout.commission_amount,
+      payout.payment_gateway_charges,
+      payout.tcs,
+      payout.tds,
+      payout.other_deductions,
+      payout.net_payout,
+      payout.actual_payout_received,
+      payout.difference,
+      payout.status,
+      payout.created_by_name,
+      payout.created_at,
+      payout.submitted_by_name,
+      payout.submitted_at,
+      payout.verified_by_name,
+      payout.verified_at,
+      payout.rejected_by_name,
+      payout.rejected_at,
+      payout.rejection_reason,
     ]);
 
-    const csv = [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = "bigbean-online-payouts.csv";
-    link.click();
-
-    URL.revokeObjectURL(url);
-    toast.success("Online payouts exported");
+    try {
+      await exportToExcel({
+        filename,
+        reportTitle: "ONLINE ORDER PAYOUTS REPORT",
+        sheetName: "Online Payouts",
+        outletLabel,
+        periodLabel,
+        columns,
+        rows,
+      });
+      toast.success("Online payouts exported");
+    } catch (error) {
+      toast.error(error.message || "Export failed");
+    }
   };
 
   const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
@@ -597,8 +737,8 @@ const OnlinePayouts = () => {
             onClick={handleExport}
             className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
           >
-            <Download size={18} />
-            Export
+            <FileSpreadsheet size={18} />
+            Export Excel
           </button>
 
           <button
@@ -994,12 +1134,37 @@ const OnlinePayouts = () => {
                 label="Period:"
                 value={`${monthName(selectedPayout.month)} ${selectedPayout.year}`}
               />
+              <DetailItem label="Status:" value={selectedPayout.status} />
+              <DetailItem
+                label="Rejected By:"
+                value={selectedPayout.rejected_by_name || "-"}
+              />
+              <DetailItem
+                label="Rejected At:"
+                value={formatDateTime(selectedPayout.rejected_at)}
+              />
+              <DetailItem
+                label="Rejection Reason:"
+                value={selectedPayout.rejection_reason || "-"}
+              />
             </div>
 
             <div className="rounded-md bg-[#F8F7FA] p-5">
               <DetailItem
                 label="Gross Sales:"
                 value={formatINR(selectedPayout.gross_sales)}
+              />
+              <DetailItem
+                label="Commission %:"
+                value={
+                  num(selectedPayout.gross_sales) > 0
+                    ? `${(
+                        (num(selectedPayout.commission_amount) /
+                          num(selectedPayout.gross_sales)) *
+                        100
+                      ).toFixed(2)}%`
+                    : "0.00%"
+                }
               />
               <DetailItem
                 label="Commission:"
@@ -1027,31 +1192,56 @@ const OnlinePayouts = () => {
                 label="Net Payout:"
                 value={formatINR(selectedPayout.net_payout)}
               />
+              <DetailItem
+                label="Created At:"
+                value={formatDateTime(selectedPayout.created_at)}
+              />
+              <DetailItem
+                label="Updated At:"
+                value={formatDateTime(selectedPayout.updated_at)}
+              />
             </div>
           </div>
 
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => handleEdit(selectedPayout)}
-              className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <Edit2 size={17} />
-              Edit
-            </button>
+          {["Draft", "Rejected"].includes(selectedPayout.status) &&
+            (can("can_edit") || can("can_delete")) && (
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                {can("can_edit") && (
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(selectedPayout)}
+                    className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <Edit2 size={17} />
+                    Edit
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={() => handleDelete(selectedPayout.id)}
-              className="flex items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-5 py-2.5 text-[15px] font-semibold text-[#EA5455]"
-            >
-              <Trash2 size={17} />
-              Delete
-            </button>
-          </div>
+                {can("can_delete") && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(selectedPayout.id)}
+                    className="flex items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-5 py-2.5 text-[15px] font-semibold text-[#EA5455]"
+                  >
+                    <Trash2 size={17} />
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
         </div>
       )}
+
+      <PayoutRejectModal
+        open={rejectModal.open}
+        onClose={() => setRejectModal({ open: false, payout: null, loading: false })}
+        onConfirm={handleRejectConfirm}
+        loading={rejectModal.loading}
+        isDark={isDark}
+        type="online"
+        payout={rejectModal.payout}
+      />
 
       <div className={`rounded-md border shadow-sm ${cardClass}`}>
         <div className="border-b border-[#EBE9F1] p-6">
@@ -1143,8 +1333,8 @@ const OnlinePayouts = () => {
               onClick={handleExport}
               className="flex h-12 items-center justify-center gap-2 rounded-md bg-[#F3F2F7] px-5 text-[15px] font-semibold text-[#6F6B7D]"
             >
-              <Download size={17} />
-              Export
+              <FileSpreadsheet size={17} />
+              Export Excel
             </button>
 
             <button
@@ -1207,6 +1397,9 @@ const OnlinePayouts = () => {
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Net Payout
+                  </th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                    Status
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Action
@@ -1284,21 +1477,74 @@ const OnlinePayouts = () => {
                       </td>
 
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3 text-[#6F6B7D]">
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(payout.id)}
-                            disabled={deletingId === payout.id}
-                            className="transition hover:text-[#EA5455] disabled:opacity-50"
-                            title="Delete"
-                          >
-                            {deletingId === payout.id ? (
-                              <Loader2 size={20} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={20} />
-                            )}
-                          </button>
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${
+                            payout.status === 'Verified' ? 'bg-[#E9F9EF] text-[#28C76F]' :
+                            payout.status === 'Submitted' ? 'bg-[#E6FAFD] text-[#00CFE8]' :
+                            payout.status === 'Rejected' ? 'bg-[#FCEAEA] text-[#EA5455]' :
+                            'bg-[#F3F2F7] text-[#6F6B7D]'
+                          }`}
+                        >
+                          {payout.status || 'Draft'}
+                        </span>
+                      </td>
 
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3 text-[#6F6B7D]">
+                          {(payout.status === 'Draft' || payout.status === 'Rejected') && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleEdit(payout)}
+                                className="transition hover:text-[#00A6B7]"
+                                title="Edit"
+                              >
+                                <Edit2 size={20} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleWorkflow(payout.id, 'submit')}
+                                disabled={actioningId === payout.id}
+                                className="transition hover:text-[#00CFE8] disabled:opacity-50"
+                                title="Submit"
+                              >
+                                {actioningId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                              </button>
+                            </>
+                          )}
+                          {payout.status === 'Submitted' && payout.submitted_by !== user?.id && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleWorkflow(payout.id, 'verify')}
+                                disabled={actioningId === payout.id}
+                                className="transition hover:text-[#28C76F] disabled:opacity-50"
+                                title="Verify"
+                              >
+                                {actioningId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <RefreshCw size={20} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleWorkflow(payout.id, 'reject')}
+                                disabled={actioningId === payout.id}
+                                className="transition hover:text-[#EA5455] disabled:opacity-50"
+                                title="Reject"
+                              >
+                                {actioningId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <X size={20} />}
+                              </button>
+                            </>
+                          )}
+                          {(payout.status === 'Draft' || payout.status === 'Rejected') && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(payout.id)}
+                              disabled={deletingId === payout.id}
+                              className="transition hover:text-[#EA5455] disabled:opacity-50"
+                              title="Delete"
+                            >
+                              {deletingId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleView(payout)}
@@ -1306,15 +1552,6 @@ const OnlinePayouts = () => {
                             title="View Details"
                           >
                             <Eye size={20} />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(payout)}
-                            className="transition hover:text-[#00A6B7]"
-                            title="Edit"
-                          >
-                            <Edit2 size={20} />
                           </button>
                         </div>
                       </td>

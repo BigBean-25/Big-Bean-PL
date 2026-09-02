@@ -11,7 +11,7 @@ $sqlContent = Get-Content $sqlFile -Raw
 # MySQL connection details
 $mysqlHost = "localhost"
 $mysqlUser = "root"
-$mysqlDatabase = "bigbean_cafe"
+$mysqlDatabase = "bigbeancafe_db"
 
 Write-Host "`nEnter MySQL root password:" -ForegroundColor Yellow
 $mysqlPassword = Read-Host -AsSecureString

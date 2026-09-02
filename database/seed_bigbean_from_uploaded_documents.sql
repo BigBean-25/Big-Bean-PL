@@ -21,7 +21,26 @@
 --   Addon group links: 91
 -- =====================================================
 
-USE bigbean_cafe;
+-- ⚠️ DESTRUCTIVE: WIPES NEARLY ALL PRODUCTION DATA — READ BEFORE RUNNING ⚠️
+--
+-- The "CLEAR EXISTING DATA" block further down in this file runs unguarded
+-- DELETE FROM statements against users, roles, daily_cashbooks, day_closings,
+-- material_purchase_items, supplier_payments, petpooja_sales_items, and
+-- nearly every other operational table, then resets their AUTO_INCREMENT
+-- counters back to 1. This is a full-database re-seed script meant to be run
+-- ONCE against a fresh/throwaway database while building out this document
+-- import - it is NOT an upsert and is NOT safe to run against a live
+-- database that anyone is actually using.
+--
+-- Dead man's switch: the line directly below is intentionally invalid SQL.
+-- It guarantees this script aborts here - before the USE statement even
+-- runs - instead of silently wiping data because someone ran the wrong
+-- file. If you have actually confirmed you want to delete nearly all data
+-- in the target database, delete the line below (and only that line) and
+-- re-run.
+RUN_THIS_ONLY_IF_YOU_MEAN_IT_DELETE_THIS_LINE_TO_CONFIRM_YOU_WANT_TO_WIPE_PRODUCTION_DATA;
+
+USE `bigbeancafe_db`;
 
 
 -- =====================================================

@@ -2,96 +2,284 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Print isolation: when printing an invoice modal, hide everything on the
+   page except the element with data-print-root, then let it fill the page. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  [data-print-root],
+  [data-print-root] * {
+    visibility: visible;
+  }
+  [data-print-root] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  /* Prevent horizontal overflow at root.
+     overflow-x: clip (not hidden) avoids making body a scroll container,
+     which would break position: sticky on descendant elements. */
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
+/* ============================================================
+   LEGACY CSS UTILITY CLASSES (kept for backwards compat)
+   ============================================================ */
 @layer components {
   .btn-primary {
-    @apply px-4 py-2 bg-cafe-brown text-white rounded-lg hover:bg-cafe-dark transition-colors font-medium;
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-[#7367F0] text-white rounded-md hover:bg-[#675DD8] active:scale-[0.98] transition-all duration-150 font-semibold text-[14px] shadow-sm;
   }
-  
+
   .btn-secondary {
-    @apply px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium;
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-[#F3F2F7] text-[#5D596C] rounded-md hover:bg-[#ECEAF5] active:scale-[0.98] transition-all duration-150 font-semibold text-[14px];
   }
-  
+
   .btn-success {
-    @apply px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium;
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-[#28C76F] text-white rounded-md hover:bg-[#22A35F] active:scale-[0.98] transition-all duration-150 font-semibold text-[14px];
   }
-  
+
   .btn-danger {
-    @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium;
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-[#EA5455] text-white rounded-md hover:bg-[#D44445] active:scale-[0.98] transition-all duration-150 font-semibold text-[14px];
   }
-  
+
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cafe-gold focus:border-transparent;
+    @apply w-full h-[42px] px-3 py-2 border border-[#DBDADE] rounded-md bg-white text-[#2F2B3D] text-[14px] outline-none transition placeholder:text-[#A8AAAE] focus:border-[#7367F0] focus:shadow-[0_0_0_3px_rgba(115,103,240,0.16)];
   }
-  
+
+  /* Card — matches modern dark-mode-aware card style */
   .card {
-    @apply bg-white rounded-lg shadow-md p-6;
+    @apply bg-white rounded-md border border-[#EBE9F1] shadow-[0_2px_12px_rgba(47,43,61,0.08)] p-4 sm:p-6;
   }
-  
+
+  /* Responsive scrollable table container */
   .table-container {
-    @apply overflow-x-auto bg-white rounded-lg shadow;
+    @apply overflow-x-auto rounded-md border border-[#EBE9F1] bg-white;
+    -webkit-overflow-scrolling: touch;
   }
-  
+
   .data-table {
-    @apply min-w-full divide-y divide-gray-200;
+    @apply min-w-full divide-y divide-[#EBE9F1];
   }
-  
+
   .data-table thead {
-    @apply bg-gray-50;
+    @apply bg-[#F8F7FA];
   }
-  
+
   .data-table th {
-    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-[#A8AAAE] whitespace-nowrap;
   }
-  
+
   .data-table td {
-    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+    @apply px-4 py-3 text-[14px] text-[#2F2B3D] whitespace-nowrap;
   }
-  
+
+  .data-table tbody tr {
+    @apply border-b border-[#F3F2F7] transition-colors hover:bg-[#F8F7FA];
+  }
+
+  /* Status badges */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide;
   }
-  
-  .badge-success {
-    @apply bg-green-100 text-green-800;
+  .badge-success { @apply bg-[#E9F9EF] text-[#28C76F]; }
+  .badge-warning { @apply bg-[#FFF4E5] text-[#FF9F43]; }
+  .badge-danger  { @apply bg-[#FCEAEA] text-[#EA5455]; }
+  .badge-info    { @apply bg-[#E6FAFD] text-[#00CFE8]; }
+  .badge-gray    { @apply bg-[#F3F2F7] text-[#6F6B7D]; }
+  .badge-purple  { @apply bg-[#EFECFF] text-[#7367F0]; }
+}
+
+/* ============================================================
+   PAGE ENTER ANIMATION — applied to main page wrappers
+   ============================================================ */
+@layer utilities {
+  .page-enter {
+    animation: fadeUp 240ms ease-out both;
   }
-  
-  .badge-warning {
-    @apply bg-yellow-100 text-yellow-800;
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-[#EBE9F1];
   }
-  
-  .badge-danger {
-    @apply bg-red-100 text-red-800;
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.6) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite linear;
   }
-  
-  .badge-info {
-    @apply bg-blue-100 text-blue-800;
+
+  /* Touch-friendly min height for interactive elements */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
   }
-  
-  .badge-gray {
-    @apply bg-gray-100 text-gray-800;
+
+  /* Responsive table scroll wrapper */
+  .scroll-x {
+    @apply overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile-safe horizontal padding */
+  .px-safe {
+    @apply px-3 sm:px-4 md:px-6;
+  }
+  .py-safe {
+    @apply py-3 sm:py-4 md:py-6;
   }
 }
 
+/* ============================================================
+   DARK MODE — body override
+   ============================================================ */
+.dark body {
+  background-color: #25293C;
+  color: #D0D2D6;
+}
+
+.dark .card {
+  background-color: #2F3349;
+  border-color: #3B405A;
+  color: #D0D2D6;
+}
+
+.dark .table-container {
+  background-color: #2F3349;
+  border-color: #3B405A;
+}
+
+.dark .data-table thead {
+  background-color: #25293C;
+}
+
+.dark .data-table th {
+  color: #A5A8B6;
+}
+
+.dark .data-table td {
+  color: #D0D2D6;
+}
+
+.dark .data-table tbody tr {
+  border-color: #3B405A;
+}
+
+.dark .data-table tbody tr:hover {
+  background-color: #3B405A;
+}
+
+.dark .input-field {
+  background-color: #25293C;
+  border-color: #3B405A;
+  color: #D0D2D6;
+}
+
+.dark .btn-secondary {
+  background-color: #3B405A;
+  color: #D0D2D6;
+}
+
+.dark .skeleton {
+  background-color: #3B405A;
+}
+
+/* ============================================================
+   SCROLLBAR — light + dark
+   ============================================================ */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+  background: #DBDADE;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #A8AAAE;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3B405A;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5D596C;
+}
+
+/* ============================================================
+   BUTTON ACTIVE FEEDBACK
+   ============================================================ */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* ============================================================
+   MODAL OVERLAY BACKDROP
+   ============================================================ */
+.modal-overlay-enter {
+  animation: fadeIn 200ms ease-out both;
+}
+
+.modal-enter {
+  animation: scaleIn 200ms ease-out both;
+}
+
+.dropdown-enter {
+  animation: fadeDown 180ms ease-out both;
+}
+
+/* ============================================================
+   FOCUS VISIBLE — keyboard nav
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid #7367F0;
+  outline-offset: 2px;
+  border-radius: 4px;
 }

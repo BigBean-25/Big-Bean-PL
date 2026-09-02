@@ -31,7 +31,7 @@ export const protect = async (req, res, next) => {
       if (users.length === 0) {
         return res.status(401).json({
           success: false,
-          message: 'User not found or inactive'
+          message: 'Your account no longer exists or is inactive. Please login again.'
         });
       }
 
@@ -72,28 +72,6 @@ export const authorize = (...roles) => {
         message: `User role '${req.user.role_name}' is not authorized to access this route`
       });
     }
-    next();
-  };
-};
-
-export const checkPermission = (permission) => {
-  return (req, res, next) => {
-    if (!req.user.permissions) {
-      return res.status(403).json({
-        success: false,
-        message: 'No permissions assigned'
-      });
-    }
-
-    const permissions = JSON.parse(req.user.permissions || '[]');
-    
-    if (!permissions.includes(permission) && !permissions.includes('all')) {
-      return res.status(403).json({
-        success: false,
-        message: `Permission '${permission}' required`
-      });
-    }
-    
     next();
   };
 };

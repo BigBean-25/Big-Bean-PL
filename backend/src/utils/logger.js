@@ -33,12 +33,12 @@ export const logApproval = async (userId, recordType, recordId, action, remarks 
   }
 };
 
-export const logUploadError = async (uploadId, rowNumber, errorMessage, rowData) => {
+export const logUploadError = async (uploadId, rowNumber, errorMessage, rowData, uploadType = null) => {
   try {
     await query(
-      `INSERT INTO upload_error_logs (upload_id, row_number, error_message, row_data, created_at) 
-       VALUES (?, ?, ?, ?, NOW())`,
-      [uploadId, rowNumber, errorMessage, JSON.stringify(rowData)]
+      `INSERT INTO upload_error_logs (upload_id, upload_type, \`row_number\`, error_message, row_data, created_at) 
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [uploadId, uploadType, rowNumber, errorMessage, JSON.stringify(rowData)]
     );
   } catch (error) {
     console.error('Upload error log error:', error);

@@ -1,8 +1,6 @@
 import { query } from '../config/database.js';
 import { rowsToPermissionObject } from '../utils/rolePermissionModules.js';
 
-const superRoles = ['Super Admin', 'Admin', 'Technical Admin', 'Developer'];
-
 export const loadRolePermissions = async (roleId) => {
   const rows = await query('SELECT * FROM role_permissions WHERE role_id = ?', [roleId]);
   return rowsToPermissionObject(rows);
@@ -11,10 +9,6 @@ export const loadRolePermissions = async (roleId) => {
 export const checkPermission = (moduleKey, action = 'can_view') => {
   return async (req, res, next) => {
     try {
-      if (superRoles.includes(req.user?.role_name)) {
-        return next();
-      }
-
       const rows = await query(
         `SELECT ${action} permission_value, is_read_only
          FROM role_permissions

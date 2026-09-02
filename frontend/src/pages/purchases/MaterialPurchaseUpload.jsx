@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
   Download,
+  ChevronDown,
   Eye,
   AlertCircle,
   Search,
@@ -92,6 +93,126 @@ const emptyForm = () => ({
   purchase_date: todayInput(),
 });
 
+// Download dropdown reused for both the Upload History row action and the
+// Upload Details panel. Gating rules:
+// - Original: enabled whenever the upload exists (server 404s if the file is missing)
+// - Processed: enabled only when success_rows > 0
+// - Error Report: enabled only when failed_rows > 0
+const DownloadMenu = ({
+  upload,
+  onDownloadOriginal,
+  onDownloadProcessed,
+  onDownloadErrors,
+  downloadKey,
+  cardClass,
+  primaryColor,
+  compact = true,
+}) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const canDownloadOriginal = true;
+  const canDownloadProcessed = Number(upload?.success_rows) > 0;
+  const canDownloadErrors = Number(upload?.failed_rows) > 0;
+
+  const isBusy = (suffix) => downloadKey === `${upload?.id}-${suffix}`;
+
+  const menuItemClass =
+    "flex w-full items-center gap-2 px-4 py-2.5 text-left text-[14px] font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit hover:bg-[#F0EEFF] hover:text-[#7367F0]";
+
+  const spinnerClass = "ml-auto shrink-0";
+
+  return (
+    <div className="relative inline-flex items-center overflow-visible" ref={containerRef}>
+      {compact ? (
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="inline-flex h-8 w-9 items-center justify-center gap-0.5 rounded-md text-[13px] font-semibold transition hover:bg-[#E9F9EF] hover:text-[#28C76F]"
+          title="Download"
+        >
+          <Download size={16} />
+          <ChevronDown size={14} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-md px-4 text-[14px] font-semibold text-white shadow-sm"
+          style={{ backgroundColor: primaryColor }}
+        >
+          <Download size={16} />
+          Download
+          <ChevronDown size={14} />
+        </button>
+      )}
+
+      {open && (
+        <div
+          className={`absolute right-0 top-full z-50 mt-2 min-w-[220px] max-w-[260px] rounded-md border shadow-lg py-1 ${cardClass}`}
+        >
+          <button
+            type="button"
+            disabled={!canDownloadOriginal || isBusy("original")}
+            onClick={() => {
+              setOpen(false);
+              onDownloadOriginal(upload);
+            }}
+            className={menuItemClass}
+          >
+            <Download size={16} className="shrink-0" />
+            Original File
+            {isBusy("original") && (
+              <Loader2 size={14} className={`${spinnerClass} animate-spin`} />
+            )}
+          </button>
+          <button
+            type="button"
+            disabled={!canDownloadProcessed || isBusy("processed")}
+            onClick={() => {
+              setOpen(false);
+              onDownloadProcessed(upload);
+            }}
+            className={menuItemClass}
+          >
+            <Download size={16} className="shrink-0" />
+            Processed File
+            {isBusy("processed") && (
+              <Loader2 size={14} className={`${spinnerClass} animate-spin`} />
+            )}
+          </button>
+          <button
+            type="button"
+            disabled={!canDownloadErrors || isBusy("errors")}
+            onClick={() => {
+              setOpen(false);
+              onDownloadErrors(upload);
+            }}
+            className={menuItemClass}
+          >
+            <FileText size={16} className="shrink-0" />
+            Error Report
+            {isBusy("errors") && (
+              <Loader2 size={14} className={`${spinnerClass} animate-spin`} />
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MaterialPurchaseUpload = () => {
   const fileInputRef = useRef(null);
 
@@ -104,6 +225,9 @@ const MaterialPurchaseUpload = () => {
 
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [downloadKey, setDownloadKey] = useState(null);
+  const [templateDownloading, setTemplateDownloading] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [outletFilter, setOutletFilter] = useState("all");
@@ -220,8 +344,22 @@ const MaterialPurchaseUpload = () => {
     setUploading(true);
 
     try {
-      await uploadAPI.uploadMaterialPurchase(uploadData);
-      toast.success("Material purchase uploaded successfully");
+      const response = await uploadAPI.uploadMaterialPurchase(uploadData);
+      const result = response?.data?.data || {};
+      const successRows = Number(result.successRows || 0);
+      const failedRows = Number(result.failedRows || 0);
+
+      if (failedRows > 0 && successRows > 0) {
+        toast.error(
+          `Uploaded with issues: ${successRows} row${successRows === 1 ? "" : "s"} succeeded, ${failedRows} row${failedRows === 1 ? "" : "s"} rejected. Check the upload history below for the Error Report.`
+        );
+      } else if (failedRows > 0 && successRows === 0) {
+        toast.error(
+          `Upload failed: all ${failedRows} row${failedRows === 1 ? "" : "s"} were rejected. Check the upload history below for the Error Report.`
+        );
+      } else {
+        toast.success("Material purchase uploaded successfully");
+      }
 
       clearFile();
       setFormData(emptyForm());
@@ -233,52 +371,155 @@ const MaterialPurchaseUpload = () => {
     }
   };
 
-  const downloadTemplate = () => {
-    const headers = [
-      "Date",
-      "Supplier",
-      "Material",
-      "Qty",
-      "Unit",
-      "Rate",
-      "Amount",
-      "Bill No",
-      "Remarks",
-    ];
-
-    const sampleRows = [
-      [
-        todayInput(),
-        "Sample Supplier",
-        "Milk",
-        "10",
-        "Litre",
-        "60",
-        "600",
-        "BILL-001",
-        "Sample row",
-      ],
-    ];
-
-    const csv = [headers, ...sampleRows]
-      .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8;",
-    });
+  const downloadBlobResponse = (response, fallbackFileName) => {
+    const blob = new Blob([response.data]);
+    const disposition = response.headers?.["content-disposition"] || "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const fileName = match ? match[1] : fallbackFileName;
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "material_purchase_template.csv";
+    link.download = fileName;
+
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
 
     URL.revokeObjectURL(url);
-    toast.success("Template downloaded");
+  };
+
+  const handleDownloadTemplate = async () => {
+    setTemplateDownloading(true);
+
+    try {
+      const [yearPart, monthPart] = (
+        formData.purchase_date || todayInput()
+      ).split("-");
+      const year = Number(yearPart);
+      const month = Number(monthPart);
+
+      const response = await uploadAPI.downloadMaterialPurchaseTemplate({
+        month,
+        year,
+      });
+
+      downloadBlobResponse(
+        response,
+        `Material_Purchase_Template_${month}_${year}.xlsx`
+      );
+
+      toast.success("Template downloaded");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to download template"
+      );
+    } finally {
+      setTemplateDownloading(false);
+    }
+  };
+
+  const handleDownloadOriginal = async (upload) => {
+    if (!upload?.id) return;
+    const key = `${upload.id}-original`;
+    setDownloadKey(key);
+
+    try {
+      const response = await uploadAPI.downloadMaterialPurchaseOriginal(
+        upload.id
+      );
+      downloadBlobResponse(
+        response,
+        upload.file_name || `material-purchase-${upload.id}.xlsx`
+      );
+      toast.success("Original file downloaded");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to download original file"
+      );
+    } finally {
+      setDownloadKey(null);
+    }
+  };
+
+  const handleDownloadProcessed = async (upload) => {
+    if (!upload?.id) return;
+    const key = `${upload.id}-processed`;
+    setDownloadKey(key);
+
+    try {
+      const response = await uploadAPI.downloadMaterialPurchaseProcessed(
+        upload.id
+      );
+      downloadBlobResponse(
+        response,
+        `material-purchase-processed-${upload.id}.xlsx`
+      );
+      toast.success("Processed file downloaded");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to download processed file"
+      );
+    } finally {
+      setDownloadKey(null);
+    }
+  };
+
+  const handleDownloadErrorReport = async (upload) => {
+    if (!upload?.id) return;
+    const key = `${upload.id}-errors`;
+    setDownloadKey(key);
+
+    try {
+      const response = await uploadAPI.downloadMaterialPurchaseErrors(
+        upload.id
+      );
+      downloadBlobResponse(
+        response,
+        `material-purchase-errors-${upload.id}.xlsx`
+      );
+      toast.success("Error report downloaded");
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to download error report"
+      );
+    } finally {
+      setDownloadKey(null);
+    }
+  };
+
+  const handleDeleteUpload = async (upload) => {
+    if (!upload?.id) return;
+
+    const confirmed = window.confirm(
+      `Delete "${upload.file_name || "this material purchase upload"}"? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    if (typeof uploadAPI.deleteUpload !== "function") {
+      toast.error("Delete API is not configured yet.");
+      return;
+    }
+
+    setDeletingId(upload.id);
+
+    try {
+      await uploadAPI.deleteUpload(upload.id, "material_purchase");
+
+      toast.success("Material purchase upload deleted successfully");
+
+      if (selectedUpload?.id === upload.id) {
+        setSelectedUpload(null);
+      }
+
+      await fetchUploads();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete upload");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const filteredUploads = useMemo(() => {
@@ -408,7 +649,7 @@ const MaterialPurchaseUpload = () => {
   };
 
   const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
-    <div className={`rounded-md border p-5 shadow-sm ${cardClass}`}>
+    <div className={`min-w-0 rounded-md border p-5 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className={`text-[14px] font-medium ${mutedClass}`}>{title}</p>
@@ -439,14 +680,14 @@ const MaterialPurchaseUpload = () => {
 
   return (
     <div
-      className="space-y-6"
+      className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden"
       style={{
         fontFamily:
           '"Public Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-        <div>
+      <div className="flex min-w-0 flex-col justify-between gap-4 xl:flex-row xl:items-center">
+        <div className="min-w-0">
           <h1 className={`text-[24px] font-semibold ${mainTextClass}`}>
             Material Purchase Upload
           </h1>
@@ -455,7 +696,7 @@ const MaterialPurchaseUpload = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex shrink-0 flex-wrap gap-3">
           <button
             type="button"
             onClick={fetchInitialData}
@@ -476,17 +717,22 @@ const MaterialPurchaseUpload = () => {
 
           <button
             type="button"
-            onClick={downloadTemplate}
-            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
+            onClick={handleDownloadTemplate}
+            disabled={templateDownloading}
+            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
             style={{ backgroundColor: primaryColor }}
           >
-            <Download size={18} />
+            {templateDownloading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Download size={18} />
+            )}
             Download Template
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Uploads"
           value={summary.entries}
@@ -533,7 +779,7 @@ const MaterialPurchaseUpload = () => {
         />
       </div>
 
-      <div className={`rounded-md border p-6 shadow-sm ${cardClass}`}>
+      <div className={`min-w-0 rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
         <div className="mb-6">
           <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
             Upload Material Purchases
@@ -544,7 +790,7 @@ const MaterialPurchaseUpload = () => {
         </div>
 
         <form onSubmit={handleUpload} className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
                 Outlet *
@@ -554,7 +800,7 @@ const MaterialPurchaseUpload = () => {
                 onChange={(event) =>
                   setFormData({ ...formData, outlet_id: event.target.value })
                 }
-                className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                className={`h-11 w-full min-w-0 rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
                 required
               >
                 <option value="">Select Outlet</option>
@@ -576,44 +822,91 @@ const MaterialPurchaseUpload = () => {
                 onChange={(event) =>
                   setFormData({ ...formData, purchase_date: event.target.value })
                 }
-                className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                required
-              />
-            </div>
-
-            <div>
-              <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                Excel File *
-              </label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xls,.xlsx"
-                onChange={handleFileChange}
-                className={`block h-11 w-full rounded-md border text-[14px] file:mr-4 file:h-full file:border-0 file:px-4 file:font-semibold file:text-white ${inputClass}`}
-                style={{
-                  "--tw-file-bg": primaryColor,
-                }}
+                className={`h-11 w-full min-w-0 rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
                 required
               />
             </div>
           </div>
 
+          <div>
+            <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+              Purchase Excel File *
+            </label>
+
+            <input
+              ref={fileInputRef}
+              id="material-purchase-file"
+              type="file"
+              accept=".xls,.xlsx"
+              onChange={handleFileChange}
+              className="sr-only"
+              required
+            />
+
+            <label
+              htmlFor="material-purchase-file"
+              className={`group flex min-h-[180px] w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-5 py-7 text-center transition ${
+                selectedFile
+                  ? isDark
+                    ? "border-[#28C76F] bg-[#223B31]"
+                    : "border-[#28C76F] bg-[#F1FBF5]"
+                  : isDark
+                  ? "border-[#4A4F68] bg-[#25293C] hover:border-[#7367F0]"
+                  : "border-[#D8D6DE] bg-[#FBFAFC] hover:border-[#7367F0] hover:bg-[#F8F7FF]"
+              }`}
+            >
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-xl transition group-hover:scale-105"
+                style={{
+                  color: selectedFile ? "#28C76F" : primaryColor,
+                  backgroundColor: selectedFile ? "#E9F9EF" : `${primaryColor}18`,
+                }}
+              >
+                {selectedFile ? <CheckCircle2 size={28} /> : <Upload size={29} />}
+              </div>
+
+              <p className={`mt-4 text-[15px] font-semibold ${mainTextClass}`}>
+                {selectedFile ? "Purchase file ready to upload" : "Choose purchase Excel file"}
+              </p>
+
+              <p className={`mt-1 text-[13px] ${mutedClass}`}>
+                {selectedFile
+                  ? "Click here to replace the selected file"
+                  : "Click to browse .xls or .xlsx files"}
+              </p>
+
+              <div
+                className={`mt-4 inline-flex items-center gap-2 rounded-md border px-4 py-2 text-[13px] font-semibold shadow-sm ${
+                  isDark
+                    ? "border-[#4A4F68] bg-[#2F3349] text-[#D0D2D6]"
+                    : "border-[#DBDADE] bg-white text-[#5D596C]"
+                }`}
+              >
+                <Upload size={16} />
+                Browse Excel File
+              </div>
+            </label>
+          </div>
+
           {selectedFile && (
-            <div className="flex flex-col gap-3 rounded-md bg-[#F8F7FA] p-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className="flex h-11 w-11 items-center justify-center rounded-md text-white"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  <FileText size={20} />
+            <div
+              className={`flex min-w-0 flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between ${
+                isDark
+                  ? "border-[#3B405A] bg-[#25293C]"
+                  : "border-[#EBE9F1] bg-[#F8F7FA]"
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#E9F9EF] text-[#28C76F]">
+                  <CheckCircle2 size={21} />
                 </div>
-                <div>
-                  <p className="text-[15px] font-semibold text-[#2F2B3D]">
+
+                <div className="min-w-0">
+                  <p className={`truncate text-[14px] font-semibold ${mainTextClass}`}>
                     {selectedFile.name}
                   </p>
-                  <p className="text-[13px] text-[#6F6B7D]">
-                    {(selectedFile.size / 1024).toFixed(2)} KB
+                  <p className={`mt-0.5 text-[12px] ${mutedClass}`}>
+                    {(selectedFile.size / 1024).toFixed(1)} KB • Excel purchase file
                   </p>
                 </div>
               </div>
@@ -621,7 +914,7 @@ const MaterialPurchaseUpload = () => {
               <button
                 type="button"
                 onClick={clearFile}
-                className="flex items-center gap-2 rounded-md bg-[#FCEAEA] px-4 py-2 text-[14px] font-semibold text-[#EA5455]"
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-3 text-[13px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC]"
               >
                 <X size={16} />
                 Remove
@@ -629,42 +922,58 @@ const MaterialPurchaseUpload = () => {
             </div>
           )}
 
-          <div className="rounded-md border border-[#BEE5EB] bg-[#E6FAFD] p-4">
-            <div className="flex gap-3">
-              <AlertCircle className="mt-0.5 shrink-0 text-[#00A6B7]" size={20} />
-              <div className="text-[14px] text-[#00A6B7]">
-                <p className="font-semibold">PetPooja Purchase Format</p>
-                <p className="mt-1">
-                  Required columns: Date, Supplier, Material, Qty, Unit, Rate,
-                  Amount, Bill No, Remarks.
-                </p>
-              </div>
+          <div
+            className={`flex min-w-0 items-start gap-3 rounded-md border p-4 ${
+              isDark
+                ? "border-[#3B405A] bg-[#25293C]"
+                : "border-[#E2E0F4] bg-[#F6F5FF]"
+            }`}
+          >
+            <div
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+              style={{ color: primaryColor, backgroundColor: `${primaryColor}18` }}
+            >
+              <AlertCircle size={18} />
+            </div>
+
+            <div className="min-w-0 text-[13px]">
+              <p className={`font-semibold ${mainTextClass}`}>PetPooja Purchase Format</p>
+              <p className={`mt-1 leading-5 ${mutedClass}`}>
+                Required columns: Date, Supplier, Material, Qty, Unit, Rate, Amount,
+                Bill No, Remarks.
+              </p>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={uploading}
-            className="flex items-center justify-center gap-2 rounded-md px-5 py-3 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
-            style={{ backgroundColor: primaryColor }}
-          >
-            {uploading ? (
-              <>
-                <Loader2 size={18} className="animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <Upload size={18} />
-                Upload File
-              </>
-            )}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button
+              type="submit"
+              disabled={uploading}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md px-5 py-3 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {uploading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Uploading Purchases...
+                </>
+              ) : (
+                <>
+                  <Upload size={18} />
+                  Upload Material Purchases
+                </>
+              )}
+            </button>
+
+            <p className={`text-[12px] ${mutedClass}`}>
+              Only Excel files (.xls, .xlsx) are supported.
+            </p>
+          </div>
         </form>
       </div>
 
       {selectedUpload && (
-        <div className={`rounded-md border p-6 shadow-sm ${cardClass}`}>
+        <div className={`min-w-0 rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
@@ -721,20 +1030,56 @@ const MaterialPurchaseUpload = () => {
               />
             </div>
           </div>
+
+          <div
+            className={`mt-6 flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-end ${
+              isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"
+            }`}
+          >
+            <DownloadMenu
+              upload={selectedUpload}
+              onDownloadOriginal={handleDownloadOriginal}
+              onDownloadProcessed={handleDownloadProcessed}
+              onDownloadErrors={handleDownloadErrorReport}
+              downloadKey={downloadKey}
+              cardClass={cardClass}
+              primaryColor={primaryColor}
+              compact={false}
+            />
+
+            <button
+              type="button"
+              onClick={() => handleDeleteUpload(selectedUpload)}
+              disabled={deletingId === selectedUpload.id}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 text-[14px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deletingId === selectedUpload.id ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 size={16} />
+                  Delete
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
 
-      <div className={`rounded-md border shadow-sm ${cardClass}`}>
+      <div className={`min-w-0 max-w-full rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
         <div className="border-b border-[#EBE9F1] p-6">
           <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
             Upload History
           </h3>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="mt-5 grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <select
               value={outletFilter}
               onChange={(event) => setOutletFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             >
               <option value="all">Select Outlet</option>
               {outlets.map((outlet) => (
@@ -747,7 +1092,7 @@ const MaterialPurchaseUpload = () => {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             >
               <option value="all">Select Status</option>
               <option value="Pending">Pending</option>
@@ -760,7 +1105,7 @@ const MaterialPurchaseUpload = () => {
               type="date"
               value={dateFilter}
               onChange={(event) => setDateFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             />
 
             <div className="relative">
@@ -826,8 +1171,8 @@ const MaterialPurchaseUpload = () => {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1150px] border-collapse">
+          <div className="w-full min-w-0 max-w-full overflow-x-auto">
+            <table className="w-full min-w-[1100px] border-collapse xl:min-w-full">
               <thead>
                 <tr className="border-b border-[#EBE9F1]">
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
@@ -851,7 +1196,11 @@ const MaterialPurchaseUpload = () => {
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Status
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th
+                    className={`sticky right-0 z-10 px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D] ${
+                      isDark ? "bg-[#2F3349]" : "bg-white"
+                    }`}
+                  >
                     Action
                   </th>
                 </tr>
@@ -861,7 +1210,7 @@ const MaterialPurchaseUpload = () => {
                 {visibleUploads.map((upload) => (
                   <tr
                     key={upload.id}
-                    className="border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
+                    className="group border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -923,29 +1272,48 @@ const MaterialPurchaseUpload = () => {
                       <StatusBadge status={upload.status} />
                     </td>
 
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3 text-[#6F6B7D]">
+                    <td
+                      className={`sticky right-0 z-10 overflow-visible px-6 py-4 group-hover:z-50 ${
+                        isDark ? "bg-[#2F3349]" : "bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-1.5 overflow-visible text-[#6F6B7D]">
                         <button
                           type="button"
                           onClick={() => setSelectedUpload(upload)}
-                          className="transition hover:text-[#7367F0]"
+                          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#F0EEFF] hover:text-[#7367F0]"
                           title="View Details"
                         >
-                          <Eye size={20} />
+                          <Eye size={18} />
                         </button>
 
-                        {upload.status === "Failed" && (
-                          <button
-                            type="button"
-                            className="transition hover:text-[#EA5455]"
-                            title="Failed Upload"
-                          >
-                            <Trash2 size={20} />
-                          </button>
-                        )}
+                        <DownloadMenu
+                          upload={upload}
+                          onDownloadOriginal={handleDownloadOriginal}
+                          onDownloadProcessed={handleDownloadProcessed}
+                          onDownloadErrors={handleDownloadErrorReport}
+                          downloadKey={downloadKey}
+                          cardClass={cardClass}
+                          primaryColor={primaryColor}
+                          compact
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUpload(upload)}
+                          disabled={deletingId === upload.id}
+                          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#FCEAEA] hover:text-[#EA5455] disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Delete Upload"
+                        >
+                          {deletingId === upload.id ? (
+                            <Loader2 size={17} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={18} />
+                          )}
+                        </button>
 
                         {upload.status === "Processing" && (
-                          <Clock size={20} className="text-[#FF9F43]" />
+                          <Clock size={18} className="ml-1 text-[#FF9F43]" />
                         )}
                       </div>
                     </td>

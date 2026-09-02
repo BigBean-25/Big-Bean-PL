@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, RotateCcw, Save, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Check, Plus, RotateCcw, Save, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import toast from "react-hot-toast";
-import { roleAccessAPI } from "../../services/api";
+import { roleAPI, roleAccessAPI } from "../../services/api";
+import useAuthStore from "../../store/authStore";
+import { displayLabel } from "../../utils/displayLabels";
 
 const actions = [
   { key: "can_view", label: "View" },
@@ -37,22 +39,28 @@ const applyByKeys = (rows, moduleKeys, values) =>
   rows.map((row) => (moduleKeys.includes(row.module_key) ? { ...row, ...values } : row));
 
 const presets = {
-  full: (rows) => setAllActions(rows, true),
+  full: (rows) =>
+    rows.map((row) => ({
+      ...row,
+      ...Object.fromEntries(actions.map((action) => [action.key, action.key !== "is_read_only"])),
+    })),
   readonly: applyReadOnly,
   clear: (rows) => setAllActions(rows, false),
   outletManager: (rows) => {
     let next = setAllActions(rows, false);
     next = applyByKeys(next, ["dashboard"], { can_view: true });
-    next = applyByKeys(next, ["daily_cashbook", "daily_expenses", "day_closing", "daily_checklist"], {
+    next = applyByKeys(next, ["daily_cashbook", "daily_expenses", "bank_deposits", "day_closing", "daily_checklist"], {
       can_view: true,
       can_create: true,
       can_edit: true,
-      can_submit: true
+      can_submit: true,
+      can_export: true,
     });
-    next = applyByKeys(next, ["opening_stock", "closing_stock", "material_purchase", "item_sales", "payroll", "reports"], {
+    next = applyByKeys(next, ["opening_stock", "closing_stock", "material_purchase", "item_sales", "payroll", "utility_bills", "reports"], {
       can_view: true,
-      can_export: true
+      can_export: true,
     });
+    next = applyByKeys(next, ["item_sales_daily"], { can_view: true, can_upload: true });
     return next;
   },
   outletStaff: (rows) => {
@@ -74,12 +82,20 @@ const presets = {
 };
 
 const RoleAccess = () => {
+  const user = useAuthStore((state) => state.user);
+  const canCreateRole = user?.permissions?.roles?.can_create === true;
+
   const [roles, setRoles] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [permissions, setPermissions] = useState([]);
   const [originalPermissions, setOriginalPermissions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleDesc, setNewRoleDesc] = useState("");
+  const [newRoleActive, setNewRoleActive] = useState(true);
+  const [creating, setCreating] = useState(false);
 
   const selectedRole = useMemo(
     () => roles.find((role) => String(role.id) === String(selectedRoleId)),
@@ -154,6 +170,36 @@ const RoleAccess = () => {
     }
   };
 
+  const handleCreateRole = async (event) => {
+    event.preventDefault();
+    if (!newRoleName.trim()) {
+      toast.error("Role name is required");
+      return;
+    }
+    setCreating(true);
+    try {
+      const response = await roleAPI.createRole({
+        role_name: newRoleName.trim(),
+        description: newRoleDesc.trim(),
+        is_active: newRoleActive,
+      });
+      const newRole = response.data?.data;
+      toast.success("Role created successfully");
+      setShowAddRole(false);
+      setNewRoleName("");
+      setNewRoleDesc("");
+      setNewRoleActive(true);
+      await loadRoles();
+      if (newRole?.id) {
+        setSelectedRoleId(String(newRole.id));
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to create role");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="max-w-full space-y-4 md:space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-6">
@@ -177,9 +223,18 @@ const RoleAccess = () => {
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:border-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:min-w-[240px]"
             >
               {roles.map((role) => (
-                <option key={role.id} value={role.id}>{role.role_name}</option>
+                <option key={role.id} value={role.id}>{displayLabel(role.role_name)}</option>
               ))}
             </select>
+            {canCreateRole && (
+              <button
+                type="button"
+                onClick={() => setShowAddRole(true)}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 text-sm font-bold text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300 dark:hover:bg-violet-900 sm:w-auto"
+              >
+                <Plus size={16} /> Add Role
+              </button>
+            )}
             <button
               type="button"
               onClick={handleReset}
@@ -198,6 +253,94 @@ const RoleAccess = () => {
           </div>
         </div>
       </div>
+
+      {showAddRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <form
+            onSubmit={handleCreateRole}
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Add Role</h2>
+              <button
+                type="button"
+                onClick={() => setShowAddRole(false)}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Role Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newRoleName}
+                  onChange={(event) => setNewRoleName(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none focus:border-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  placeholder="e.g. Test Manager"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={newRoleDesc}
+                  onChange={(event) => setNewRoleDesc(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none focus:border-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  placeholder="Optional role description"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Status
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <input
+                      type="radio"
+                      checked={newRoleActive}
+                      onChange={() => setNewRoleActive(true)}
+                      className="h-4 w-4 accent-violet-600"
+                    />
+                    Active
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <input
+                      type="radio"
+                      checked={!newRoleActive}
+                      onChange={() => setNewRoleActive(false)}
+                      className="h-4 w-4 accent-violet-600"
+                    />
+                    Inactive
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddRole(false)}
+                className="h-11 flex-1 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating || !newRoleName.trim()}
+                className="h-11 flex-1 rounded-xl bg-violet-600 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+              >
+                {creating ? "Creating..." : "Create"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 md:p-5">
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -266,7 +409,7 @@ const RoleAccess = () => {
 
         {selectedRole && (
           <p className="mt-4 text-sm text-slate-500 dark:text-slate-300">
-            Editing permissions for <span className="font-bold text-slate-700 dark:text-slate-100">{selectedRole.role_name}</span>.
+            Editing permissions for <span className="font-bold text-slate-700 dark:text-slate-100">{displayLabel(selectedRole.role_name)}</span>.
           </p>
         )}
       </div>

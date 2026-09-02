@@ -18,11 +18,9 @@ import {
   AlertCircle,
   Store,
 } from "lucide-react";
-import { masterAPI } from "../../services/api";
+import { useOutletContext } from "react-router-dom";
+import api, { masterAPI } from "../../services/api";
 import toast from "react-hot-toast";
-import axios from "axios";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 const getRows = (response) => {
   const data = response?.data?.data || response?.data || [];
@@ -87,15 +85,20 @@ const emptyForm = () => ({
   status: "Draft",
 });
 
-const getTokenHeaders = () => {
-  const token = localStorage.getItem("token");
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-};
-
 const EmployeeSalary = () => {
+  const outletContext = useOutletContext() || {};
+
+  const {
+    selectedOutletId = "all",
+    availableOutlets = [],
+    isOutletLocked = false,
+  } = outletContext;
+
+  const dashboardOutletId =
+    selectedOutletId && String(selectedOutletId) !== "all"
+      ? String(selectedOutletId)
+      : "all";
+
   const [salaries, setSalaries] = useState([]);
   const [outlets, setOutlets] = useState([]);
 
@@ -133,7 +136,20 @@ const EmployeeSalary = () => {
 
   useEffect(() => {
     fetchInitialData();
-  }, []);
+  }, [dashboardOutletId]);
+
+  useEffect(() => {
+    if (dashboardOutletId !== "all") {
+      setOutletFilter(dashboardOutletId);
+
+      setFormData((current) => ({
+        ...current,
+        outlet_id: dashboardOutletId,
+      }));
+    } else {
+      setOutletFilter("all");
+    }
+  }, [dashboardOutletId]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -147,8 +163,11 @@ const EmployeeSalary = () => {
 
   const fetchSalaries = async () => {
     try {
-      const response = await axios.get(`${API_URL}/payroll/employee-salary`, {
-        headers: getTokenHeaders(),
+      const response = await api.get(`/payroll/employee-salary`, {
+        params:
+          dashboardOutletId !== "all"
+            ? { outlet_id: dashboardOutletId }
+            : undefined,
       });
 
       setSalaries(getRows(response));
@@ -176,6 +195,32 @@ const EmployeeSalary = () => {
     return outlet?.outlet_name || "-";
   };
 
+
+  const scopedOutlets = useMemo(() => {
+    if (dashboardOutletId !== "all") {
+      return outlets.filter(
+        (outlet) => String(outlet.id) === String(dashboardOutletId)
+      );
+    }
+
+    if (Array.isArray(availableOutlets) && availableOutlets.length > 0) {
+      const allowedIds = new Set(
+        availableOutlets.map((outlet) => String(outlet.id))
+      );
+
+      const filtered = outlets.filter((outlet) =>
+        allowedIds.has(String(outlet.id))
+      );
+
+      return filtered.length > 0 ? filtered : outlets;
+    }
+
+    return outlets;
+  }, [outlets, availableOutlets, dashboardOutletId]);
+
+  const effectiveOutletFilter =
+    dashboardOutletId !== "all" ? dashboardOutletId : outletFilter;
+
   const calculateTotal = (data) =>
     num(data.total_employee_salary) +
     num(data.incentive_bonus) +
@@ -185,7 +230,10 @@ const EmployeeSalary = () => {
   const formTotalCost = calculateTotal(formData);
 
   const resetForm = () => {
-    setFormData(emptyForm());
+    setFormData({
+      ...emptyForm(),
+      outlet_id: dashboardOutletId !== "all" ? dashboardOutletId : "",
+    });
     setEditingId(null);
   };
 
@@ -201,13 +249,24 @@ const EmployeeSalary = () => {
   };
 
   const handleEdit = (salary) => {
+    if (
+      dashboardOutletId !== "all" &&
+      String(salary.outlet_id) !== String(dashboardOutletId)
+    ) {
+      toast.error("This record does not belong to the selected outlet");
+      return;
+    }
+
     setEditingId(salary.id);
     setSelectedSalary(null);
 
     setFormData({
       month: String(salary.month || new Date().getMonth() + 1),
       year: String(salary.year || new Date().getFullYear()),
-      outlet_id: salary.outlet_id || "",
+      outlet_id:
+        dashboardOutletId !== "all"
+          ? dashboardOutletId
+          : salary.outlet_id || "",
       total_employee_salary: salary.total_employee_salary || "",
       incentive_bonus: salary.incentive_bonus || "",
       staff_accommodation: salary.staff_accommodation || "",
@@ -230,9 +289,7 @@ const EmployeeSalary = () => {
     setDeletingId(id);
 
     try {
-      await axios.delete(`${API_URL}/payroll/employee-salary/${id}`, {
-        headers: getTokenHeaders(),
-      });
+      await api.delete(`/payroll/employee-salary/${id}`);
 
       toast.success("Employee salary deleted successfully");
 
@@ -252,13 +309,7 @@ const EmployeeSalary = () => {
     setVerifyingId(id);
 
     try {
-      await axios.post(
-        `${API_URL}/payroll/employee-salary/${id}/verify`,
-        { action },
-        {
-          headers: getTokenHeaders(),
-        }
-      );
+      await api.post(`/payroll/employee-salary/${id}/verify`, { action });
 
       toast.success(`Salary ${action.toLowerCase()} successfully`);
       await fetchSalaries();
@@ -288,7 +339,10 @@ const EmployeeSalary = () => {
       const payload = {
         month: Number(formData.month),
         year: Number(formData.year),
-        outlet_id: formData.outlet_id,
+        outlet_id:
+          dashboardOutletId !== "all"
+            ? dashboardOutletId
+            : formData.outlet_id,
         total_employee_salary: num(formData.total_employee_salary),
         incentive_bonus: num(formData.incentive_bonus),
         staff_accommodation: num(formData.staff_accommodation),
@@ -298,15 +352,11 @@ const EmployeeSalary = () => {
       };
 
       if (editingId) {
-        await axios.put(`${API_URL}/payroll/employee-salary/${editingId}`, payload, {
-          headers: getTokenHeaders(),
-        });
+        await api.put(`/payroll/employee-salary/${editingId}`, payload);
 
         toast.success("Employee salary updated successfully");
       } else {
-        await axios.post(`${API_URL}/payroll/employee-salary`, payload, {
-          headers: getTokenHeaders(),
-        });
+        await api.post(`/payroll/employee-salary`, payload);
 
         toast.success("Employee salary created successfully");
       }
@@ -319,6 +369,29 @@ const EmployeeSalary = () => {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (
+      selectedSalary &&
+      dashboardOutletId !== "all" &&
+      String(selectedSalary.outlet_id) !== String(dashboardOutletId)
+    ) {
+      setSelectedSalary(null);
+    }
+
+    if (showForm && editingId && dashboardOutletId !== "all") {
+      const editingRecord = salaries.find(
+        (salary) => String(salary.id) === String(editingId)
+      );
+
+      if (
+        editingRecord &&
+        String(editingRecord.outlet_id) !== String(dashboardOutletId)
+      ) {
+        closeForm();
+      }
+    }
+  }, [dashboardOutletId, selectedSalary, editingId, showForm, salaries]);
 
   const yearOptions = useMemo(() => {
     const years = salaries.map((salary) => salary.year).filter(Boolean);
@@ -333,8 +406,13 @@ const EmployeeSalary = () => {
 
       const searchMatch = text.includes(searchTerm.toLowerCase());
 
+      const dashboardOutletMatch =
+        dashboardOutletId === "all" ||
+        String(salary.outlet_id) === String(dashboardOutletId);
+
       const outletMatch =
-        outletFilter === "all" || String(salary.outlet_id) === String(outletFilter);
+        effectiveOutletFilter === "all" ||
+        String(salary.outlet_id) === String(effectiveOutletFilter);
 
       const monthMatch =
         monthFilter === "all" || String(salary.month) === String(monthFilter);
@@ -347,13 +425,22 @@ const EmployeeSalary = () => {
         String(salary.status || "").toLowerCase() ===
           String(statusFilter).toLowerCase();
 
-      return searchMatch && outletMatch && monthMatch && yearMatch && statusMatch;
+      return (
+        dashboardOutletMatch &&
+        searchMatch &&
+        outletMatch &&
+        monthMatch &&
+        yearMatch &&
+        statusMatch
+      );
     });
   }, [
     salaries,
     outlets,
     searchTerm,
     outletFilter,
+    effectiveOutletFilter,
+    dashboardOutletId,
     monthFilter,
     yearFilter,
     statusFilter,
@@ -474,7 +561,7 @@ const EmployeeSalary = () => {
   };
 
   const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
-    <div className={`rounded-md border p-5 shadow-sm ${cardClass}`}>
+    <div className={`min-w-0 rounded-md border p-5 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className={`text-[14px] font-medium ${mutedClass}`}>{title}</p>
@@ -505,23 +592,26 @@ const EmployeeSalary = () => {
 
   return (
     <div
-      className="space-y-6"
+      className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden"
       style={{
         fontFamily:
           '"Public Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
-        <div>
+      <div className="flex min-w-0 flex-col justify-between gap-4 xl:flex-row xl:items-center">
+        <div className="min-w-0">
           <h1 className={`text-[24px] font-semibold ${mainTextClass}`}>
             Employee Salary Management
           </h1>
           <p className={`mt-1 text-[15px] ${mutedClass}`}>
             Manage monthly employee salary, incentives, accommodation and staff costs for P&amp;L.
+            {dashboardOutletId !== "all" && (
+              <> Showing only the outlet selected in the dashboard.</>
+            )}
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex shrink-0 flex-wrap gap-3">
           <button
             type="button"
             onClick={fetchInitialData}
@@ -552,7 +642,7 @@ const EmployeeSalary = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Entries"
           value={summary.entries}
@@ -600,7 +690,7 @@ const EmployeeSalary = () => {
       </div>
 
       {showForm && (
-        <div className={`rounded-md border p-6 shadow-sm ${cardClass}`}>
+        <div className={`min-w-0 rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
           <div className="mb-6 flex items-center justify-between gap-4">
             <div>
               <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
@@ -662,15 +752,20 @@ const EmployeeSalary = () => {
                   Outlet *
                 </label>
                 <select
-                  value={formData.outlet_id}
+                  value={
+                    dashboardOutletId !== "all"
+                      ? dashboardOutletId
+                      : formData.outlet_id
+                  }
                   onChange={(event) =>
                     setFormData({ ...formData, outlet_id: event.target.value })
                   }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  disabled={dashboardOutletId !== "all" || isOutletLocked}
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none disabled:cursor-not-allowed disabled:opacity-70 ${inputClass}`}
                   required
                 >
                   <option value="">Select Outlet</option>
-                  {outlets.map((outlet) => (
+                  {scopedOutlets.map((outlet) => (
                     <option key={outlet.id} value={outlet.id}>
                       {outlet.outlet_name}
                     </option>
@@ -711,6 +806,7 @@ const EmployeeSalary = () => {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.incentive_bonus}
                     onChange={(event) =>
                       setFormData({
@@ -729,6 +825,7 @@ const EmployeeSalary = () => {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.staff_accommodation}
                     onChange={(event) =>
                       setFormData({
@@ -747,6 +844,7 @@ const EmployeeSalary = () => {
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.other_staff_cost}
                     onChange={(event) =>
                       setFormData({
@@ -810,7 +908,7 @@ const EmployeeSalary = () => {
               />
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="submit"
                 disabled={saving}
@@ -843,7 +941,7 @@ const EmployeeSalary = () => {
       )}
 
       {selectedSalary && (
-        <div className={`rounded-md border p-6 shadow-sm ${cardClass}`}>
+        <div className={`min-w-0 rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
@@ -948,18 +1046,21 @@ const EmployeeSalary = () => {
         </div>
       )}
 
-      <div className={`rounded-md border shadow-sm ${cardClass}`}>
+      <div className={`min-w-0 max-w-full rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
         <div className="border-b border-[#EBE9F1] p-6">
           <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>Filters</h3>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-5">
+          <div className="mt-5 grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
             <select
-              value={outletFilter}
+              value={effectiveOutletFilter}
               onChange={(event) => setOutletFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              disabled={dashboardOutletId !== "all" || isOutletLocked}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-70 ${inputClass}`}
             >
-              <option value="all">Select Outlet</option>
-              {outlets.map((outlet) => (
+              {dashboardOutletId === "all" && (
+                <option value="all">Select Outlet</option>
+              )}
+              {scopedOutlets.map((outlet) => (
                 <option key={outlet.id} value={outlet.id}>
                   {outlet.outlet_name}
                 </option>
@@ -969,7 +1070,7 @@ const EmployeeSalary = () => {
             <select
               value={monthFilter}
               onChange={(event) => setMonthFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             >
               <option value="all">Select Month</option>
               {Array.from({ length: 12 }, (_, index) => (
@@ -982,7 +1083,7 @@ const EmployeeSalary = () => {
             <select
               value={yearFilter}
               onChange={(event) => setYearFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             >
               <option value="all">Select Year</option>
               {yearOptions.map((year) => (
@@ -995,7 +1096,7 @@ const EmployeeSalary = () => {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
+              className={`h-12 w-full min-w-0 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
             >
               <option value="all">Select Status</option>
               <option value="Draft">Draft</option>
@@ -1031,7 +1132,7 @@ const EmployeeSalary = () => {
             <option value={50}>50</option>
           </select>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
             <button
               type="button"
               onClick={handleExport}
@@ -1079,8 +1180,8 @@ const EmployeeSalary = () => {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1250px] border-collapse">
+          <div className="w-full min-w-0 max-w-full overflow-x-auto">
+            <table className="w-full min-w-[1200px] border-collapse xl:min-w-full">
               <thead>
                 <tr className="border-b border-[#EBE9F1]">
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
@@ -1107,7 +1208,7 @@ const EmployeeSalary = () => {
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Status
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th className={`sticky right-0 z-10 px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D] ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                     Action
                   </th>
                 </tr>
@@ -1170,7 +1271,7 @@ const EmployeeSalary = () => {
                         <StatusBadge status={salary.status} />
                       </td>
 
-                      <td className="px-6 py-4">
+                      <td className={`sticky right-0 z-10 px-6 py-4 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                         <div className="flex items-center gap-3 text-[#6F6B7D]">
                           {salary.status === "Draft" && (
                             <button

@@ -1,9 +1,8 @@
 import { query } from '../config/database.js';
-
-const outletWhere = (alias, outletId) => ({
-  sql: outletId ? `${alias}.outlet_id = ?` : '1=1',
-  params: outletId ? [outletId] : []
-});
+import { getOutletPL, getOutletComparison, getFinalizedSnapshot, finalizeMonth } from '../services/plCalculator.js';
+import { getSupplierLedgerSummary } from '../services/supplierLedgerService.js';
+import { getActualConsumption, getTheoreticalConsumption } from '../services/consumptionService.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
 
 export const getMonthlyOutletPL = async (req, res) => {
   try {
@@ -16,207 +15,8 @@ export const getMonthlyOutletPL = async (req, res) => {
       });
     }
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0);
-    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${endDate.getDate()}`;
-    const isiOutlet = outletWhere('isi', outlet_id);
-    const onlineOutlet = outletWhere('online_payouts', outlet_id);
-    const dineOutlet = outletWhere('dine_in_payouts', outlet_id);
-    const osiOutlet = outletWhere('osi', outlet_id);
-    const csiOutlet = outletWhere('csi', outlet_id);
-    const mpiOutlet = outletWhere('mpi', outlet_id);
-    const expenseOutlet = outletWhere('daily_cash_expenses', outlet_id);
-    const utilityOutlet = outletWhere('utility_bills', outlet_id);
-    const salaryOutlet = outletWhere('employee_salary_monthly', outlet_id);
-
-    const salesData = await query(
-      `SELECT 
-        COALESCE(SUM(gross_sales), 0) as gross_sales,
-        COALESCE(SUM(discount), 0) as total_discount,
-        COALESCE(SUM(tax), 0) as total_tax,
-        COALESCE(SUM(net_sales), 0) as net_sales
-       FROM item_sales_items isi
-       INNER JOIN item_sales_uploads isu ON isi.upload_id = isu.id
-       WHERE ${isiOutlet.sql} AND isi.date >= ? AND isi.date <= ?
-       AND isu.status = 'Completed'`,
-      [...isiOutlet.params, startDate, endDateStr]
-    );
-
-    const onlinePayouts = await query(
-      `SELECT 
-        COALESCE(SUM(customer_paid_amount), 0) as customer_paid,
-        COALESCE(SUM(platform_commission), 0) as commission,
-        COALESCE(SUM(payment_gateway_charges), 0) as pg_charges,
-        COALESCE(SUM(tcs), 0) as tcs,
-        COALESCE(SUM(tds), 0) as tds,
-        COALESCE(SUM(other_deductions), 0) as other_deductions,
-        COALESCE(SUM(net_payout_expected), 0) as net_payout
-       FROM online_payouts
-       WHERE ${onlineOutlet.sql} AND month = ? AND year = ?`,
-      [...onlineOutlet.params, month, year]
-    );
-
-    const dineInPayouts = await query(
-      `SELECT 
-        COALESCE(SUM(customer_paid_value), 0) as customer_paid,
-        COALESCE(SUM(portal_commission), 0) as commission,
-        COALESCE(SUM(tcs), 0) as tcs,
-        COALESCE(SUM(tds), 0) as tds,
-        COALESCE(SUM(expected_payout), 0) as expected_payout
-       FROM dine_in_payouts
-       WHERE ${dineOutlet.sql} AND month = ? AND year = ?`,
-      [...dineOutlet.params, month, year]
-    );
-
-    const openingStock = await query(
-      `SELECT COALESCE(SUM(value), 0) as opening_stock_value
-       FROM opening_stock_items osi
-       INNER JOIN opening_stock_uploads osu ON osi.upload_id = osu.id
-       WHERE ${osiOutlet.sql} AND osu.month = ? AND osu.year = ?
-       AND osu.status = 'Completed'`,
-      [...osiOutlet.params, month, year]
-    );
-
-    const closingStock = await query(
-      `SELECT COALESCE(SUM(value), 0) as closing_stock_value
-       FROM closing_stock_items csi
-       INNER JOIN closing_stock_uploads csu ON csi.upload_id = csu.id
-       WHERE ${csiOutlet.sql} AND csu.month = ? AND csu.year = ?
-       AND csu.status = 'Completed'`,
-      [...csiOutlet.params, month, year]
-    );
-
-    const purchases = await query(
-      `SELECT COALESCE(SUM(total_amount), 0) as purchase_value
-       FROM material_purchase_items mpi
-       INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-       WHERE ${mpiOutlet.sql} AND mpi.date >= ? AND mpi.date <= ?
-       AND mpu.status = 'Completed'`,
-      [...mpiOutlet.params, startDate, endDateStr]
-    );
-
-    const actualConsumption = 
-      (openingStock[0].opening_stock_value || 0) + 
-      (purchases[0].purchase_value || 0) - 
-      (closingStock[0].closing_stock_value || 0);
-
-    const dailyExpenses = await query(
-      `SELECT COALESCE(SUM(amount), 0) as total_expenses
-       FROM daily_cash_expenses
-       WHERE ${expenseOutlet.sql} AND date >= ? AND date <= ?
-       AND status = 'Approved'`,
-      [...expenseOutlet.params, startDate, endDateStr]
-    );
-
-    const utilities = await query(
-      `SELECT 
-        COALESCE(electricity_bill, 0) as electricity,
-        COALESCE(maintenance_cost, 0) as maintenance,
-        COALESCE(water_bill, 0) as water,
-        COALESCE(garbage, 0) as garbage,
-        COALESCE(internet, 0) as internet,
-        COALESCE(gas_monthly, 0) as gas,
-        COALESCE(other_utility, 0) as other_utility,
-        COALESCE(total_utility_cost, 0) as total_utility
-       FROM utility_bills
-       WHERE ${utilityOutlet.sql} AND month = ? AND year = ?`,
-      [...utilityOutlet.params, month, year]
-    );
-
-    const salary = await query(
-      `SELECT 
-        COALESCE(total_employee_salary, 0) as salary,
-        COALESCE(incentive_bonus, 0) as incentive,
-        COALESCE(staff_accommodation, 0) as accommodation,
-        COALESCE(other_staff_cost, 0) as other_staff,
-        COALESCE(total_salary_cost, 0) as total_salary
-       FROM employee_salary_monthly
-       WHERE ${salaryOutlet.sql} AND month = ? AND year = ?`,
-      [...salaryOutlet.params, month, year]
-    );
-
-    const sales = salesData[0];
-    const online = onlinePayouts[0];
-    const dineIn = dineInPayouts[0];
-    const util = utilities[0] || {};
-    const sal = salary[0] || {};
-
-    const adjustedSales = (sales.net_sales || 0);
-    
-    const totalOnlineDeductions = 
-      (online.commission || 0) + 
-      (online.pg_charges || 0) + 
-      (online.tcs || 0) + 
-      (online.tds || 0) + 
-      (online.other_deductions || 0);
-
-    const totalDineInDeductions = 
-      (dineIn.commission || 0) + 
-      (dineIn.tcs || 0) + 
-      (dineIn.tds || 0);
-
-    const totalExpenses = 
-      actualConsumption +
-      (dailyExpenses[0].total_expenses || 0) +
-      (util.total_utility || 0) +
-      (sal.total_salary || 0);
-
-    const profitLoss = adjustedSales - totalExpenses;
-
-    const foodCostPercentage = adjustedSales > 0 ? (actualConsumption / adjustedSales * 100) : 0;
-    const salaryCostPercentage = adjustedSales > 0 ? ((sal.total_salary || 0) / adjustedSales * 100) : 0;
-    const utilityCostPercentage = adjustedSales > 0 ? ((util.total_utility || 0) / adjustedSales * 100) : 0;
-    const netProfitPercentage = adjustedSales > 0 ? (profitLoss / adjustedSales * 100) : 0;
-
-    const plReport = {
-      outlet_id: outlet_id || 'all',
-      month,
-      year,
-      revenue: {
-        gross_sales: sales.gross_sales || 0,
-        discounts: sales.total_discount || 0,
-        taxes: sales.total_tax || 0,
-        net_sales: sales.net_sales || 0,
-        online_commission: online.commission || 0,
-        payment_gateway_charges: online.pg_charges || 0,
-        tcs_tds: (online.tcs || 0) + (online.tds || 0) + (dineIn.tcs || 0) + (dineIn.tds || 0),
-        total_online_deductions: totalOnlineDeductions,
-        total_dinein_deductions: totalDineInDeductions,
-        adjusted_sales: adjustedSales
-      },
-      cost_of_goods: {
-        opening_stock: openingStock[0].opening_stock_value || 0,
-        purchases: purchases[0].purchase_value || 0,
-        closing_stock: closingStock[0].closing_stock_value || 0,
-        actual_consumption: actualConsumption
-      },
-      operating_expenses: {
-        daily_cash_expenses: dailyExpenses[0].total_expenses || 0,
-        electricity_bill: util.electricity || 0,
-        maintenance_cost: util.maintenance || 0,
-        water_bill: util.water || 0,
-        garbage: util.garbage || 0,
-        internet: util.internet || 0,
-        gas: util.gas || 0,
-        other_utility: util.other_utility || 0,
-        total_utilities: util.total_utility || 0,
-        employee_salary: sal.salary || 0,
-        incentive_bonus: sal.incentive || 0,
-        staff_accommodation: sal.accommodation || 0,
-        other_staff_cost: sal.other_staff || 0,
-        total_salary: sal.total_salary || 0,
-        total_operating_expenses: (dailyExpenses[0].total_expenses || 0) + (util.total_utility || 0) + (sal.total_salary || 0)
-      },
-      summary: {
-        total_revenue: adjustedSales,
-        total_expenses: totalExpenses,
-        profit_loss: profitLoss,
-        food_cost_percentage: foodCostPercentage.toFixed(2),
-        salary_cost_percentage: salaryCostPercentage.toFixed(2),
-        utility_cost_percentage: utilityCostPercentage.toFixed(2),
-        net_profit_percentage: netProfitPercentage.toFixed(2)
-      }
-    };
+    const snapshot = await getFinalizedSnapshot({ outletId: outlet_id || null, month, year });
+    const plReport = snapshot || await getOutletPL({ outletId: outlet_id || null, month, year });
 
     res.status(200).json({
       success: true,
@@ -227,6 +27,68 @@ export const getMonthlyOutletPL = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error generating P&L report'
+    });
+  }
+};
+
+export const finalizeMonthlyOutletPL = async (req, res) => {
+  try {
+    const { outlet_id, month, year } = req.body;
+
+    if (!outlet_id || !month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Outlet, month and year are required'
+      });
+    }
+
+    const snapshot = await finalizeMonth({ outletId: outlet_id, month, year, userId: req.user.id });
+
+    res.status(200).json({
+      success: true,
+      data: snapshot
+    });
+  } catch (error) {
+    console.error('Finalize monthly outlet P&L error:', error);
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Error finalizing month'
+    });
+  }
+};
+
+export const getOutletComparisonReport = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+
+    // This spans every outlet by design, so it can't go through applyOutletScope's
+    // usual "force outlet_id to the caller's own outlet" restriction the same way
+    // single-outlet reports do - it needs its own explicit all-outlet-access check.
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view the company-wide outlet comparison'
+      });
+    }
+
+    if (!month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Month and year are required'
+      });
+    }
+
+    const comparison = await getOutletComparison({ month, year });
+
+    res.status(200).json({
+      success: true,
+      data: comparison
+    });
+  } catch (error) {
+    console.error('Get outlet comparison report error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating outlet comparison report'
     });
   }
 };
@@ -242,89 +104,7 @@ export const getActualConsumptionReport = async (req, res) => {
       });
     }
 
-    const openingStock = await query(
-      `SELECT 
-        osi.raw_material_id,
-        rm.material_name,
-        rm.material_code,
-        c.category_name,
-        u.unit_name,
-        COALESCE(SUM(osi.qty), 0) as opening_qty,
-        COALESCE(SUM(osi.value), 0) as opening_value
-       FROM opening_stock_items osi
-       INNER JOIN opening_stock_uploads osu ON osi.upload_id = osu.id
-       LEFT JOIN raw_materials rm ON osi.raw_material_id = rm.id
-       LEFT JOIN categories c ON rm.category_id = c.id
-       LEFT JOIN units u ON rm.unit_id = u.id
-       WHERE osi.outlet_id = ? AND osu.month = ? AND osu.year = ?
-       AND osu.status = 'Completed'
-       GROUP BY osi.raw_material_id, rm.material_name, rm.material_code, c.category_name, u.unit_name`,
-      [outlet_id, month, year]
-    );
-
-    const closingStock = await query(
-      `SELECT 
-        csi.raw_material_id,
-        COALESCE(SUM(csi.qty), 0) as closing_qty,
-        COALESCE(SUM(csi.value), 0) as closing_value
-       FROM closing_stock_items csi
-       INNER JOIN closing_stock_uploads csu ON csi.upload_id = csu.id
-       WHERE csi.outlet_id = ? AND csu.month = ? AND csu.year = ?
-       AND csu.status = 'Completed'
-       GROUP BY csi.raw_material_id`,
-      [outlet_id, month, year]
-    );
-
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0);
-    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${endDate.getDate()}`;
-
-    const purchases = await query(
-      `SELECT 
-        mpi.raw_material_id,
-        COALESCE(SUM(mpi.qty), 0) as purchase_qty,
-        COALESCE(SUM(mpi.total_amount), 0) as purchase_value
-       FROM material_purchase_items mpi
-       INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-       WHERE mpi.outlet_id = ? AND mpi.date >= ? AND mpi.date <= ?
-       AND mpu.status = 'Completed'
-       GROUP BY mpi.raw_material_id`,
-      [outlet_id, startDate, endDateStr]
-    );
-
-    const closingMap = {};
-    closingStock.forEach(item => {
-      closingMap[item.raw_material_id] = item;
-    });
-
-    const purchaseMap = {};
-    purchases.forEach(item => {
-      purchaseMap[item.raw_material_id] = item;
-    });
-
-    const consumptionReport = openingStock.map(item => {
-      const closing = closingMap[item.raw_material_id] || { closing_qty: 0, closing_value: 0 };
-      const purchase = purchaseMap[item.raw_material_id] || { purchase_qty: 0, purchase_value: 0 };
-
-      const actualQty = item.opening_qty + purchase.purchase_qty - closing.closing_qty;
-      const actualValue = item.opening_value + purchase.purchase_value - closing.closing_value;
-
-      return {
-        raw_material_id: item.raw_material_id,
-        material_name: item.material_name,
-        material_code: item.material_code,
-        category: item.category_name,
-        unit: item.unit_name,
-        opening_qty: item.opening_qty,
-        opening_value: item.opening_value,
-        purchase_qty: purchase.purchase_qty,
-        purchase_value: purchase.purchase_value,
-        closing_qty: closing.closing_qty,
-        closing_value: closing.closing_value,
-        actual_consumption_qty: actualQty,
-        actual_consumption_value: actualValue
-      };
-    });
+    const consumptionReport = await getActualConsumption({ outletId: outlet_id, month, year });
 
     res.status(200).json({
       success: true,
@@ -350,66 +130,7 @@ export const getTheoreticalConsumptionReport = async (req, res) => {
       });
     }
 
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0);
-    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${endDate.getDate()}`;
-
-    const sales = await query(
-      `SELECT 
-        isi.menu_item_id,
-        mi.item_name,
-        mi.item_code,
-        c.category_name,
-        COALESCE(SUM(isi.qty_sold), 0) as total_qty_sold
-       FROM item_sales_items isi
-       INNER JOIN item_sales_uploads isu ON isi.upload_id = isu.id
-       LEFT JOIN menu_items mi ON isi.menu_item_id = mi.id
-       LEFT JOIN categories c ON mi.category_id = c.id
-       WHERE isi.outlet_id = ? AND isi.date >= ? AND isi.date <= ?
-       AND isu.status = 'Completed' AND isi.menu_item_id IS NOT NULL
-       GROUP BY isi.menu_item_id, mi.item_name, mi.item_code, c.category_name`,
-      [outlet_id, startDate, endDateStr]
-    );
-
-    const theoreticalConsumption = [];
-
-    for (const sale of sales) {
-      const recipeItems = await query(
-        `SELECT 
-          ri.raw_material_id,
-          rm.material_name,
-          rm.material_code,
-          ri.qty_per_item,
-          u.unit_name,
-          ri.waste_percentage
-         FROM recipe_items ri
-         INNER JOIN recipes r ON ri.recipe_id = r.id
-         LEFT JOIN raw_materials rm ON ri.raw_material_id = rm.id
-         LEFT JOIN units u ON ri.unit_id = u.id
-         WHERE r.menu_item_id = ? AND r.status = 'Active'
-         AND (r.for_outlet_id IS NULL OR r.for_outlet_id = ?)`,
-        [sale.menu_item_id, outlet_id]
-      );
-
-      for (const recipeItem of recipeItems) {
-        const totalUsedQty = sale.total_qty_sold * recipeItem.qty_per_item;
-        
-        theoreticalConsumption.push({
-          menu_item_id: sale.menu_item_id,
-          item_name: sale.item_name,
-          item_code: sale.item_code,
-          category: sale.category_name,
-          qty_sold: sale.total_qty_sold,
-          raw_material_id: recipeItem.raw_material_id,
-          material_name: recipeItem.material_name,
-          material_code: recipeItem.material_code,
-          recipe_qty_per_item: recipeItem.qty_per_item,
-          unit: recipeItem.unit_name,
-          waste_percentage: recipeItem.waste_percentage,
-          total_used_qty: totalUsedQty
-        });
-      }
-    }
+    const theoreticalConsumption = await getTheoreticalConsumption({ outletId: outlet_id, month, year });
 
     res.status(200).json({
       success: true,
@@ -426,7 +147,7 @@ export const getTheoreticalConsumptionReport = async (req, res) => {
 
 export const getDailyCashbookReport = async (req, res) => {
   try {
-    const { outlet_id, start_date, end_date } = req.query;
+    const { outlet_id, from_date, to_date } = req.query;
 
     let whereClause = '1=1';
     const params = [];
@@ -436,14 +157,14 @@ export const getDailyCashbookReport = async (req, res) => {
       params.push(outlet_id);
     }
 
-    if (start_date) {
+    if (from_date) {
       whereClause += ' AND dc.date >= ?';
-      params.push(start_date);
+      params.push(from_date);
     }
 
-    if (end_date) {
+    if (to_date) {
       whereClause += ' AND dc.date <= ?';
-      params.push(end_date);
+      params.push(to_date);
     }
 
     const cashbooks = await query(
@@ -472,7 +193,7 @@ export const getDailyCashbookReport = async (req, res) => {
 
 export const getExpenseReport = async (req, res) => {
   try {
-    const { outlet_id, start_date, end_date, expense_head_id } = req.query;
+    const { outlet_id, from_date, to_date, expense_head_id } = req.query;
 
     let whereClause = 'dce.status = "Approved"';
     const params = [];
@@ -482,14 +203,14 @@ export const getExpenseReport = async (req, res) => {
       params.push(outlet_id);
     }
 
-    if (start_date) {
+    if (from_date) {
       whereClause += ' AND dce.date >= ?';
-      params.push(start_date);
+      params.push(from_date);
     }
 
-    if (end_date) {
+    if (to_date) {
       whereClause += ' AND dce.date <= ?';
-      params.push(end_date);
+      params.push(to_date);
     }
 
     if (expense_head_id) {
@@ -538,5 +259,316 @@ export const getExpenseReport = async (req, res) => {
       success: false,
       message: 'Error generating expense report'
     });
+  }
+};
+
+export const getSupplierPendingReport = async (req, res) => {
+  try {
+    const { outlet_id, supplier_id, as_of_date } = req.query;
+    const asOfDate = as_of_date || new Date().toISOString().slice(0, 10);
+
+    let scopeWhere = '1=1';
+    const scopeParams = [];
+
+    if (outlet_id && outlet_id !== 'all') {
+      scopeWhere += ' AND outlet_id = ?';
+      scopeParams.push(outlet_id);
+    }
+
+    if (supplier_id && supplier_id !== 'all') {
+      scopeWhere += ' AND supplier_id = ?';
+      scopeParams.push(supplier_id);
+    }
+
+    // Distinct (outlet, supplier) pairs that have either a payment history or
+    // qualifying purchase history in scope. Outstanding for each pair is then
+    // computed via the SAME canonical getSupplierLedgerSummary() used by the
+    // Supplier Payments ledger-summary endpoint, so both surfaces always agree.
+    const pairs = await query(
+      `SELECT outlet_id, supplier_id FROM supplier_payments WHERE ${scopeWhere}
+       UNION
+       SELECT mpi.outlet_id, mpi.supplier_id
+       FROM material_purchase_items mpi
+       INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
+       WHERE mpu.status = 'Completed' AND mpi.supplier_id IS NOT NULL
+         ${outlet_id && outlet_id !== 'all' ? 'AND mpi.outlet_id = ?' : ''}
+         ${supplier_id && supplier_id !== 'all' ? 'AND mpi.supplier_id = ?' : ''}`,
+      [...scopeParams, ...scopeParams]
+    );
+
+    if (pairs.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const outletIds = [...new Set(pairs.map((p) => p.outlet_id))];
+    const supplierIds = [...new Set(pairs.map((p) => p.supplier_id))];
+
+    const outletRows = await query(
+      `SELECT id, outlet_name FROM outlets WHERE id IN (${outletIds.map(() => '?').join(',')})`,
+      outletIds
+    );
+    const supplierRows = await query(
+      `SELECT id, supplier_name FROM suppliers WHERE id IN (${supplierIds.map(() => '?').join(',')})`,
+      supplierIds
+    );
+    const outletNameMap = Object.fromEntries(outletRows.map((o) => [o.id, o.outlet_name]));
+    const supplierNameMap = Object.fromEntries(supplierRows.map((s) => [s.id, s.supplier_name]));
+
+    const report = await Promise.all(
+      pairs.map(async (pair) => {
+        const summary = await getSupplierLedgerSummary({
+          outletId: pair.outlet_id,
+          supplierId: pair.supplier_id,
+          date: asOfDate,
+        });
+
+        return {
+          outlet_id: pair.outlet_id,
+          outlet_name: outletNameMap[pair.outlet_id] || '-',
+          supplier_id: pair.supplier_id,
+          supplier_name: supplierNameMap[pair.supplier_id] || '-',
+          purchase_value: summary.purchase_value,
+          paid_amount: summary.previous_paid_amount,
+          balance_pending: summary.current_outstanding,
+          as_of_date: asOfDate
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    console.error('Get supplier pending report error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating supplier pending report'
+    });
+  }
+};
+
+// GST summary reports. These aggregate the tax already captured at entry
+// (grn_items.tax_amount on the purchase side, petpooja_sales_uploads.total_tax
+// on the sales side) - a taxable/tax/gross breakdown per supplier or outlet,
+// not a CGST/SGST/IGST or HSN-wise breakup ready for direct GSTR filing.
+export const getPurchaseGSTReport = async (req, res) => {
+  try {
+    const { from_date, to_date, supplier_id } = req.query;
+    if (!from_date || !to_date) {
+      return res.status(400).json({ success: false, message: 'from_date and to_date are required' });
+    }
+
+    let where = "g.status = 'Posted' AND g.grn_date BETWEEN ? AND ?";
+    const params = [from_date, to_date];
+    if (supplier_id && supplier_id !== 'all') {
+      where += ' AND g.supplier_id = ?';
+      params.push(supplier_id);
+    }
+
+    const rows = await query(
+      `SELECT s.id AS supplier_id, s.supplier_name, s.gstin,
+        COUNT(DISTINCT g.id) AS grn_count,
+        SUM(gi.total_amount - gi.tax_amount) AS taxable_value,
+        SUM(gi.tax_amount) AS tax_amount,
+        SUM(gi.total_amount) AS gross_value
+       FROM grn g
+       INNER JOIN grn_items gi ON gi.grn_id = g.id
+       LEFT JOIN suppliers s ON s.id = g.supplier_id
+       WHERE ${where}
+       GROUP BY s.id, s.supplier_name, s.gstin
+       ORDER BY s.supplier_name`,
+      params
+    );
+
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Get purchase GST report error:', error);
+    res.status(500).json({ success: false, message: 'Error generating purchase GST report' });
+  }
+};
+
+const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+
+// GSTR-1 reports OUTWARD taxable supplies. For this business that's outlet
+// sales (from approved PetPooja uploads), not warehouse purchases or internal
+// stock transfers (which aren't taxable supplies).
+//
+// Item-level CGST/SGST/rate comes from one of two sources, per outlet:
+//   - PRECISE: if a PetPooja "Item Wise Tax Report" upload exists for that
+//     outlet covering exactly [from_date, to_date], its real per-item
+//     CGST/SGST/rate is used directly - no guessing.
+//   - ESTIMATED (fallback): petpooja_sales_items.item_name is matched to
+//     menu_items by name (the PetPooja import has no menu_item_id link) and
+//     the combined Tax column is split 50/50 into CGST/SGST. Items that don't
+//     match any Menu Item are reported separately under "unmapped" rather
+//     than silently dropped, since they'd otherwise understate real GST
+//     liability.
+export const getGSTR1Report = async (req, res) => {
+  try {
+    const { from_date, to_date, outlet_id } = req.query;
+    if (!from_date || !to_date) {
+      return res.status(400).json({ success: false, message: 'from_date and to_date are required' });
+    }
+
+    let where = "u.status = 'Approved' AND COALESCE(u.upload_date_from, u.upload_date) BETWEEN ? AND ?";
+    const params = [from_date, to_date];
+    if (outlet_id && outlet_id !== 'all') {
+      where += ' AND u.outlet_id = ?';
+      params.push(outlet_id);
+    }
+
+    const items = await query(
+      `SELECT psi.item_name, psi.quantity, psi.net_sales, psi.total_tax, psi.gross_sales, psi.outlet_id,
+        mi.id as menu_item_id, mi.hsn_code, mi.gst_rate
+       FROM petpooja_sales_items psi
+       INNER JOIN petpooja_sales_uploads u ON u.id = psi.upload_id
+       LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(psi.item_name))
+       WHERE ${where}`,
+      params
+    );
+
+    // Outlets whose exact [from_date, to_date] period has a real Item Tax
+    // Report on file - their rows use that data instead of the estimate.
+    const preciseUploads = await query(
+      `SELECT itu.id, itu.outlet_id
+       FROM petpooja_item_tax_uploads itu
+       WHERE itu.upload_date_from = ? AND itu.upload_date_to = ?
+         ${outlet_id && outlet_id !== 'all' ? 'AND itu.outlet_id = ?' : ''}
+       ORDER BY itu.created_at DESC`,
+      outlet_id && outlet_id !== 'all' ? [from_date, to_date, outlet_id] : [from_date, to_date]
+    );
+    const preciseUploadByOutlet = {};
+    for (const u of preciseUploads) {
+      if (!(u.outlet_id in preciseUploadByOutlet)) preciseUploadByOutlet[u.outlet_id] = u.id; // most recent wins
+    }
+    const preciseOutletIds = Object.keys(preciseUploadByOutlet).map(Number);
+
+    const byRate = {};
+    const byHsn = {};
+    let unmappedValue = 0, unmappedTax = 0, unmappedCount = 0;
+
+    // Estimated path - skip any row belonging to an outlet with precise data.
+    for (const it of items) {
+      if (preciseOutletIds.includes(Number(it.outlet_id))) continue;
+
+      const taxable = num(it.net_sales);
+      const tax = num(it.total_tax);
+      if (!it.menu_item_id || it.gst_rate === null || it.gst_rate === undefined) {
+        unmappedValue += taxable;
+        unmappedTax += tax;
+        unmappedCount += 1;
+        continue;
+      }
+      const rate = Number(it.gst_rate);
+      const rKey = rate.toFixed(2);
+      if (!byRate[rKey]) byRate[rKey] = { rate, taxable_value: 0, cgst: 0, sgst: 0, total_tax: 0 };
+      byRate[rKey].taxable_value += taxable;
+      byRate[rKey].cgst += tax / 2;
+      byRate[rKey].sgst += tax / 2;
+      byRate[rKey].total_tax += tax;
+
+      const hKey = it.hsn_code || 'Not Mapped';
+      if (!byHsn[hKey]) byHsn[hKey] = { hsn_code: hKey, description: it.item_name, uqc: 'NOS', quantity: 0, taxable_value: 0, rate, tax_amount: 0 };
+      byHsn[hKey].quantity += num(it.quantity);
+      byHsn[hKey].taxable_value += taxable;
+      byHsn[hKey].tax_amount += tax;
+    }
+
+    // Precise path - real CGST/SGST/rate per item, straight from PetPooja.
+    if (preciseOutletIds.length > 0) {
+      const uploadIds = Object.values(preciseUploadByOutlet);
+      const preciseItems = await query(
+        `SELECT iti.item_name, iti.quantity, iti.net_amount, iti.cgst, iti.sgst, iti.total_tax, iti.tax_rate,
+                mi.hsn_code
+         FROM petpooja_item_tax_items iti
+         LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(iti.item_name))
+         WHERE iti.upload_id IN (${uploadIds.map(() => '?').join(',')})`,
+        uploadIds
+      );
+
+      for (const it of preciseItems) {
+        const taxable = num(it.net_amount);
+        const cgst = num(it.cgst);
+        const sgst = num(it.sgst);
+        const tax = num(it.total_tax);
+        const rate = Number(it.tax_rate) || 0;
+        const rKey = rate.toFixed(2);
+        if (!byRate[rKey]) byRate[rKey] = { rate, taxable_value: 0, cgst: 0, sgst: 0, total_tax: 0 };
+        byRate[rKey].taxable_value += taxable;
+        byRate[rKey].cgst += cgst;
+        byRate[rKey].sgst += sgst;
+        byRate[rKey].total_tax += tax;
+
+        const hKey = it.hsn_code || 'Not Mapped';
+        if (!byHsn[hKey]) byHsn[hKey] = { hsn_code: hKey, description: it.item_name, uqc: 'NOS', quantity: 0, taxable_value: 0, rate, tax_amount: 0 };
+        byHsn[hKey].quantity += num(it.quantity);
+        byHsn[hKey].taxable_value += taxable;
+        byHsn[hKey].tax_amount += tax;
+      }
+    }
+
+    const b2cOthers = Object.values(byRate).sort((a, b) => a.rate - b.rate);
+    const hsnSummary = Object.values(byHsn).sort((a, b) => (a.hsn_code > b.hsn_code ? 1 : -1));
+    const totalTaxable = b2cOthers.reduce((s, r) => s + r.taxable_value, 0);
+    const totalTax = b2cOthers.reduce((s, r) => s + r.total_tax, 0);
+
+    const allOutletIds = [...new Set(items.map((it) => Number(it.outlet_id)))];
+    const estimatedOutletIds = allOutletIds.filter((id) => !preciseOutletIds.includes(id));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        from_date, to_date,
+        total_taxable_value: totalTaxable,
+        total_tax: totalTax,
+        total_invoice_value: totalTaxable + totalTax,
+        b2c_others: b2cOthers,
+        hsn_summary: hsnSummary,
+        unmapped: { taxable_value: unmappedValue, tax: unmappedTax, row_count: unmappedCount },
+        tax_data_quality: {
+          precise_outlet_ids: preciseOutletIds,
+          estimated_outlet_ids: estimatedOutletIds,
+        },
+      }
+    });
+  } catch (error) {
+    console.error('Get GSTR-1 report error:', error);
+    res.status(500).json({ success: false, message: 'Error generating GSTR-1 report' });
+  }
+};
+
+export const getSalesGSTReport = async (req, res) => {
+  try {
+    const { from_date, to_date, outlet_id } = req.query;
+    if (!from_date || !to_date) {
+      return res.status(400).json({ success: false, message: 'from_date and to_date are required' });
+    }
+
+    let where = "u.status = 'Approved' AND COALESCE(u.upload_date_from, u.upload_date) BETWEEN ? AND ?";
+    const params = [from_date, to_date];
+    if (outlet_id && outlet_id !== 'all') {
+      where += ' AND u.outlet_id = ?';
+      params.push(outlet_id);
+    }
+
+    const rows = await query(
+      `SELECT o.id AS outlet_id, o.outlet_name,
+        COUNT(DISTINCT u.id) AS upload_count,
+        SUM(u.net_sales) AS taxable_value,
+        SUM(u.total_tax) AS tax_amount,
+        SUM(u.gross_sales) AS gross_value
+       FROM petpooja_sales_uploads u
+       LEFT JOIN outlets o ON o.id = u.outlet_id
+       WHERE ${where}
+       GROUP BY o.id, o.outlet_name
+       ORDER BY o.outlet_name`,
+      params
+    );
+
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Get sales GST report error:', error);
+    res.status(500).json({ success: false, message: 'Error generating sales GST report' });
   }
 };

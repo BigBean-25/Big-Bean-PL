@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAuthStore } from "../store/authStore";
+import useAuthStore from "../store/authStore";
 import { getSelectedOutletId } from "../services/api";
 
 export const getSelectedOutletLabel = (user, selectedOutletId = getSelectedOutletId()) => {

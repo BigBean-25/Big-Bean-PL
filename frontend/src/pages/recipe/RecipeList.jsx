@@ -1,776 +1,332 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Plus,
-  Edit2,
-  Eye,
-  X,
-  Search,
-  Download,
-  Loader2,
-  RefreshCw,
-  FileText,
-  Clock,
-  Package,
-  AlertCircle,
-  CheckCircle2,
-  Store,
-} from "lucide-react";
-import { recipeAPI } from "../../services/api";
+import { Plus, Edit2, Eye, X, Search, Download, Loader2, RefreshCw, FileText, Package, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { recipeAPI, masterAPI } from "../../services/api";
+import exportRecipeBOMToExcel from "../../utils/exportRecipeBOMToExcel";
+import { getPrimaryColor, getThemeMode, getCardClass, getInputClass, StatusBadge } from "../../components/ui";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
-const getRows = (response) => {
-  const data = response?.data?.data || response?.data || [];
-  return Array.isArray(data) ? data : [];
-};
-
 const num = (value) => Number(value || 0);
 
-const getPrimaryColor = () => {
-  try {
-    return localStorage.getItem("bbc_primary_color") || "#7367F0";
-  } catch {
-    return "#7367F0";
-  }
+const formatCurrency = (value) => {
+  if (value === null || value === undefined || isNaN(value)) return "-";
+  return `₹${Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const getThemeMode = () => {
-  try {
-    const mode = localStorage.getItem("bbc_theme_mode") || "light";
-
-    if (mode === "system") {
-      return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches
-        ? "dark"
-        : "light";
-    }
-
-    return mode;
-  } catch {
-    return "light";
-  }
+const formatPercent = (value) => {
+  if (value === null || value === undefined || isNaN(value)) return "-";
+  return `${Number(value).toFixed(2)}%`;
 };
 
-const RecipeList = () => {
+const hasMissingCost = (recipe) => {
+  const items = recipe?.items || [];
+  return items.some((it) => it.raw_material_id && (it.rate == null || it.ingredient_cost == null));
+};
+
+export default function RecipeList() {
   const navigate = useNavigate();
-
   const [recipes, setRecipes] = useState([]);
+  const [outlets, setOutlets] = useState([]);
+  const [menuItems, setMenuItems] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [showModal, setShowModal] = useState(false);
-
-  const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [outletFilter, setOutletFilter] = useState("all");
   const [pageSize, setPageSize] = useState(10);
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
-
-  const cardClass = isDark
-    ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]"
-    : "border-[#EBE9F1] bg-white text-[#2F2B3D]";
-
-  const inputClass = isDark
-    ? "border-[#3B405A] bg-[#25293C] text-[#D0D2D6] placeholder:text-[#A5A8B6]"
-    : "border-[#DBDADE] bg-white text-[#2F2B3D] placeholder:text-[#A8AAAE]";
-
+  const cardClass = getCardClass(isDark);
+  const inputClass = getInputClass(isDark);
   const mutedClass = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
   const mainTextClass = isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]";
 
-  useEffect(() => {
-    fetchRecipes();
-  }, []);
-
-  const fetchRecipes = async () => {
+  const fetchData = async () => {
     setLoading(true);
-
     try {
-      const response = await recipeAPI.getRecipes();
-      setRecipes(getRows(response));
+      const [r, o, m, rm] = await Promise.all([recipeAPI.getRecipes(), masterAPI.getOutlets(), masterAPI.getMenuItems(), masterAPI.getRawMaterials()]);
+      const getRows = (res) => res?.data?.data || res?.data || [];
+      setRecipes(getRows(r));
+      setOutlets(getRows(o));
+      setMenuItems(getRows(m));
+      setRawMaterials(getRows(rm));
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to fetch recipes");
+      toast.error("Failed to load recipes");
     } finally {
       setLoading(false);
     }
   };
 
-  const getTotalTime = (recipe) =>
-    num(recipe?.prep_time) + num(recipe?.cooking_time) + num(recipe?.finishing_time);
+  useEffect(() => { fetchData(); }, []);
 
-  const getIngredientCount = (recipe) => {
-    if (Array.isArray(recipe?.items)) return recipe.items.length;
-    return num(recipe?.ingredient_count || recipe?.items_count || 0);
-  };
+  const outletName = (id) => outlets.find((o) => Number(o.id) === Number(id))?.outlet_name || "All Outlets";
+  const menuName = (id) => menuItems.find((m) => Number(m.id) === Number(id))?.item_name || "-";
+  const rawMaterialName = (id) => rawMaterials.find((m) => Number(m.id) === Number(id))?.material_name || "-";
+  const outputName = (r) => r.recipe_type === "Direct" ? menuName(r.menu_item_id) : rawMaterialName(r.output_raw_material_id);
 
-  const categoryOptions = useMemo(() => {
-    return Array.from(
-      new Set(recipes.map((recipe) => recipe.recipe_category).filter(Boolean))
-    );
-  }, [recipes]);
+  const categoryOptions = useMemo(() => [...new Set(recipes.map((r) => r.recipe_category).filter(Boolean))], [recipes]);
 
-  const filteredRecipes = useMemo(() => {
-    return recipes.filter((recipe) => {
-      const text = `${recipe.item_name || ""} ${recipe.recipe_category || ""} ${
-        recipe.portion || ""
-      } ${recipe.status || ""} ${recipe.version_no || ""}`.toLowerCase();
-
-      const searchMatch = text.includes(searchTerm.toLowerCase());
-
-      const categoryMatch =
-        categoryFilter === "all" ||
-        String(recipe.recipe_category || "") === String(categoryFilter);
-
-      const statusMatch =
-        statusFilter === "all" ||
-        String(recipe.status || "").toLowerCase() ===
-          String(statusFilter).toLowerCase();
-
-      return searchMatch && categoryMatch && statusMatch;
+  const filtered = useMemo(() => {
+    return recipes.filter((r) => {
+      const text = `${r.recipe_name || ""} ${outputName(r)} ${r.recipe_category || ""} ${r.recipe_type || ""} ${r.status || ""}`.toLowerCase();
+      return text.includes(searchTerm.toLowerCase())
+        && (categoryFilter === "all" || String(r.recipe_category) === categoryFilter)
+        && (statusFilter === "all" || String(r.status) === statusFilter)
+        && (typeFilter === "all" || String(r.recipe_type) === typeFilter)
+        && (outletFilter === "all" || String(r.for_outlet_id) === outletFilter);
     });
-  }, [recipes, searchTerm, categoryFilter, statusFilter]);
+  }, [recipes, searchTerm, categoryFilter, statusFilter, typeFilter, outletFilter, menuItems]);
 
-  const visibleRecipes = useMemo(() => {
-    return filteredRecipes.slice(0, Number(pageSize));
-  }, [filteredRecipes, pageSize]);
+  const visible = useMemo(() => filtered.slice(0, pageSize), [filtered, pageSize]);
 
-  const summary = useMemo(() => {
-    const active = filteredRecipes.filter((item) => item.status === "Active").length;
-    const draft = filteredRecipes.filter((item) => item.status === "Draft").length;
-    const inactive = filteredRecipes.filter((item) => item.status === "Inactive").length;
+  const validCostRows = filtered.filter((r) => !hasMissingCost(r) && r.food_cost_percentage != null && r.food_cost_percentage !== "");
 
-    const ingredients = filteredRecipes.reduce(
-      (sum, recipe) => sum + getIngredientCount(recipe),
-      0
-    );
+  const summary = useMemo(() => ({
+    total: filtered.length,
+    active: filtered.filter((r) => r.status === "Active").length,
+    draft: filtered.filter((r) => r.status === "Draft").length,
+    inactive: filtered.filter((r) => r.status === "Inactive").length,
+    avgFoodCost: validCostRows.length ? validCostRows.reduce((sum, r) => sum + num(r.food_cost_percentage), 0) / validCostRows.length : null,
+  }), [filtered]);
 
-    const avgTime = filteredRecipes.length
-      ? filteredRecipes.reduce((sum, recipe) => sum + getTotalTime(recipe), 0) /
-        filteredRecipes.length
-      : 0;
-
-    return {
-      total: filteredRecipes.length,
-      active,
-      draft,
-      inactive,
-      ingredients,
-      avgTime,
-    };
-  }, [filteredRecipes]);
-
-  const viewRecipeDetails = async (id) => {
+  const viewRecipe = async (id) => {
     setDetailsLoading(true);
     setShowModal(true);
-
     try {
-      const response = await recipeAPI.getRecipe(id);
-      setSelectedRecipe(response?.data?.data || response?.data || null);
+      const res = await recipeAPI.getRecipe(id);
+      setSelectedRecipe(res?.data?.data || res?.data || null);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to fetch recipe details");
+      toast.error("Failed to load recipe details");
       setShowModal(false);
     } finally {
       setDetailsLoading(false);
     }
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setSelectedRecipe(null);
+  const closeModal = () => { setShowModal(false); setSelectedRecipe(null); };
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setCategoryFilter("all");
+    setStatusFilter("all");
+    setTypeFilter("all");
+    setOutletFilter("all");
+    setPageSize(10);
   };
 
-  const exportRecipes = () => {
-    const headers = [
-      "Menu Item",
-      "Category",
-      "Portion",
-      "Prep Time",
-      "Cooking Time",
-      "Finishing Time",
-      "Total Time",
-      "Version",
-      "Status",
-      "Ingredients",
-    ];
-
-    const rows = filteredRecipes.map((recipe) => [
-      recipe.item_name || "",
-      recipe.recipe_category || "",
-      recipe.portion || "",
-      recipe.prep_time || 0,
-      recipe.cooking_time || 0,
-      recipe.finishing_time || 0,
-      getTotalTime(recipe),
-      recipe.version_no || 1,
-      recipe.status || "",
-      getIngredientCount(recipe),
-    ]);
-
-    const csv = [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
-      )
-      .join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = "bigbean-recipes.csv";
-    link.click();
-
-    URL.revokeObjectURL(url);
-    toast.success("Recipes exported");
+  const handleDelete = async (r) => {
+    if (!window.confirm(`Delete/archive recipe "${r.recipe_name}"?`)) return;
+    try {
+      await recipeAPI.deleteRecipe(r.id);
+      toast.success("Recipe removed");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Delete failed");
+    }
   };
 
-  const StatusBadge = ({ status }) => {
-    const styles = {
-      Draft: "bg-[#F3F2F7] text-[#6F6B7D]",
-      Active: "bg-[#E9F9EF] text-[#28C76F]",
-      Inactive: "bg-[#FCEAEA] text-[#EA5455]",
-    };
+  const exportExcel = async () => {
+    const activeFilters = [
+      searchTerm ? `Search: ${searchTerm}` : "",
+      categoryFilter !== "all" ? `Category: ${categoryFilter}` : "",
+      statusFilter !== "all" ? `Status: ${statusFilter}` : "",
+      typeFilter !== "all" ? `Type: ${typeFilter}` : "",
+      outletFilter !== "all" ? `Outlet: ${outletName(outletFilter)}` : "",
+    ].filter(Boolean).join(" | ");
 
-    return (
-      <span
-        className={`inline-flex rounded px-3 py-1 text-[12px] font-semibold ${
-          styles[status] || "bg-[#F3F2F7] text-[#6F6B7D]"
-        }`}
-      >
-        {status || "Draft"}
-      </span>
-    );
+    const enriched = filtered.map((r) => ({
+      ...r,
+      menu_output: outputName(r),
+      outlet_name: outletName(r.for_outlet_id),
+      hasMissingCost: hasMissingCost(r),
+    }));
+
+    const date = new Date().toISOString().split("T")[0];
+    try {
+      await exportRecipeBOMToExcel({
+        filename: `Big_Bean_Cafe_Recipe_SOP_Report_${date}.xlsx`,
+        recipes: enriched,
+        outletLabel: outletFilter === "all" ? "All Outlets" : outletName(outletFilter),
+        filters: activeFilters || "None",
+      });
+      toast.success("Recipe / SOP report exported");
+    } catch (error) {
+      toast.error("Export failed: " + (error.message || "Unknown"));
+    }
   };
-
-  const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
-    <div className={`rounded-md border p-5 shadow-sm ${cardClass}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className={`text-[14px] font-medium ${mutedClass}`}>{title}</p>
-          <h3 className={`mt-2 text-[24px] font-semibold ${mainTextClass}`}>
-            {value}
-          </h3>
-          <p className={`mt-1 text-[13px] ${mutedClass}`}>{subtitle}</p>
-        </div>
-
-        <div
-          className="flex h-12 w-12 items-center justify-center rounded-md"
-          style={{ backgroundColor: bg }}
-        >
-          <Icon size={24} style={{ color }} />
-        </div>
-      </div>
-    </div>
-  );
-
-  const DetailItem = ({ label, value }) => (
-    <div className="flex items-start gap-2 py-1.5">
-      <span className={`min-w-[135px] text-[14px] font-semibold ${mainTextClass}`}>
-        {label}
-      </span>
-      <span className={`text-[14px] ${mutedClass}`}>{value || "-"}</span>
-    </div>
-  );
 
   return (
-    <div
-      className="space-y-6"
-      style={{
-        fontFamily:
-          '"Public Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}
-    >
+    <div className="space-y-5 p-1" style={{ fontFamily: '"Public Sans", "Inter", system-ui, sans-serif' }}>
+      {/* Header */}
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
-          <h1 className={`text-[24px] font-semibold ${mainTextClass}`}>
-            Recipe / BOM List
-          </h1>
-          <p className={`mt-1 text-[15px] ${mutedClass}`}>
-            View and manage all recipe configurations for menu item consumption.
-          </p>
+          <h1 className={`text-2xl font-semibold ${mainTextClass}`}>Recipe / SOP Management</h1>
+          <p className={`mt-1 text-[15px] ${mutedClass}`}>Manage standardized recipes, production SOPs, costing and version control across outlets.</p>
         </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={fetchRecipes}
-            className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
-          >
-            <RefreshCw size={18} />
-            Refresh
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={fetchData} disabled={loading} className={`flex items-center gap-2 rounded-md border px-3.5 py-2 text-[14px] font-medium transition hover:opacity-90 disabled:opacity-60 ${cardClass}`}>
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh
           </button>
-
-          <button
-            type="button"
-            onClick={exportRecipes}
-            className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
-          >
-            <Download size={18} />
-            Export
+          <button onClick={exportExcel} className={`flex items-center gap-2 rounded-md border px-3.5 py-2 text-[14px] font-medium transition hover:opacity-90 ${cardClass}`}>
+            <Download size={16} /> Export Excel
           </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/recipes/new")}
-            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
-            style={{ backgroundColor: primaryColor }}
-          >
-            <Plus size={18} />
-            Create Recipe
+          <button onClick={() => navigate("/recipes/new")} className="flex items-center gap-2 rounded-md px-3.5 py-2 text-[14px] font-semibold text-white transition hover:opacity-90" style={{ backgroundColor: primaryColor }}>
+            <Plus size={16} /> Create Recipe
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard
-          title="Recipes"
-          value={summary.total}
-          subtitle="Filtered recipe count"
-          icon={FileText}
-          color={primaryColor}
-          bg={`${primaryColor}18`}
-        />
-
-        <StatCard
-          title="Active"
-          value={summary.active}
-          subtitle="Live recipes"
-          icon={CheckCircle2}
-          color="#28C76F"
-          bg="#E9F9EF"
-        />
-
-        <StatCard
-          title="Draft"
-          value={summary.draft}
-          subtitle="Work in progress"
-          icon={AlertCircle}
-          color="#FF9F43"
-          bg="#FFF4E5"
-        />
-
-        <StatCard
-          title="Ingredients"
-          value={summary.ingredients}
-          subtitle="Mapped raw materials"
-          icon={Package}
-          color="#00CFE8"
-          bg="#E6FAFD"
-        />
-
-        <StatCard
-          title="Avg Time"
-          value={`${summary.avgTime.toFixed(0)} min`}
-          subtitle={`${summary.inactive} inactive recipes`}
-          icon={Clock}
-          color="#EA5455"
-          bg="#FCEAEA"
-        />
+      {/* KPI */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard title="Total Recipes" value={summary.total} icon={FileText} color={primaryColor} />
+        <StatCard title="Active" value={summary.active} icon={CheckCircle2} color="#28C76F" />
+        <StatCard title="Draft" value={summary.draft} icon={AlertCircle} color="#FF9F43" />
+        <StatCard title="Inactive" value={summary.inactive} icon={Package} color="#00CFE8" />
+        <StatCard title="Avg Food Cost %" value={summary.avgFoodCost != null ? `${summary.avgFoodCost.toFixed(2)}%` : "-"} icon={Clock} color="#EA5455" />
       </div>
 
-      <div className={`rounded-md border p-5 shadow-sm ${cardClass}`}>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <select
-            value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-            className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-          >
-            <option value="all">Select Category</option>
-            {categoryOptions.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-          >
-            <option value="all">Select Status</option>
-            <option value="Draft">Draft</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-
-          <select
-            value={pageSize}
-            onChange={(event) => setPageSize(Number(event.target.value))}
-            className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-          >
-            <option value={10}>Show 10</option>
-            <option value={25}>Show 25</option>
-            <option value={50}>Show 50</option>
-          </select>
-
+      {/* Filter toolbar */}
+      <div className={`rounded-md border p-4 shadow-sm ${cardClass}`}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
           <div className="relative">
-            <Search
-              size={18}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
-            />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search Recipe"
-              className={`h-12 w-full rounded-md border pl-11 pr-4 text-[15px] outline-none ${inputClass}`}
-            />
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" size={16} />
+            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search recipe, menu item or output material..." className={`h-10 w-full rounded-md border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} />
           </div>
+          <Select value={categoryFilter} onChange={setCategoryFilter} options={[{ label: "All Categories", value: "all" }, ...categoryOptions.map((c) => ({ label: c, value: c }))]} inputClass={inputClass} />
+          <Select value={statusFilter} onChange={setStatusFilter} options={[{ label: "All Status", value: "all" }, { label: "Draft", value: "Draft" }, { label: "Active", value: "Active" }, { label: "Inactive", value: "Inactive" }]} inputClass={inputClass} />
+          <Select value={typeFilter} onChange={setTypeFilter} options={[{ label: "All Types", value: "all" }, { label: "Direct", value: "Direct" }, { label: "Batch", value: "Batch" }, { label: "Semi-Finished", value: "Semi-Finished" }, { label: "Production", value: "Production" }]} inputClass={inputClass} />
+          <Select value={outletFilter} onChange={setOutletFilter} options={[{ label: "All Outlets", value: "all" }, ...outlets.map((o) => ({ label: o.outlet_name, value: String(o.id) }))]} inputClass={inputClass} />
+          <Select value={String(pageSize)} onChange={(v) => setPageSize(Number(v))} options={[{ label: "10 rows", value: "10" }, { label: "25 rows", value: "25" }, { label: "50 rows", value: "50" }]} inputClass={inputClass} />
+          <button onClick={clearFilters} className="flex items-center justify-center gap-2 rounded-md border px-3 text-[14px] font-medium transition hover:opacity-80" style={{ color: primaryColor, borderColor: `${primaryColor}66` }}>
+            <X size={16} /> Clear
+          </button>
         </div>
       </div>
 
-      <div className={`rounded-md border shadow-sm ${cardClass}`}>
-        <div className="border-b border-[#EBE9F1] p-6">
-          <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
-            All Recipes
-          </h3>
-          <p className={`mt-1 text-[14px] ${mutedClass}`}>
-            Recipe master list with version, status and timing details.
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center">
-            <div className="text-center">
-              <Loader2
-                size={36}
-                className="mx-auto animate-spin"
-                style={{ color: primaryColor }}
-              />
-              <p className={`mt-3 text-[14px] ${mutedClass}`}>
-                Loading recipes...
-              </p>
-            </div>
-          </div>
-        ) : visibleRecipes.length === 0 ? (
-          <div className="flex min-h-[300px] items-center justify-center">
-            <div className="text-center">
-              <Package size={42} className="mx-auto text-[#A8AAAE]" />
-              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>
-                No recipes found
-              </p>
-              <p className={`mt-1 text-[14px] ${mutedClass}`}>
-                Create a recipe or change filters.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] border-collapse">
-              <thead>
-                <tr className="border-b border-[#EBE9F1]">
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Menu Item
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Category
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Portion
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Total Time
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Version
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {visibleRecipes.map((recipe) => (
-                  <tr
-                    key={recipe.id}
-                    className="border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="flex h-10 w-10 items-center justify-center rounded-md text-white"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          <Package size={18} />
-                        </div>
-                        <div>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
-                            {recipe.item_name || "-"}
-                          </p>
-                          <p className="text-[13px] text-[#6F6B7D]">
-                            {getIngredientCount(recipe)} ingredients
-                          </p>
-                        </div>
-                      </div>
+      {/* Table */}
+      <div className={`rounded-md border shadow-sm ${cardClass} overflow-hidden`}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1150px] border-collapse">
+            <thead className={`sticky top-0 z-10 border-b ${isDark ? 'border-[#3B405A] bg-[#2F2B3D]' : 'border-[#EBE9F1] bg-[#F8F7FA]'}`}>
+              <tr>
+                {["Recipe","Menu / Output","Category","Outlet","Type","Yield","Ingredients","Recipe Cost","Selling Price","Food Cost %","Version","Status","Actions"].map((h, i) => (
+                  <th key={h} className={`px-4 py-3.5 text-[12px] font-semibold uppercase tracking-wide ${isDark ? 'text-[#D0D2D6]' : 'text-[#2F2B3D]'} ${i >= 6 && i <= 10 ? 'text-right' : 'text-left'}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="13" className="py-12 text-center"><Loader2 className="mx-auto animate-spin" size={28} style={{ color: primaryColor }} /></td></tr>
+              ) : visible.length === 0 ? (
+                <tr><td colSpan="13"><EmptyState isDark={isDark} onReset={clearFilters} /></td></tr>
+              ) : visible.map((r) => {
+                const missing = hasMissingCost(r);
+                return (
+                  <tr key={r.id} className={`border-b transition hover:bg-black/5 ${isDark ? 'border-[#3B405A]' : 'border-[#EBE9F1]'}`}>
+                    <td className="px-4 py-3">
+                      <p className={`font-semibold ${mainTextClass}`}>{r.recipe_name || "-"}</p>
+                      {r.recipe_code && <p className={`text-[12px] ${mutedClass}`}>{r.recipe_code}</p>}
                     </td>
-
-                    <td className="px-6 py-4">
-                      <span
-                        className="inline-flex rounded-full px-3 py-1 text-[12px] font-semibold"
-                        style={{
-                          color: primaryColor,
-                          backgroundColor: `${primaryColor}18`,
-                        }}
-                      >
-                        {recipe.recipe_category || "-"}
-                      </span>
-                    </td>
-
-                    <td className="px-6 py-4 text-[14px] text-[#6F6B7D]">
-                      {recipe.portion || "-"}
-                    </td>
-
-                    <td className="px-6 py-4 text-[14px] font-semibold text-[#2F2B3D]">
-                      {getTotalTime(recipe)} min
-                    </td>
-
-                    <td className="px-6 py-4 text-[14px] text-[#6F6B7D]">
-                      v{recipe.version_no || 1}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <StatusBadge status={recipe.status} />
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3 text-[#6F6B7D]">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/recipes/edit/${recipe.id}`)}
-                          className="transition hover:text-[#00A6B7]"
-                          title="Edit"
-                        >
-                          <Edit2 size={20} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => viewRecipeDetails(recipe.id)}
-                          className="transition hover:text-[#7367F0]"
-                          title="View Details"
-                        >
-                          <Eye size={20} />
-                        </button>
+                    <td className="px-4 py-3 text-[14px]">{outputName(r)}</td>
+                    <td className="px-4 py-3 text-[14px]">{r.recipe_category || "-"}</td>
+                    <td className="px-4 py-3 text-[14px]">{outletName(r.for_outlet_id)}</td>
+                    <td className="px-4 py-3"><TypeBadge type={r.recipe_type} isDark={isDark} /></td>
+                    <td className="px-4 py-3 text-right text-[14px]">{r.yield_qty ?? "-"} <span className={mutedClass}>{r.yield_unit_name || ""}</span></td>
+                    <td className="px-4 py-3 text-right text-[14px]">{r.items?.length || 0}</td>
+                    <td className="px-4 py-3 text-right text-[14px] font-medium">{missing ? "-" : formatCurrency(r.total_recipe_cost)}</td>
+                    <td className="px-4 py-3 text-right text-[14px]">{r.recipe_type === "Direct" ? formatCurrency(r.selling_price) : "N/A"}</td>
+                    <td className="px-4 py-3 text-right text-[14px]">{missing ? "-" : formatPercent(r.food_cost_percentage)}</td>
+                    <td className="px-4 py-3 text-right text-[14px]">v{r.version_no || 1}</td>
+                    <td className="px-4 py-3"><StatusBadge status={r.status || "Draft"} /></td>
+                    <td className="sticky right-0 z-0 px-4 py-3" style={{ backgroundColor: isDark ? "#2F2B3D" : "#fff" }}>
+                      <div className="flex items-center justify-end gap-2">
+                        <button title="Edit" onClick={() => navigate(`/recipes/edit/${r.id}`)} className="flex h-8 w-8 items-center justify-center rounded-md border bg-transparent transition hover:text-[#00A6B7]" style={{ borderColor: isDark ? "#3B405A" : "#EBE9F1" }}><Edit2 size={15} /></button>
+                        <button title="View" onClick={() => viewRecipe(r.id)} className="flex h-8 w-8 items-center justify-center rounded-md border bg-transparent transition hover:text-[#7367F0]" style={{ borderColor: isDark ? "#3B405A" : "#EBE9F1" }}><Eye size={15} /></button>
+                        <button title="Delete" onClick={() => handleDelete(r)} className="flex h-8 w-8 items-center justify-center rounded-md border bg-transparent transition hover:text-[#EA5455]" style={{ borderColor: isDark ? "#3B405A" : "#EBE9F1" }}><X size={15} /></button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {filteredRecipes.length > pageSize && (
-              <div className="border-t border-[#EBE9F1] px-6 py-4 text-[14px] text-[#6F6B7D]">
-                Showing first {pageSize} of {filteredRecipes.length} recipes.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border border-[#FFECCC] bg-[#FFF4E5] p-5">
-        <div className="flex gap-3">
-          <AlertCircle className="mt-0.5 shrink-0 text-[#FF9F43]" size={22} />
-          <div>
-            <h3 className="text-[18px] font-semibold text-[#B76E00]">
-              Missing Recipes
-            </h3>
-            <p className="mt-1 text-[14px] text-[#B76E00]">
-              Menu items without recipes will show consumption variance warnings
-              in reports.
-            </p>
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
+      {/* View Modal */}
       {showModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4"
-          onClick={closeModal}
-        >
-          <div
-            className={`max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md border p-6 shadow-xl ${cardClass}`}
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={closeModal}>
+          <div className={`max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-md border shadow-2xl ${cardClass}`} onClick={(e) => e.stopPropagation()}>
             {detailsLoading ? (
-              <div className="flex min-h-[300px] items-center justify-center">
-                <div className="text-center">
-                  <Loader2
-                    size={36}
-                    className="mx-auto animate-spin"
-                    style={{ color: primaryColor }}
-                  />
-                  <p className={`mt-3 text-[14px] ${mutedClass}`}>
-                    Loading recipe details...
-                  </p>
-                </div>
-              </div>
+              <div className="flex h-40 items-center justify-center"><Loader2 className="animate-spin" size={32} style={{ color: primaryColor }} /></div>
             ) : selectedRecipe ? (
               <>
-                <div className="flex items-start justify-between gap-4">
+                <div className={`flex items-start justify-between border-b px-6 py-4 ${isDark ? 'border-[#3B405A]' : 'border-[#EBE9F1]'}`}>
                   <div>
-                    <h2 className={`text-[24px] font-semibold ${mainTextClass}`}>
-                      {selectedRecipe.item_name || "Recipe Details"}
-                    </h2>
-                    <p className={`mt-1 text-[14px] ${mutedClass}`}>
-                      Recipe details and ingredient configuration.
-                    </p>
+                    <h2 className={`text-xl font-semibold ${mainTextClass}`}>{selectedRecipe.recipe_name || "Recipe Details"}</h2>
+                    <p className={`mt-1 text-[14px] ${mutedClass}`}>{outputName(selectedRecipe)} <span className="mx-1">•</span> {selectedRecipe.recipe_type || "Direct"}</p>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
-                  >
-                    <X size={20} />
-                  </button>
+                  <button onClick={closeModal} className="flex h-9 w-9 items-center justify-center rounded-md transition hover:bg-black/5"><X size={20} className={mutedClass} /></button>
                 </div>
-
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-                  <div className="rounded-md bg-[#F8F7FA] p-4">
-                    <p className="text-[13px] text-[#6F6B7D]">Category</p>
-                    <p className="mt-1 text-[16px] font-semibold text-[#2F2B3D]">
-                      {selectedRecipe.recipe_category || "-"}
-                    </p>
-                  </div>
-
-                  <div className="rounded-md bg-[#F8F7FA] p-4">
-                    <p className="text-[13px] text-[#6F6B7D]">Portion</p>
-                    <p className="mt-1 text-[16px] font-semibold text-[#2F2B3D]">
-                      {selectedRecipe.portion || "-"}
-                    </p>
-                  </div>
-
-                  <div className="rounded-md bg-[#F8F7FA] p-4">
-                    <p className="text-[13px] text-[#6F6B7D]">Total Time</p>
-                    <p className="mt-1 text-[16px] font-semibold text-[#2F2B3D]">
-                      {getTotalTime(selectedRecipe)} min
-                    </p>
-                  </div>
-
-                  <div className="rounded-md bg-[#F8F7FA] p-4">
-                    <p className="text-[13px] text-[#6F6B7D]">Status</p>
-                    <div className="mt-2">
-                      <StatusBadge status={selectedRecipe.status} />
-                    </div>
-                  </div>
+                <div className="max-h-[calc(92vh-140px)] overflow-y-auto p-6">
+                  {(() => {
+                    const missing = hasMissingCost(selectedRecipe);
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                          <Detail label="Recipe Type" value={selectedRecipe.recipe_type || "Direct"} isDark={isDark} />
+                          <Detail label="Menu / Output" value={outputName(selectedRecipe)} isDark={isDark} />
+                          <Detail label="Version" value={`v${selectedRecipe.version_no || 1}`} isDark={isDark} />
+                          <Detail label="Outlet" value={outletName(selectedRecipe.for_outlet_id)} isDark={isDark} />
+                          <Detail label="Yield" value={`${selectedRecipe.yield_qty ?? 1} ${selectedRecipe.yield_unit_name || ""}`} isDark={isDark} />
+                          <Detail label="Status" value={<StatusBadge status={selectedRecipe.status || "Draft"} />} isDark={isDark} />
+                          <Detail label="Recipe Cost" value={missing ? "-" : formatCurrency(selectedRecipe.total_recipe_cost)} isDark={isDark} />
+                          <Detail label="Selling Price" value={selectedRecipe.recipe_type === "Direct" ? formatCurrency(selectedRecipe.selling_price) : "Not Applicable"} isDark={isDark} />
+                          <Detail label="Food Cost %" value={missing ? "-" : formatPercent(selectedRecipe.food_cost_percentage)} isDark={isDark} />
+                          <Detail label="Gross Margin %" value={missing ? "-" : formatPercent(selectedRecipe.gross_margin_percentage)} isDark={isDark} />
+                        </div>
+                        <div className="mt-6">
+                          <h3 className={`text-base font-semibold ${mainTextClass}`}>Ingredients ({selectedRecipe.items?.length || 0})</h3>
+                          <div className="mt-2 overflow-x-auto">
+                            <table className="w-full min-w-[800px] border-collapse">
+                              <thead className={`border-b ${isDark ? 'border-[#3B405A]' : 'border-[#EBE9F1]'}`}>
+                                <tr>
+                                  {["Material","Qty","UOM","Base Qty","Base UOM","Waste %","Rate","Cost","Notes"].map((h, i) => (
+                                    <th key={h} className={`py-3 text-[11px] font-semibold uppercase tracking-wide ${i >= 5 && i <= 7 ? 'text-right' : 'text-left'} ${mutedClass}`}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedRecipe.items?.map((it, idx) => (
+                                  <tr key={idx} className={`border-b ${isDark ? 'border-[#3B405A]' : 'border-[#EBE9F1]'}`}>
+                                    <td className="py-2.5 text-[14px]">{it.material_name || "-"}</td>
+                                    <td className="py-2.5 text-right text-[14px]">{it.qty_per_item != null ? Number(it.qty_per_item).toFixed(4) : "-"}</td>
+                                    <td className="py-2.5 text-[14px]">{it.recipe_unit_name || it.unit_name || "-"}</td>
+                                    <td className="py-2.5 text-right text-[14px]">{it.base_qty != null ? Number(it.base_qty).toFixed(4) : "-"}</td>
+                                    <td className="py-2.5 text-[14px]">{it.base_unit_name || "-"}</td>
+                                    <td className="py-2.5 text-right text-[14px]">{it.waste_percentage != null ? Number(it.waste_percentage).toFixed(2) + "%" : "-"}</td>
+                                    <td className="py-2.5 text-right text-[14px]">{it.rate != null ? formatCurrency(it.rate) : "-"}</td>
+                                    <td className="py-2.5 text-right text-[14px]">{it.ingredient_cost != null ? formatCurrency(it.ingredient_cost) : "-"}</td>
+                                    <td className="py-2.5 text-[14px] text-[#6F6B7D]">{it.notes || "-"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
-
-                <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-3">
-                  <div className="rounded-md border border-[#EBE9F1] p-5">
-                    <DetailItem label="Prep Time:" value={`${num(selectedRecipe.prep_time)} min`} />
-                    <DetailItem label="Cooking Time:" value={`${num(selectedRecipe.cooking_time)} min`} />
-                    <DetailItem label="Finishing Time:" value={`${num(selectedRecipe.finishing_time)} min`} />
-                  </div>
-
-                  <div className="rounded-md border border-[#EBE9F1] p-5">
-                    <DetailItem label="Recipe ID:" value={selectedRecipe.id} />
-                    <DetailItem label="Version:" value={`v${selectedRecipe.version_no || 1}`} />
-                    <DetailItem label="Outlet:" value={selectedRecipe.outlet_name || "All Outlets"} />
-                  </div>
-
-                  <div className="rounded-md border border-[#EBE9F1] p-5">
-                    <DetailItem label="Ingredients:" value={selectedRecipe.items?.length || 0} />
-                    <DetailItem label="Menu Item ID:" value={selectedRecipe.menu_item_id} />
-                    <DetailItem label="Recipe Status:" value={selectedRecipe.status || "-"} />
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <h3 className={`text-[20px] font-semibold ${mainTextClass}`}>
-                    Ingredients ({selectedRecipe.items?.length || 0})
-                  </h3>
-
-                  <div className="mt-4 overflow-x-auto rounded-md border border-[#EBE9F1]">
-                    <table className="w-full min-w-[800px] border-collapse">
-                      <thead>
-                        <tr className="border-b border-[#EBE9F1]">
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
-                            Material
-                          </th>
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
-                            Code
-                          </th>
-                          <th className="px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
-                            Quantity
-                          </th>
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
-                            Unit
-                          </th>
-                          <th className="px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
-                            Waste %
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {selectedRecipe.items && selectedRecipe.items.length > 0 ? (
-                          selectedRecipe.items.map((item, index) => (
-                            <tr
-                              key={`${item.raw_material_id || index}-${index}`}
-                              className="border-b border-[#EBE9F1]"
-                            >
-                              <td className="px-4 py-3 text-[14px] font-semibold text-[#2F2B3D]">
-                                {item.material_name || "-"}
-                              </td>
-                              <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">
-                                {item.material_code || "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right text-[14px] font-semibold text-[#2F2B3D]">
-                                {item.qty_per_item || 0}
-                              </td>
-                              <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">
-                                {item.unit_name || "-"}
-                              </td>
-                              <td className="px-4 py-3 text-right text-[14px] text-[#EA5455]">
-                                {item.waste_percentage || 0}%
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td
-                              colSpan="5"
-                              className="px-4 py-10 text-center text-[14px] text-[#6F6B7D]"
-                            >
-                              No ingredients found.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      closeModal();
-                      navigate(`/recipes/edit/${selectedRecipe.id}`);
-                    }}
-                    className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    <Edit2 size={18} />
-                    Edit Recipe
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="rounded-md bg-[#F3F2F7] px-5 py-2.5 text-[15px] font-semibold text-[#6F6B7D]"
-                  >
-                    Close
-                  </button>
+                <div className={`flex justify-end border-t px-6 py-4 ${isDark ? 'border-[#3B405A]' : 'border-[#EBE9F1]'}`}>
+                  <button onClick={() => { closeModal(); navigate(`/recipes/edit/${selectedRecipe.id}`); }} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white" style={{ backgroundColor: primaryColor }}><Edit2 size={16} /> Edit</button>
                 </div>
               </>
             ) : null}
@@ -779,6 +335,62 @@ const RecipeList = () => {
       )}
     </div>
   );
-};
+}
 
-export default RecipeList;
+function StatCard({ title, value, icon: Icon, color }) {
+  return (
+    <div className="rounded-md border p-4 shadow-sm" style={{ borderColor: `${color}33` }}>
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: `${color}18` }}>
+          <Icon size={18} style={{ color }} />
+        </div>
+        <div>
+          <p className="text-[12px] font-medium text-[#6F6B7D]">{title}</p>
+          <h3 className="text-xl font-bold text-[#2F2B3D]" style={{ color: "#2F2B3D" }}>{value}</h3>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value, isDark }) {
+  return (
+    <div className={`rounded-md border p-3 ${isDark ? 'border-[#3B405A] bg-[#2F2B3D]/50' : 'border-[#EBE9F1] bg-[#F8F7FA]'}`}>
+      <p className={`text-[11px] font-medium uppercase tracking-wide ${isDark ? 'text-[#A5A8B6]' : 'text-[#6F6B7D]'}`}>{label}</p>
+      <p className={`mt-1 text-[15px] font-semibold ${isDark ? 'text-[#D0D2D6]' : 'text-[#2F2B3D]'}`}>{value || "-"}</p>
+    </div>
+  );
+}
+
+function Select({ value, onChange, options, inputClass }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`}>
+      {options.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+    </select>
+  );
+}
+
+function TypeBadge({ type, isDark }) {
+  const styles = {
+    Direct: "bg-[#7367F0]/12 text-[#7367F0] border-[#7367F0]/25",
+    Batch: "bg-[#00A6B7]/12 text-[#00A6B7] border-[#00A6B7]/25",
+    "Semi-Finished": "bg-[#FF9F43]/12 text-[#FF9F43] border-[#FF9F43]/25",
+    Production: "bg-[#28C76F]/12 text-[#28C76F] border-[#28C76F]/25",
+  };
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-semibold ${styles[type] || (isDark ? "bg-[#3B405A] text-[#D0D2D6]" : "bg-[#F3F2F7] text-[#6F6B7D]")}`}>
+      {type || "-"}
+    </span>
+  );
+}
+
+function EmptyState({ isDark, onReset }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <FileText size={40} className={isDark ? "text-[#3B405A]" : "text-[#EBE9F1]"} />
+      <p className={`mt-3 text-base font-semibold ${isDark ? 'text-[#D0D2D6]' : 'text-[#2F2B3D]'}`}>No recipes found</p>
+      <p className={`text-[14px] ${isDark ? 'text-[#A5A8B6]' : 'text-[#6F6B7D]'}`}>Try adjusting the selected filters.</p>
+      <button onClick={onReset} className="mt-3 rounded-md px-3 py-1.5 text-[13px] font-medium text-white" style={{ backgroundColor: "#7367F0" }}>Clear filters</button>
+    </div>
+  );
+}

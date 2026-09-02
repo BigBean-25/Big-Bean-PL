@@ -1,0 +1,41 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { query } from './src/config/database.js';
+import pool from './src/config/database.js';
+import fs from 'fs';
+
+const tables = ['item_sales_uploads', 'item_sales_items', 'menu_items', 'recipe_items', 'recipes', 'upload_error_logs', 'petpooja_sales_uploads', 'petpooja_sales_items', 'daily_cashbooks'];
+
+const db = process.env.DB_NAME || 'bigbeancafe_db';
+
+const out = { tables: {} };
+
+for (const table of tables) {
+  try {
+    const columns = await query(
+      `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+       ORDER BY ORDINAL_POSITION`,
+      [db, table]
+    );
+
+    const keys = await query(
+      `SELECT COLUMN_NAME, CONSTRAINT_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
+      [db, table]
+    );
+
+    out.tables[table] = { columns, keys };
+  } catch (err) {
+    out.tables[table] = { error: err.message };
+  }
+}
+
+fs.writeFileSync('temp_item_sales_schema.json', JSON.stringify(out, null, 2));
+console.log('written temp_item_sales_schema.json');
+
+await pool.end();
+process.exit(0);

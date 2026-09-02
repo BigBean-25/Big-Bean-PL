@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Plus,
   Edit2,
@@ -14,6 +15,8 @@ import {
   RefreshCw,
   FileText,
   Coffee,
+  Save,
+  Upload,
 } from "lucide-react";
 import { masterAPI } from "../../services/api";
 import toast from "react-hot-toast";
@@ -42,13 +45,20 @@ const getThemeMode = () => {
   }
 };
 
+const ITEM_TYPES = ["Raw Material", "Packaging", "Consumable", "Asset", "Other"];
+const GST_RATES = ["0", "5", "12", "18", "28"];
+
 const emptyForm = () => ({
   material_code: "",
   material_name: "",
   category_id: "",
-  default_unit_id: "",
+  unit_id: "",
   reorder_level: "",
   description: "",
+  item_type: "Raw Material",
+  hsn_code: "",
+  gst_rate: "",
+  transfer_price: "",
   is_active: 1,
 });
 
@@ -93,6 +103,7 @@ const RawMaterials = () => {
   const [materials, setMaterials] = useState([]);
   const [categories, setCategories] = useState([]);
   const [units, setUnits] = useState([]);
+  const [outlets, setOutlets] = useState([]);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -100,10 +111,23 @@ const RawMaterials = () => {
   const [activeTab, setActiveTab] = useState("overview");
 
   const [formData, setFormData] = useState(emptyForm);
+  const [originalUnitId, setOriginalUnitId] = useState("");
+  const [uomChanged, setUomChanged] = useState(false);
+  const [uomConfirmed, setUomConfirmed] = useState(false);
+
+  const [rates, setRates] = useState([]);
+  const [rateForm, setRateForm] = useState({ id: null, outlet_id: "", rate: "", effective_from: new Date().toISOString().split("T")[0], is_approved: 1 });
+  const [showRateForm, setShowRateForm] = useState(false);
+  const [rateLoading, setRateLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -111,6 +135,9 @@ const RawMaterials = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [pageSize, setPageSize] = useState(10);
+
+  const outletContext = useOutletContext() || {};
+  const { selectedOutletId = "all", isOutletLocked = false } = outletContext;
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -134,7 +161,7 @@ const RawMaterials = () => {
     setLoading(true);
 
     try {
-      await Promise.all([fetchMaterials(), fetchCategories(), fetchUnits()]);
+      await Promise.all([fetchMaterials(), fetchCategories(), fetchUnits(), fetchOutlets()]);
     } finally {
       setLoading(false);
     }
@@ -147,6 +174,54 @@ const RawMaterials = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch raw materials");
     }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await masterAPI.downloadRawMaterialsTemplate();
+      const url = URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "raw-materials-upload-template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download template");
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (!bulkFile) {
+      toast.error("Choose a file first");
+      return;
+    }
+    setBulkUploading(true);
+    setBulkResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+      const response = await masterAPI.bulkUploadRawMaterials(formData);
+      const result = response.data?.data;
+      setBulkResult(result);
+      if (result?.failed > 0) {
+        toast.error(`${result.failed} row(s) failed`);
+      } else {
+        toast.success(`${result.created} created, ${result.updated} updated`);
+      }
+      await fetchMaterials();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Bulk upload failed");
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const closeBulkUpload = () => {
+    setShowBulkUpload(false);
+    setBulkFile(null);
+    setBulkResult(null);
   };
 
   const fetchCategories = async () => {
@@ -177,6 +252,19 @@ const RawMaterials = () => {
       setUnits(getRows(response));
     } catch (error) {
       setUnits([]);
+    }
+  };
+
+  const fetchOutlets = async () => {
+    try {
+      if (!masterAPI.getOutlets) {
+        setOutlets([]);
+        return;
+      }
+      const response = await masterAPI.getOutlets();
+      setOutlets(getRows(response));
+    } catch (error) {
+      setOutlets([]);
     }
   };
 
@@ -214,7 +302,7 @@ const RawMaterials = () => {
   const getMaterialUnit = (material) => {
     if (material?.unit_name) return material.unit_name;
 
-    const unit = getUnitById(material?.default_unit_id);
+    const unit = getUnitById(material?.unit_id);
     return unit?.unit_name || "-";
   };
 
@@ -239,7 +327,7 @@ const RawMaterials = () => {
         material.material_name || ""
       } ${categoryName || ""} ${unitName || ""} ${
         material.description || ""
-      }`.toLowerCase();
+      } ${material.hsn_code || ""} ${material.item_type || ""}`.toLowerCase();
 
       const searchMatch = text.includes(searchTerm.toLowerCase());
 
@@ -249,7 +337,7 @@ const RawMaterials = () => {
 
       const unitMatch =
         unitFilter === "all" ||
-        String(material.default_unit_id) === String(unitFilter);
+        String(material.unit_id) === String(unitFilter);
 
       const activeStatus = Number(material.is_active) === 1 ? "active" : "inactive";
       const statusMatch = statusFilter === "all" || activeStatus === statusFilter;
@@ -305,23 +393,111 @@ const RawMaterials = () => {
 
   const handleEdit = (material) => {
     setEditingId(material.id);
+    setOriginalUnitId(material.unit_id || "");
+    setUomChanged(false);
+    setUomConfirmed(false);
     setFormData({
       material_code: material.material_code || "",
       material_name: material.material_name || "",
       category_id: material.category_id || "",
-      default_unit_id: material.default_unit_id || "",
+      unit_id: material.unit_id || "",
       reorder_level: material.reorder_level || "",
       description: material.description || "",
+      item_type: material.item_type || "Raw Material",
+      hsn_code: material.hsn_code || "",
+      gst_rate: material.gst_rate ?? "",
+      transfer_price: material.transfer_price ?? "",
       is_active: Number(material.is_active) === 1 ? 1 : 0,
     });
     setShowForm(true);
     setSelectedMaterial(null);
   };
 
+  const fetchRates = useCallback(async (materialId) => {
+    if (!materialId) return;
+    try {
+      const params = { raw_material_id: materialId };
+      if (selectedOutletId && selectedOutletId !== "all") {
+        params.outlet_id = selectedOutletId;
+      }
+      const response = await masterAPI.getRawMaterialRates(params);
+      setRates(getRows(response));
+    } catch {
+      setRates([]);
+    }
+  }, [selectedOutletId]);
+
+  const openRateForm = (rate = null) => {
+    const defaultOutlet = (selectedOutletId && selectedOutletId !== "all") ? String(selectedOutletId) : "";
+    if (rate) {
+      setRateForm({
+        id: rate.id,
+        outlet_id: isOutletLocked ? defaultOutlet : String(rate.outlet_id || ""),
+        rate: rate.rate || "",
+        effective_from: rate.effective_from ? new Date(rate.effective_from).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        is_approved: Number(rate.is_approved) === 1 ? 1 : 0,
+      });
+    } else {
+      setRateForm({ id: null, outlet_id: defaultOutlet, rate: "", effective_from: new Date().toISOString().split("T")[0], is_approved: 1 });
+    }
+    setShowRateForm(true);
+  };
+
+  useEffect(() => {
+    if (activeTab === "rates" && selectedMaterial?.id) {
+      fetchRates(selectedMaterial.id);
+    }
+  }, [activeTab, selectedMaterial?.id, selectedOutletId]);
+
+  const closeRateForm = () => setShowRateForm(false);
+
+  const handleRateSubmit = async (event) => {
+    event.preventDefault();
+    if (!selectedMaterial) return;
+    if (!rateForm.rate) { toast.error("Enter rate"); return; }
+    if (!rateForm.effective_from) { toast.error("Enter effective from"); return; }
+    setRateLoading(true);
+    try {
+      const payload = {
+        raw_material_id: selectedMaterial.id,
+        outlet_id: rateForm.outlet_id || null,
+        rate: Number(rateForm.rate),
+        effective_from: rateForm.effective_from,
+        is_approved: Number(rateForm.is_approved),
+      };
+      if (rateForm.id) {
+        await masterAPI.updateRawMaterialRate(rateForm.id, payload);
+        toast.success("Rate updated");
+      } else {
+        await masterAPI.createRawMaterialRate(payload);
+        toast.success("Rate created");
+      }
+      closeRateForm();
+      await fetchRates(selectedMaterial.id);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Rate save failed");
+    } finally {
+      setRateLoading(false);
+    }
+  };
+
+  const handleRateDelete = async (id) => {
+    if (!window.confirm("Delete this rate?")) return;
+    try {
+      await masterAPI.deleteRawMaterialRate(id);
+      toast.success("Rate deleted");
+      await fetchRates(selectedMaterial.id);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Delete failed");
+    }
+  };
+
   const handleView = (material) => {
     setSelectedMaterial(material);
     setActiveTab("overview");
     setShowForm(false);
+    setShowRateForm(false);
+    fetchRates(material.id);
   };
 
   const handleDelete = async (id) => {
@@ -358,6 +534,33 @@ const RawMaterials = () => {
       return;
     }
 
+    if (formData.reorder_level !== "" && Number(formData.reorder_level) < 0) {
+      toast.error("Reorder level cannot be negative");
+      return;
+    }
+
+    if (formData.transfer_price !== "" && Number(formData.transfer_price) < 0) {
+      toast.error("Warehouse transfer price cannot be negative");
+      return;
+    }
+
+    if (editingId && uomChanged) {
+      const originalUnit = getUnitById(originalUnitId);
+      const newUnit = getUnitById(formData.unit_id);
+      if (!formData.unit_id) {
+        toast.error("Select a new base unit");
+        return;
+      }
+      if (originalUnit && newUnit && originalUnit.unit_type !== newUnit.unit_type) {
+        toast.error(`Incompatible unit type: ${originalUnit.unit_type} → ${newUnit.unit_type}`);
+        return;
+      }
+      if (!uomConfirmed) {
+        toast.error("Please confirm the Base UOM change");
+        return;
+      }
+    }
+
     setSaving(true);
 
     try {
@@ -365,9 +568,13 @@ const RawMaterials = () => {
         material_code: formData.material_code.trim(),
         material_name: formData.material_name.trim(),
         category_id: formData.category_id || null,
-        default_unit_id: formData.default_unit_id || null,
+        unit_id: formData.unit_id || null,
         reorder_level: formData.reorder_level ? Number(formData.reorder_level) : 0,
         description: formData.description || "",
+        item_type: formData.item_type || "Raw Material",
+        hsn_code: formData.hsn_code.trim() || null,
+        gst_rate: formData.gst_rate !== "" ? Number(formData.gst_rate) : null,
+        transfer_price: formData.transfer_price !== "" ? Number(formData.transfer_price) : null,
         is_active: Number(formData.is_active),
       };
 
@@ -393,6 +600,10 @@ const RawMaterials = () => {
       "Material Code",
       "Material Name",
       "Category",
+      "Item Type",
+      "HSN Code",
+      "GST Rate",
+      "Warehouse Transfer Price",
       "Default Unit",
       "Reorder Level",
       "Status",
@@ -405,6 +616,10 @@ const RawMaterials = () => {
       material.material_code || "",
       material.material_name || "",
       getMaterialCategory(material),
+      material.item_type || "",
+      material.hsn_code || "",
+      material.gst_rate !== null && material.gst_rate !== undefined ? material.gst_rate : "",
+      material.transfer_price !== null && material.transfer_price !== undefined ? material.transfer_price : "",
       getMaterialUnit(material),
       material.reorder_level || 0,
       Number(material.is_active) === 1 ? "Active" : "Inactive",
@@ -558,6 +773,15 @@ const RawMaterials = () => {
 
           <button
             type="button"
+            onClick={() => setShowBulkUpload(true)}
+            className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+          >
+            <Upload size={18} />
+            Bulk Upload
+          </button>
+
+          <button
+            type="button"
             onClick={openCreateForm}
             className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
             style={{ backgroundColor: primaryColor }}
@@ -694,22 +918,46 @@ const RawMaterials = () => {
 
               <div>
                 <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Default Unit
+                  Base / Inventory UOM
                 </label>
                 <select
-                  value={formData.default_unit_id}
-                  onChange={(event) =>
-                    setFormData({ ...formData, default_unit_id: event.target.value })
-                  }
+                  value={formData.unit_id}
+                  onChange={(event) => {
+                    const newUnitId = event.target.value;
+                    setFormData({ ...formData, unit_id: newUnitId });
+                    if (editingId) {
+                      setUomChanged(String(newUnitId) !== String(originalUnitId));
+                      setUomConfirmed(false);
+                    }
+                  }}
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
                 >
                   <option value="">Select Unit</option>
                   {units.map((unit) => (
                     <option key={unit.id} value={unit.id}>
-                      {unit.unit_name}
+                      {unit.unit_name} ({unit.unit_type})
                     </option>
                   ))}
                 </select>
+                {editingId && uomChanged && (
+                  <div className="mt-2 rounded-md border border-[#FF9F43] bg-[#FFF4E5] p-3 text-[13px] text-[#2F2B3D]">
+                    <p className="font-medium text-[#FF9F43]">
+                      Base UOM change will affect recipe conversions and costing.
+                    </p>
+                    <p className="mt-1">
+                      Changing from {getUnitById(originalUnitId)?.unit_name || "-"} to {getUnitById(formData.unit_id)?.unit_name || "-"}.
+                    </p>
+                    <label className="mt-2 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={uomConfirmed}
+                        onChange={(e) => setUomConfirmed(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>I understand and want to continue</span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -719,12 +967,80 @@ const RawMaterials = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.reorder_level}
                   onChange={(event) =>
                     setFormData({ ...formData, reorder_level: event.target.value })
                   }
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
                   placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  Item Type
+                </label>
+                <select
+                  value={formData.item_type}
+                  onChange={(event) =>
+                    setFormData({ ...formData, item_type: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                >
+                  {ITEM_TYPES.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  HSN Code
+                </label>
+                <input
+                  type="text"
+                  value={formData.hsn_code}
+                  onChange={(event) =>
+                    setFormData({ ...formData, hsn_code: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  placeholder="Example: 0401"
+                />
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  GST Rate
+                </label>
+                <select
+                  value={formData.gst_rate}
+                  onChange={(event) =>
+                    setFormData({ ...formData, gst_rate: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                >
+                  <option value="">Not set</option>
+                  {GST_RATES.map((rate) => (
+                    <option key={rate} value={rate}>{rate}%</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  Warehouse Transfer Price
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.transfer_price}
+                  onChange={(event) =>
+                    setFormData({ ...formData, transfer_price: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  placeholder="Price charged to outlets (per base unit)"
                 />
               </div>
 
@@ -906,6 +1222,7 @@ const RawMaterials = () => {
               {[
                 { key: "overview", label: "Overview", icon: Package },
                 { key: "stock", label: "Stock Control", icon: FileText },
+                { key: "rates", label: "Rates", icon: Coffee },
                 { key: "category", label: "Category", icon: Coffee },
                 { key: "activity", label: "Activity", icon: CheckCircle2 },
               ].map((tab) => {
@@ -1144,6 +1461,143 @@ const RawMaterials = () => {
                   </div>
                 </>
               )}
+
+              {activeTab === "rates" && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
+                        Material Rates
+                      </h3>
+                      <p className={`mt-1 text-[14px] ${mutedClass}`}>
+                        Approved rates are in {getMaterialUnit(selectedMaterial)} / unit.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openRateForm()}
+                      className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <Plus size={17} />
+                      Add Rate
+                    </button>
+                  </div>
+
+                  {showRateForm && (
+                    <form onSubmit={handleRateSubmit} className={`mt-6 rounded-md border p-5 ${cardClass}`}>
+                      <h4 className={`mb-4 text-[16px] font-semibold ${mainTextClass}`}>
+                        {rateForm.id ? "Edit Rate" : "New Rate"}
+                      </h4>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
+                        <div>
+                          <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Scope</label>
+                          <select
+                            value={rateForm.outlet_id === null || rateForm.outlet_id === "" ? "" : rateForm.outlet_id}
+                            onChange={(e) => setRateForm({ ...rateForm, outlet_id: e.target.value })}
+                            disabled={isOutletLocked}
+                            className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
+                          >
+                            <option value="">Global</option>
+                            {outlets.map((o) => (
+                              <option key={o.id} value={o.id}>{o.outlet_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Rate (₹ / {getMaterialUnit(selectedMaterial)})</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={rateForm.rate}
+                            onChange={(e) => setRateForm({ ...rateForm, rate: e.target.value })}
+                            className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`}
+                            placeholder="0.00"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Effective From</label>
+                          <input
+                            type="date"
+                            value={rateForm.effective_from}
+                            onChange={(e) => setRateForm({ ...rateForm, effective_from: e.target.value })}
+                            className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Status</label>
+                          <select
+                            value={rateForm.is_approved}
+                            onChange={(e) => setRateForm({ ...rateForm, is_approved: Number(e.target.value) })}
+                            className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`}
+                          >
+                            <option value={1}>Approved</option>
+                            <option value={0}>Pending</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end gap-2">
+                          <button
+                            type="submit"
+                            disabled={rateLoading}
+                            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            {rateLoading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            {rateForm.id ? "Update" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={closeRateForm}
+                            className={`rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="mt-6 overflow-x-auto">
+                    <table className="w-full min-w-[600px] border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#EBE9F1]">
+                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">Scope</th>
+                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">Rate</th>
+                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">Effective From</th>
+                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">Status</th>
+                          <th className="px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rates.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" className="px-4 py-8 text-center text-[14px] text-[#6F6B7D]">
+                              No rates configured. Add an approved rate to enable recipe costing.
+                            </td>
+                          </tr>
+                        ) : (
+                          rates.map((rate) => (
+                            <tr key={rate.id} className="border-b border-[#EBE9F1]">
+                              <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">{rate.outlet_name || "Global"}</td>
+                              <td className="px-4 py-3 text-[14px] font-semibold text-[#2F2B3D]">₹ {Number(rate.rate).toFixed(4)} / {getMaterialUnit(selectedMaterial)}</td>
+                              <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">{formatDate(rate.effective_from)}</td>
+                              <td className="px-4 py-3">
+                                <StatusBadge active={rate.is_approved} />
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button onClick={() => openRateForm(rate)} className="mr-2 text-[#7367F0] hover:underline"><Edit2 size={16} /></button>
+                                <button onClick={() => handleRateDelete(rate.id)} className="text-[#EA5455] hover:underline"><Trash2 size={16} /></button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1211,7 +1665,7 @@ const RawMaterials = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search Raw Material"
+                placeholder="Search by name, code or HSN code"
                 className={`h-12 w-full rounded-md border pl-11 pr-4 text-[15px] outline-none ${inputClass}`}
               />
             </div>
@@ -1291,6 +1745,9 @@ const RawMaterials = () => {
                     Category
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                    HSN / GST
+                  </th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Default Unit
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
@@ -1331,6 +1788,13 @@ const RawMaterials = () => {
 
                     <td className="px-6 py-4">
                       <CategoryBadge material={material} />
+                    </td>
+
+                    <td className="px-6 py-4 text-[13px] text-[#6F6B7D]">
+                      <div>{material.hsn_code || "-"}</div>
+                      {material.gst_rate !== null && material.gst_rate !== undefined && material.gst_rate !== "" && (
+                        <div className="text-[12px] text-[#A8AAAE]">{Number(material.gst_rate)}% GST</div>
+                      )}
                     </td>
 
                     <td className="px-6 py-4">
@@ -1393,6 +1857,89 @@ const RawMaterials = () => {
           </div>
         )}
       </div>
+
+      {showBulkUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-lg rounded-md border shadow-xl ${cardClass}`}>
+            <div className="flex items-center justify-between gap-4 border-b border-[#EBE9F1] p-5">
+              <h3 className={`text-[18px] font-semibold ${mainTextClass}`}>
+                Bulk Upload Raw Materials
+              </h3>
+              <button
+                type="button"
+                onClick={closeBulkUpload}
+                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <p className={`text-[14px] ${mutedClass}`}>
+                Existing material codes are updated; new codes are created. Category and Unit must already exist in Masters.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}
+              >
+                <Download size={16} />
+                Download Template
+              </button>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  Choose File
+                </label>
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  onChange={(event) => setBulkFile(event.target.files?.[0] || null)}
+                  className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
+                />
+              </div>
+
+              {bulkResult && (
+                <div className={`rounded-md border p-4 text-[14px] ${cardClass}`}>
+                  <p className={mainTextClass}>
+                    <strong>{bulkResult.created}</strong> created, <strong>{bulkResult.updated}</strong> updated
+                    {bulkResult.failed > 0 && <>, <strong className="text-[#EA5455]">{bulkResult.failed}</strong> failed</>}
+                    {" "}of {bulkResult.total} rows.
+                  </p>
+                  {bulkResult.errors?.length > 0 && (
+                    <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-[13px] text-[#EA5455]">
+                      {bulkResult.errors.map((err, idx) => (
+                        <li key={idx}>Row {err.row}: {err.message}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-[#EBE9F1] p-5">
+              <button
+                type="button"
+                onClick={closeBulkUpload}
+                className={`rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkUpload}
+                disabled={bulkUploading || !bulkFile}
+                className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] disabled:cursor-not-allowed disabled:opacity-70"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {bulkUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                {bulkUploading ? "Uploading…" : "Upload"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,37 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp,
   DollarSign,
   ShoppingCart,
-  AlertCircle,
   BookOpen,
   UploadCloud,
-  Search,
-  ArrowUpRight,
   Calendar,
   RefreshCw,
   Download,
-  Filter,
-  Coffee,
   FileText,
   Wallet,
   CheckCircle2,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
 import toast from "react-hot-toast";
 import useAuthStore from "../store/authStore";
 import {
@@ -62,12 +43,6 @@ const getThemeMode = () => {
   }
 };
 
-const fmt = (n = 0) =>
-  "₹" +
-  Number(n || 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 0,
-  });
-
 const fmtK = (n = 0) => {
   const value = Number(n || 0);
 
@@ -77,76 +52,6 @@ const fmtK = (n = 0) => {
 
   return `₹${value}`;
 };
-
-const trendData = [
-  { day: "Mon", sales: 12400, expenses: 8200 },
-  { day: "Tue", sales: 14800, expenses: 9100 },
-  { day: "Wed", sales: 11200, expenses: 7800 },
-  { day: "Thu", sales: 16500, expenses: 10200 },
-  { day: "Fri", sales: 18900, expenses: 11500 },
-  { day: "Sat", sales: 22100, expenses: 13800 },
-  { day: "Sun", sales: 15240, expenses: 9600 },
-];
-
-const earningData = [
-  { month: "Jan", orders: 28000, sales: 36000, profit: 12000, income: 42000 },
-  { month: "Feb", orders: 10000, sales: 31000, profit: 15000, income: 38000 },
-  { month: "Mar", orders: 46000, sales: 50000, profit: 22000, income: 57000 },
-  { month: "Apr", orders: 38000, sales: 43000, profit: 18000, income: 48000 },
-  { month: "May", orders: 30000, sales: 45200, profit: 12700, income: 51000 },
-  { month: "Jun", orders: 35000, sales: 48000, profit: 16000, income: 53000 },
-];
-
-const salesMix = [
-  { name: "RR Nagar", value: 45000, color: "#7367F0" },
-  { name: "Koramangala", value: 52000, color: "#00CFE8" },
-  { name: "HSR Layout", value: 48000, color: "#28C76F" },
-  { name: "M5 E-City", value: 41000, color: "#FF9F43" },
-  { name: "Jayanagar", value: 43800, color: "#EA5455" },
-];
-
-const recentTransactions = [
-  {
-    id: "#TXN-4821",
-    outlet: "Koramangala",
-    item: "Cappuccino × 12",
-    amount: 2880,
-    time: "2 min ago",
-    status: "success",
-  },
-  {
-    id: "#TXN-4820",
-    outlet: "HSR Layout",
-    item: "Burger Combo × 5",
-    amount: 1750,
-    time: "15 min ago",
-    status: "success",
-  },
-  {
-    id: "#TXN-4819",
-    outlet: "RR Nagar",
-    item: "Pasta Bowl × 8",
-    amount: 3200,
-    time: "28 min ago",
-    status: "pending",
-  },
-  {
-    id: "#TXN-4818",
-    outlet: "M5 E-City",
-    item: "Cold Coffee × 6",
-    amount: 1440,
-    time: "45 min ago",
-    status: "success",
-  },
-  {
-    id: "#TXN-4817",
-    outlet: "Jayanagar",
-    item: "Sandwich × 10",
-    amount: 2100,
-    time: "1 hr ago",
-    status: "failed",
-  },
-];
 
 const quickActions = [
   {
@@ -192,25 +97,6 @@ const quickActions = [
     bg: "#F3F2F7",
   },
 ];
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-
-  return (
-    <div className="max-w-[220px] rounded-md border border-[#3B405A] bg-[#2F3349] px-4 py-3 text-xs shadow-2xl">
-      <p className="mb-2 truncate font-semibold text-[#A5A8B6]">{label}</p>
-
-      <div className="space-y-1">
-        {payload.map((item) => (
-          <p key={item.name} className="truncate" style={{ color: item.color }}>
-            {item.name}:{" "}
-            <span className="font-semibold text-white">{fmt(item.value)}</span>
-          </p>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 const MiniBars = ({ color = "#7367F0" }) => {
   const bars = [60, 42, 28, 52, 68, 45, 72];
@@ -312,32 +198,10 @@ const StatCard = ({
   );
 };
 
-const StatusBadge = ({ status }) => {
-  const styles = {
-    success: "bg-[#E9F9EF] text-[#28C76F]",
-    pending: "bg-[#FFF4E5] text-[#FF9F43]",
-    failed: "bg-[#FCEAEA] text-[#EA5455]",
-  };
-
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase ${
-        styles[status] || styles.pending
-      }`}
-    >
-      {status}
-    </span>
-  );
-};
-
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
 
-  const [activeTab, setActiveTab] = useState("orders");
-  const [period, setPeriod] = useState("week");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -350,12 +214,6 @@ const Dashboard = () => {
   const firstName = user?.full_name?.split(" ")?.[0] || "User";
   const permissions = getStoredPermissions();
   const selectedOutletId = getSelectedOutletId();
-
-  const isAdmin =
-    roleName === "Super Admin" ||
-    roleName === "Admin" ||
-    roleName === "Developer" ||
-    roleName === "Technical Admin";
 
   const totalSales = Number(summary?.net_sales || 0);
   const totalExpenses = Number(summary?.daily_expenses || 0);
@@ -384,23 +242,15 @@ const Dashboard = () => {
     return () => window.removeEventListener("bbc:selected-outlet-change", handler);
   }, []);
 
-  const filteredTransactions = useMemo(() => {
-    return recentTransactions.filter((tx) => {
-      const searchMatch =
-        tx.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tx.item.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tx.outlet.toLowerCase().includes(searchTerm.toLowerCase());
-
-      const statusMatch = statusFilter === "all" || tx.status === statusFilter;
-
-      return searchMatch && statusMatch;
-    });
-  }, [searchTerm, statusFilter]);
-
   const today = new Date().toLocaleDateString("en-IN", {
     weekday: "long",
     day: "2-digit",
     month: "short",
+    year: "numeric",
+  });
+
+  const currentMonthLabel = new Date().toLocaleDateString("en-IN", {
+    month: "long",
     year: "numeric",
   });
 
@@ -468,7 +318,7 @@ const Dashboard = () => {
               className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
             >
               <Calendar size={18} className="shrink-0" />
-              <span className="truncate">May 2026</span>
+              <span className="truncate">{currentMonthLabel}</span>
             </button>
 
             <button
@@ -494,7 +344,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5 xl:gap-6">
+        <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-6">
           <StatCard
             title="Gross Sales"
             subtitle={loading ? "Loading..." : "PetPooja sales"}
@@ -536,474 +386,6 @@ const Dashboard = () => {
             color="#28C76F"
             bg="#E9F9EF"
           />
-
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
-            <div className="flex min-w-0 items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className={`truncate text-[18px] font-semibold md:text-[20px] ${mainTextClass}`}>
-                  Revenue Growth
-                </h3>
-                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
-                  Weekly Report
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="shrink-0 rounded-md p-2 text-white"
-                style={{ backgroundColor: primaryColor }}
-              >
-                <Coffee size={20} />
-              </button>
-            </div>
-
-            <div className="mt-7 flex min-w-0 items-end justify-between gap-4">
-              <div className="min-w-0">
-                <p className={`truncate text-[26px] font-semibold md:text-[34px] ${mainTextClass}`}>
-                  ₹4,673
-                </p>
-                <span className="mt-3 inline-flex rounded bg-[#E9F9EF] px-2.5 py-1 text-[14px] font-medium text-[#28C76F]">
-                  +15.2%
-                </span>
-              </div>
-
-              <div className="flex h-[120px] max-w-[150px] shrink-0 items-end gap-2 overflow-hidden sm:gap-3">
-                {[42, 58, 72, 90, 110, 92, 72].map((height, index) => (
-                  <div
-                    key={index}
-                    className="w-3 shrink-0 rounded-full bg-[#DDF5E8] sm:w-4"
-                    style={{ height }}
-                  >
-                    <div
-                      className="w-full rounded-full bg-[#28C76F]"
-                      style={{
-                        height: index === 4 ? height : 0,
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {isAdmin && (
-          <div className="grid w-full max-w-full grid-cols-1 gap-4 lg:grid-cols-3">
-            {[
-              {
-                icon: AlertCircle,
-                title: "12 pending approvals",
-                sub: "Daily expenses waiting for verification",
-                color: "#FF9F43",
-                bg: "#FFF4E5",
-              },
-              {
-                icon: AlertCircle,
-                title: "8 missing recipes",
-                sub: "Menu items without BOM configured",
-                color: "#EA5455",
-                bg: "#FCEAEA",
-              },
-              {
-                icon: RefreshCw,
-                title: "Sync due for M5 E-City",
-                sub: "Last synced 3 hours ago",
-                color: "#00CFE8",
-                bg: "#E6FAFD",
-              },
-            ].map((alert) => {
-              const Icon = alert.icon;
-
-              return (
-                <button
-                  key={alert.title}
-                  type="button"
-                  className="flex min-w-0 items-center gap-4 overflow-hidden rounded-md border border-[#EBE9F1] bg-white p-4 text-left shadow-[0_2px_12px_rgba(47,43,61,0.06)] transition hover:-translate-y-0.5 dark:border-[#3B405A] dark:bg-[#2F3349]"
-                >
-                  <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md"
-                    style={{ color: alert.color, backgroundColor: alert.bg }}
-                  >
-                    <Icon size={21} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6]">
-                      {alert.title}
-                    </p>
-                    <p className="mt-0.5 line-clamp-2 text-[13px] text-[#6F6B7D] dark:text-[#A5A8B6]">
-                      {alert.sub}
-                    </p>
-                  </div>
-
-                  <ArrowUpRight size={17} className="shrink-0" style={{ color: alert.color }} />
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="grid w-full max-w-full grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
-            <div className="flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-start">
-              <div className="min-w-0">
-                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
-                  Earning Reports
-                </h3>
-                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
-                  Yearly Earnings Overview
-                </p>
-              </div>
-
-              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
-            </div>
-
-            <div className="mt-8 grid w-full max-w-full grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-4">
-              {[
-                { key: "orders", label: "Orders", icon: ShoppingCart },
-                { key: "sales", label: "Sales", icon: TrendingUp },
-                { key: "profit", label: "Profit", icon: DollarSign },
-                { key: "income", label: "Income", icon: Wallet },
-              ].map((tab) => {
-                const Icon = tab.icon;
-                const active = activeTab === tab.key;
-
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`flex h-[105px] min-w-0 flex-col items-center justify-center rounded-md border border-dashed text-center transition md:h-[115px] ${
-                      isDark ? "border-[#3B405A]" : ""
-                    }`}
-                    style={{
-                      borderColor: active ? primaryColor : "#DBDADE",
-                      backgroundColor: active ? `${primaryColor}08` : "transparent",
-                      color: active ? primaryColor : undefined,
-                    }}
-                  >
-                    <div
-                      className="mb-3 flex h-10 w-10 items-center justify-center rounded-md md:h-11 md:w-11"
-                      style={{
-                        backgroundColor: active
-                          ? `${primaryColor}18`
-                          : isDark
-                          ? "#25293C"
-                          : "#F3F2F7",
-                      }}
-                    >
-                      <Icon size={22} />
-                    </div>
-                    <span className="max-w-full truncate px-2 text-[14px] font-medium md:text-[16px]">
-                      {tab.label}
-                    </span>
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                className="flex h-[105px] min-w-0 flex-col items-center justify-center rounded-md border border-dashed border-[#DBDADE] text-center text-[#A8AAAE] dark:border-[#3B405A] md:h-[115px]"
-              >
-                <span className="text-[34px] leading-none">+</span>
-              </button>
-            </div>
-
-            <div className="mt-8 h-[260px] w-full min-w-0 overflow-hidden md:h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={earningData} barCategoryGap="35%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EBE9F1" vertical={false} />
-                  <XAxis
-                    dataKey="month"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={fmtK}
-                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
-                    width={48}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: "#F8F7FA" }} />
-                  <Bar
-                    dataKey={activeTab}
-                    fill={primaryColor}
-                    radius={[8, 8, 0, 0]}
-                    maxBarSize={34}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
-            <div className="flex min-w-0 items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
-                  Sales
-                </h3>
-                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
-                  Last 6 Months
-                </p>
-              </div>
-
-              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
-            </div>
-
-            <div className="mt-8 h-[230px] w-full min-w-0 overflow-hidden md:h-[245px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={salesMix}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={58}
-                    outerRadius={92}
-                    paddingAngle={3}
-                    dataKey="value"
-                    strokeWidth={0}
-                  >
-                    {salesMix.map((item) => (
-                      <Cell key={item.name} fill={item.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => fmt(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {salesMix.map((item) => {
-                const percentage =
-                  totalSales > 0 ? Math.round((item.value / totalSales) * 100) : 0;
-
-                return (
-                  <div key={item.name} className="flex min-w-0 items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className={`truncate text-[14px] ${mutedClass}`}>
-                        {item.name}
-                      </span>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span className={`text-[14px] font-semibold ${mainTextClass}`}>
-                        {fmtK(item.value)}
-                      </span>
-                      <span className={`text-[13px] ${mutedClass}`}>{percentage}%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid w-full max-w-full grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,430px)]">
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
-            <div className="flex min-w-0 flex-col justify-between gap-4 md:flex-row md:items-start">
-              <div className="min-w-0">
-                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
-                  Sales vs Expenses
-                </h3>
-                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
-                  Weekly operational performance
-                </p>
-              </div>
-
-              <div className="grid w-full grid-cols-3 rounded-md border border-[#DBDADE] p-1 dark:border-[#3B405A] md:w-auto">
-                {["week", "month", "year"].map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setPeriod(item)}
-                    className="min-w-0 rounded px-3 py-2 text-[13px] font-semibold capitalize md:px-4"
-                    style={
-                      period === item
-                        ? { backgroundColor: primaryColor, color: "#fff" }
-                        : { color: isDark ? "#A5A8B6" : "#6F6B7D" }
-                    }
-                  >
-                    <span className="truncate">{item}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-8 h-[260px] w-full min-w-0 overflow-hidden md:h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={primaryColor} stopOpacity={0.22} />
-                      <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="expenseGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#FF9F43" stopOpacity={0.18} />
-                      <stop offset="95%" stopColor="#FF9F43" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EBE9F1" vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
-                  />
-                  <YAxis
-                    tickFormatter={fmtK}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#A8AAAE", fontSize: 12 }}
-                    width={48}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="sales"
-                    name="Sales"
-                    stroke={primaryColor}
-                    strokeWidth={3}
-                    fill="url(#salesGradient)"
-                    dot={false}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="expenses"
-                    name="Expenses"
-                    stroke="#FF9F43"
-                    strokeWidth={3}
-                    fill="url(#expenseGradient)"
-                    dot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
-            <div className="flex min-w-0 items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
-                  Recent Transactions
-                </h3>
-                <p className={`mt-1 truncate text-[14px] md:text-[15px] ${mutedClass}`}>
-                  {selectedOutletId === "all" ? "All outlets" : "Selected outlet"}
-                </p>
-              </div>
-
-              <button className={`shrink-0 text-[28px] ${mutedClass}`}>⋮</button>
-            </div>
-
-            <div className="mt-5 grid w-full grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px] xl:grid-cols-1">
-              <div className="relative min-w-0">
-                <Search
-                  size={18}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
-                />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search transactions..."
-                  className="h-11 w-full min-w-0 rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
-                />
-              </div>
-
-              <div className="relative min-w-0">
-                <Filter
-                  size={17}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
-                />
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                  className="h-11 w-full min-w-0 appearance-none rounded-md border border-[#DBDADE] bg-white pl-11 pr-4 text-[14px] text-[#2F2B3D] outline-none focus:border-[#7367F0] dark:border-[#3B405A] dark:bg-[#25293C] dark:text-[#D0D2D6]"
-                >
-                  <option value="all">All</option>
-                  <option value="success">Success</option>
-                  <option value="pending">Pending</option>
-                  <option value="failed">Failed</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-2">
-              {filteredTransactions.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#DBDADE] p-8 text-center dark:border-[#3B405A]">
-                  <Search size={26} className="mx-auto text-[#A8AAAE]" />
-                  <p className={`mt-3 text-[15px] font-semibold ${mainTextClass}`}>
-                    No transactions found
-                  </p>
-                  <p className={`mt-1 text-[13px] ${mutedClass}`}>
-                    Try different search or filter.
-                  </p>
-                </div>
-              ) : (
-                filteredTransactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-md p-3 transition hover:bg-[#F8F7FA] dark:hover:bg-[#25293C]"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md"
-                        style={{
-                          backgroundColor:
-                            tx.status === "success"
-                              ? "#E9F9EF"
-                              : tx.status === "pending"
-                              ? "#FFF4E5"
-                              : "#FCEAEA",
-                          color:
-                            tx.status === "success"
-                              ? "#28C76F"
-                              : tx.status === "pending"
-                              ? "#FF9F43"
-                              : "#EA5455",
-                        }}
-                      >
-                        <DollarSign size={18} />
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className={`truncate text-[14px] font-semibold ${mainTextClass}`}>
-                          {tx.item}
-                        </p>
-                        <p className={`mt-0.5 truncate text-[12px] ${mutedClass}`}>
-                          {tx.outlet} · {tx.time}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 text-right">
-                      <p className={`text-[14px] font-semibold ${mainTextClass}`}>
-                        {fmt(tx.amount)}
-                      </p>
-                      <div className="mt-1">
-                        <StatusBadge status={tx.status} />
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => navigate("/sales/item-sales")}
-              className="mt-5 flex w-full min-w-0 items-center justify-center gap-2 rounded-md border border-[#DBDADE] px-4 py-3 text-[15px] font-medium text-[#6F6B7D] hover:bg-[#F8F7FA] dark:border-[#3B405A] dark:text-[#A5A8B6] dark:hover:bg-[#25293C]"
-            >
-              <span className="truncate">View All Transactions</span>
-              <ArrowUpRight size={16} className="shrink-0" />
-            </button>
-          </div>
         </div>
 
         <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>

@@ -219,6 +219,11 @@ const Suppliers = () => {
       return;
     }
 
+    if (formData.gstin.trim() && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(formData.gstin.trim().toUpperCase())) {
+      toast.error("GSTIN format is invalid (expected format: 22AAAAA0000A1Z5)");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -686,6 +691,7 @@ const Suppliers = () => {
                 <input
                   type="text"
                   value={formData.gstin}
+                  maxLength={15}
                   onChange={(event) =>
                     setFormData({ ...formData, gstin: event.target.value.toUpperCase() })
                   }

@@ -15,6 +15,7 @@ import {
   RefreshCw,
   DollarSign,
   FileText,
+  Upload,
 } from "lucide-react";
 import { masterAPI } from "../../services/api";
 import toast from "react-hot-toast";
@@ -43,12 +44,16 @@ const getThemeMode = () => {
   }
 };
 
+const GST_RATES = ["0", "5", "12", "18", "28"];
+
 const emptyForm = () => ({
   item_code: "",
   item_name: "",
   category_id: "",
   selling_price: "",
   description: "",
+  hsn_code: "",
+  gst_rate: "",
   is_active: 1,
 });
 
@@ -105,6 +110,11 @@ const MenuItems = () => {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -146,6 +156,54 @@ const MenuItems = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch menu items");
     }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await masterAPI.downloadMenuItemsTemplate();
+      const url = URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "menu-items-upload-template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download template");
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (!bulkFile) {
+      toast.error("Choose a file first");
+      return;
+    }
+    setBulkUploading(true);
+    setBulkResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+      const response = await masterAPI.bulkUploadMenuItems(formData);
+      const result = response.data?.data;
+      setBulkResult(result);
+      if (result?.failed > 0) {
+        toast.error(`${result.failed} row(s) failed`);
+      } else {
+        toast.success(`${result.created} created, ${result.updated} updated`);
+      }
+      await fetchItems();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Bulk upload failed");
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const closeBulkUpload = () => {
+    setShowBulkUpload(false);
+    setBulkFile(null);
+    setBulkResult(null);
   };
 
   const fetchCategories = async () => {
@@ -210,7 +268,7 @@ const MenuItems = () => {
 
       const text = `${item.item_code || ""} ${item.item_name || ""} ${
         categoryName || ""
-      } ${item.description || ""}`.toLowerCase();
+      } ${item.description || ""} ${item.hsn_code || ""}`.toLowerCase();
 
       const searchMatch = text.includes(searchTerm.toLowerCase());
 
@@ -266,6 +324,8 @@ const MenuItems = () => {
       category_id: item.category_id || "",
       selling_price: item.selling_price || "",
       description: item.description || "",
+      hsn_code: item.hsn_code || "",
+      gst_rate: item.gst_rate ?? "",
       is_active: Number(item.is_active) === 1 ? 1 : 0,
     });
     setShowForm(true);
@@ -312,6 +372,11 @@ const MenuItems = () => {
       return;
     }
 
+    if (formData.selling_price !== "" && Number(formData.selling_price) < 0) {
+      toast.error("Selling price cannot be negative");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -323,6 +388,8 @@ const MenuItems = () => {
           ? Number(formData.selling_price)
           : 0,
         description: formData.description || "",
+        hsn_code: formData.hsn_code.trim() || null,
+        gst_rate: formData.gst_rate !== "" ? Number(formData.gst_rate) : null,
         is_active: Number(formData.is_active),
       };
 
@@ -349,6 +416,8 @@ const MenuItems = () => {
       "Item Name",
       "Category",
       "Selling Price",
+      "HSN Code",
+      "GST Rate",
       "Status",
       "Description",
       "Created At",
@@ -360,6 +429,8 @@ const MenuItems = () => {
       item.item_name || "",
       getItemCategory(item),
       item.selling_price || 0,
+      item.hsn_code || "",
+      item.gst_rate !== null && item.gst_rate !== undefined ? item.gst_rate : "",
       Number(item.is_active) === 1 ? "Active" : "Inactive",
       item.description || "",
       formatDate(item.created_at),
@@ -500,6 +571,15 @@ const MenuItems = () => {
           >
             <Download size={18} />
             Export
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowBulkUpload(true)}
+            className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+          >
+            <Upload size={18} />
+            Bulk Upload
           </button>
 
           <button
@@ -645,6 +725,7 @@ const MenuItems = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.selling_price}
                   onChange={(event) =>
                     setFormData({
@@ -655,6 +736,39 @@ const MenuItems = () => {
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
                   placeholder="0.00"
                 />
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  HSN/SAC Code
+                </label>
+                <input
+                  type="text"
+                  value={formData.hsn_code}
+                  onChange={(event) =>
+                    setFormData({ ...formData, hsn_code: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  placeholder="Example: 996331"
+                />
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  GST Rate
+                </label>
+                <select
+                  value={formData.gst_rate}
+                  onChange={(event) =>
+                    setFormData({ ...formData, gst_rate: event.target.value })
+                  }
+                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                >
+                  <option value="">Not set</option>
+                  {GST_RATES.map((rate) => (
+                    <option key={rate} value={rate}>{rate}%</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1106,7 +1220,7 @@ const MenuItems = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search Menu Item"
+                placeholder="Search by name, code or HSN code"
                 className={`h-12 w-full rounded-md border pl-11 pr-4 text-[15px] outline-none ${inputClass}`}
               />
             </div>
@@ -1189,6 +1303,9 @@ const MenuItems = () => {
                     Selling Price
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                    HSN / GST
+                  </th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Description
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
@@ -1230,6 +1347,13 @@ const MenuItems = () => {
 
                     <td className="px-6 py-4 text-[14px] font-semibold text-[#2F2B3D]">
                       {formatINR(item.selling_price)}
+                    </td>
+
+                    <td className="px-6 py-4 text-[13px] text-[#6F6B7D]">
+                      <div>{item.hsn_code || "-"}</div>
+                      {item.gst_rate !== null && item.gst_rate !== undefined && item.gst_rate !== "" && (
+                        <div className="text-[12px] text-[#A8AAAE]">{Number(item.gst_rate)}% GST</div>
+                      )}
                     </td>
 
                     <td className="max-w-[280px] px-6 py-4 text-[14px] text-[#6F6B7D]">
@@ -1290,6 +1414,89 @@ const MenuItems = () => {
           </div>
         )}
       </div>
+
+      {showBulkUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-lg rounded-md border shadow-xl ${cardClass}`}>
+            <div className="flex items-center justify-between gap-4 border-b border-[#EBE9F1] p-5">
+              <h3 className={`text-[18px] font-semibold ${mainTextClass}`}>
+                Bulk Upload Menu Items
+              </h3>
+              <button
+                type="button"
+                onClick={closeBulkUpload}
+                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <p className={`text-[14px] ${mutedClass}`}>
+                Existing item codes are updated; new codes are created. Category must already exist in Masters.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}
+              >
+                <Download size={16} />
+                Download Template
+              </button>
+
+              <div>
+                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                  Choose File
+                </label>
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  onChange={(event) => setBulkFile(event.target.files?.[0] || null)}
+                  className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
+                />
+              </div>
+
+              {bulkResult && (
+                <div className={`rounded-md border p-4 text-[14px] ${cardClass}`}>
+                  <p className={mainTextClass}>
+                    <strong>{bulkResult.created}</strong> created, <strong>{bulkResult.updated}</strong> updated
+                    {bulkResult.failed > 0 && <>, <strong className="text-[#EA5455]">{bulkResult.failed}</strong> failed</>}
+                    {" "}of {bulkResult.total} rows.
+                  </p>
+                  {bulkResult.errors?.length > 0 && (
+                    <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-[13px] text-[#EA5455]">
+                      {bulkResult.errors.map((err, idx) => (
+                        <li key={idx}>Row {err.row}: {err.message}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-[#EBE9F1] p-5">
+              <button
+                type="button"
+                onClick={closeBulkUpload}
+                className={`rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkUpload}
+                disabled={bulkUploading || !bulkFile}
+                className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] disabled:cursor-not-allowed disabled:opacity-70"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {bulkUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                {bulkUploading ? "Uploading…" : "Upload"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

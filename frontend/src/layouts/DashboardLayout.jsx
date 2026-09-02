@@ -30,12 +30,51 @@ import {
   AlertCircle,
   CalendarDays,
   Grid3X3,
+  ClipboardCheck,
+  BookOpen,
+  ArrowRightLeft,
+  Scale,
+  Truck,
+  ChefHat,
+  Trash2,
+  BarChart3,
+  PackageCheck,
+  SlidersHorizontal,
+  AlertTriangle,
 } from "lucide-react";
 import useAuthStore from "../store/authStore";
-import { authAPI, masterAPI } from "../services/api";
+import { authAPI, masterAPI, notificationAPI } from "../services/api";
 import toast from "react-hot-toast";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { displayLabel } from "../utils/displayLabels";
 
 const LOGO_SRC = "/logo.webp";
+
+// Sidebar motion settings adapted from the Animate UI spring/highlight feel.
+// Kept intentionally subtle for the Big Bean Café ERP.
+const SIDEBAR_SPRING = {
+  type: "spring",
+  stiffness: 350,
+  damping: 35,
+  mass: 0.9,
+};
+
+const MENU_HIGHLIGHT_SPRING = {
+  type: "spring",
+  stiffness: 420,
+  damping: 32,
+  mass: 0.8,
+};
+
+const SUBMENU_TRANSITION = {
+  duration: 0.2,
+  ease: [0.25, 0.1, 0.25, 1],
+};
+
+const CHEVRON_TRANSITION = {
+  duration: 0.18,
+  ease: "easeInOut",
+};
 
 const normalizeRole = (role = "") => role.trim();
 
@@ -44,7 +83,9 @@ const ALL_OUTLET_ROLES = [
   "Super Admin",
   "Admin",
   "Developer",
-  "HO Accounts Admin",
+  "Accountant",
+  "Warehouse Admin",
+  "Central Kitchen Admin",
   "Viewer / Auditor",
   "Viewer Auditor",
   "Viewer",
@@ -57,7 +98,9 @@ const buildPermissions = (roleName = "User") => {
   const isTechnical = role === "Technical Admin";
   const isSuper = role === "Super Admin";
   const isLegacyAdmin = role === "Admin" || role === "Developer";
-  const isHO = role === "HO Accounts Admin";
+  const isAccountant = role === "Accountant";
+  const isWarehouseAdmin = role === "Warehouse Admin";
+  const isCentralKitchenAdmin = role === "Central Kitchen Admin";
   const isManager = role === "Outlet Manager" || role === "Outlet Admin";
   const isStaff = role === "Outlet Staff";
   const isViewer = role === "Viewer / Auditor" || role === "Viewer Auditor" || role === "Viewer";
@@ -72,31 +115,33 @@ const buildPermissions = (roleName = "User") => {
     canManageUsers: isSuper || isLegacyAdmin || isTechnical,
     canManageRoles: isSuper || isLegacyAdmin || isTechnical,
     canManageOutlets: isSuper || isLegacyAdmin || isTechnical,
-    canManageMasters: isSuper || isLegacyAdmin || isTechnical || isHO,
+    canManageMasters: isSuper || isLegacyAdmin || isTechnical || isWarehouseAdmin,
     canDeleteMaster: isSuper,
-    canCreateCashbook: isSuper || isLegacyAdmin || isHO || isManager,
-    canSubmitCashbook: isSuper || isLegacyAdmin || isHO || isManager,
-    canVerifyCashbook: isSuper || isLegacyAdmin || isHO,
-    canCreateExpense: isSuper || isLegacyAdmin || isHO || isManager || isStaff,
-    canSubmitExpense: isSuper || isLegacyAdmin || isHO || isManager,
-    canApproveExpense: isSuper || isLegacyAdmin || isHO,
-    canRejectExpense: isSuper || isLegacyAdmin || isHO,
-    canUploadStock: isSuper || isLegacyAdmin || isTechnical || isHO,
-    canUploadPurchase: isSuper || isLegacyAdmin || isTechnical || isHO,
-    canUploadSales: isSuper || isLegacyAdmin || isTechnical || isHO,
-    canViewPayroll: isSuper || isLegacyAdmin || isTechnical || isHO || isManager || isViewer,
-    canCreatePayroll: isSuper || isLegacyAdmin || isHO,
-    canSubmitPayroll: isSuper || isLegacyAdmin || isHO || isManager,
-    canVerifyPayroll: isSuper || isLegacyAdmin || isHO,
+    canCreateCashbook: isSuper || isLegacyAdmin || isManager,
+    canSubmitCashbook: isSuper || isLegacyAdmin || isManager,
+    canVerifyCashbook: isSuper || isLegacyAdmin || isAccountant,
+    canCreateExpense: isSuper || isLegacyAdmin || isManager || isStaff,
+    canSubmitExpense: isSuper || isLegacyAdmin || isManager,
+    canApproveExpense: isSuper || isLegacyAdmin || isAccountant,
+    canRejectExpense: isSuper || isLegacyAdmin || isAccountant,
+    canUploadStock: isSuper || isLegacyAdmin || isTechnical || isManager,
+    canUploadPurchase: isSuper || isLegacyAdmin || isTechnical || isManager,
+    canUploadSales: isSuper || isLegacyAdmin || isTechnical,
+    canViewPayroll: isSuper || isLegacyAdmin || isTechnical || isAccountant || isManager || isViewer,
+    canCreatePayroll: isSuper || isLegacyAdmin || isAccountant,
+    canSubmitPayroll: isSuper || isLegacyAdmin || isManager,
+    canVerifyPayroll: isSuper || isLegacyAdmin || isAccountant,
     canApprovePayroll: isSuper || isLegacyAdmin,
-    canViewPayouts: isSuper || isLegacyAdmin || isTechnical || isHO || isManager || isViewer,
-    canManagePayouts: isSuper || isLegacyAdmin || isHO,
+    canViewPayouts: isSuper || isLegacyAdmin || isTechnical || isAccountant || isManager || isViewer,
+    canManagePayouts: isSuper || isLegacyAdmin || isAccountant,
     canViewReports: !isStaff,
-    canViewPL: !isStaff && (isSuper || isLegacyAdmin || isTechnical || isHO || isManager || isViewer),
-    canViewCompanyPL: isSuper || isLegacyAdmin || isTechnical || isHO || isViewer,
+    canViewPL: !isStaff && (isSuper || isLegacyAdmin || isTechnical || isAccountant || isManager || isViewer),
+    canViewCompanyPL: isSuper || isLegacyAdmin || isTechnical || isAccountant || isViewer,
     canLockDay: isSuper || isLegacyAdmin,
-    canLockMonth: isSuper || isLegacyAdmin,
+    canLockMonth: isSuper || isLegacyAdmin || isAccountant,
     canEmergencyCorrect: isTechnical,
+    isWarehouseAdmin,
+    isCentralKitchenAdmin,
   };
 };
 
@@ -127,33 +172,76 @@ const LANGUAGES = {
     outlets: "Outlets",
     categories: "Categories",
     suppliers: "Suppliers",
+    outletVendors: "Outlet Vendors",
     rawMaterials: "Raw Materials",
     menuItems: "Menu Items",
+    locationManagement: "Location Management",
     dailyAccounts: "Daily Outlet Accounts",
     cashbook: "Daily Cashbook",
     expenses: "Daily Cash Expenses",
+    bankDeposits: "Bank Deposits",
     dayClosing: "Day Closing",
     checklist: "Daily Checklist",
-    payroll: "Payroll",
+    vendorPurchases: "Vendor Purchases",
+    payroll: "Payroll & Fixed Costs",
     employeeSalary: "Employee Salary",
+    utilityBills: "Utility Bills",
+    fixedCosts: "Fixed Costs",
     stock: "Stock",
     openingStock: "Opening Stock Upload",
     closingStock: "Closing Stock Upload",
     purchases: "Purchases",
     materialPurchase: "Material Purchase Upload",
+    supplierPayments: "Supplier Payments",
     sales: "Sales",
     itemSales: "Item-wise Sales Upload",
-    recipe: "Recipe / BOM",
+    dailySalesUpload: "Daily Sales Upload",
+    monthlySalesUpload: "Monthly Sales Upload",
+    itemTaxUpload: "Item Tax Report",
+    recipe: "Recipe / SOP",
     recipeList: "Recipe List",
     addRecipe: "Add Recipe",
-    payouts: "Payouts",
+    payouts: "Month-End Entries",
     onlinePayouts: "Online Order Payouts",
     dineInPayouts: "Dine-in Portal Payouts",
     reports: "Reports",
     dailyCashbookReport: "Daily Cashbook Report",
     expenseReport: "Expense Report",
     actualConsumption: "Actual Consumption Report",
+    theoreticalConsumption: "Theoretical Consumption Report",
+    supplierPending: "Supplier Outstanding Report",
+    consumptionVariance: "Consumption Variance Report",
+    purchaseGST: "Purchase GST Report",
+    salesGST: "Sales GST Report",
+    outletComparison: "Outlet Comparison Report",
     monthlyPL: "Monthly Outlet P&L",
+    warehouse: "Warehouse",
+    warehouseDashboard: "Dashboard",
+    warehouseCurrentStock: "Current Stock",
+    warehouseGRN: "GRN",
+    warehouseLedger: "Stock Ledger",
+    warehouseBatchExpiry: "Batch & Expiry",
+    warehousePurchaseReturns: "Purchase Returns",
+    warehouseRequisitions: "Requisitions",
+    warehouseTransfers: "Transfers",
+    warehousePhysicalCount: "Physical Count",
+    warehouseAdjustments: "Stock Adjustments",
+    warehouseWastage: "Wastage & Damage",
+    warehousePurchaseOrders: "Purchase Orders",
+    warehouseSupplierHistory: "Supplier History",
+    warehouseReorder: "Low Stock / Reorder",
+    warehouseReports: "Reports",
+    warehouseSettings: "Settings",
+    centralKitchen: "Bakehouse",
+    centralKitchenDashboard: "Dashboard",
+    centralKitchenRequests: "Requests",
+    centralKitchenPlanning: "Planning",
+    centralKitchenBatches: "Batches",
+    centralKitchenWastage: "Wastage",
+    centralKitchenVariance: "Variance",
+    centralKitchenDispatches: "Dispatches",
+    centralKitchenFinishedStock: "Finished Stock",
+    receiveDispatch: "Receive Dispatch",
     search: "Search ⌘K",
     popularSearches: "Popular Searches",
     apps: "Apps",
@@ -195,44 +283,19 @@ const getStored = () => ({
   content: localStorage.getItem("bbc_content") || "compact",
 });
 
-const getStoredNotifications = () => {
-  try {
-    const saved = localStorage.getItem("bbc_notifications");
-    if (saved) return JSON.parse(saved);
-  } catch {
-    // ignore
-  }
-
-  return [
-    {
-      id: 1,
-      title: "Stock Upload Pending",
-      message: "RR Nagar closing stock upload is pending.",
-      type: "warning",
-      time: "Today",
-      read: false,
-    },
-    {
-      id: 2,
-      title: "Daily Cashbook Verification",
-      message: "Today cashbook verification is required.",
-      type: "info",
-      time: "Today",
-      read: false,
-    },
-    {
-      id: 3,
-      title: "Purchase Upload Completed",
-      message: "Material purchase file processed successfully.",
-      type: "success",
-      time: "Yesterday",
-      read: true,
-    },
-  ];
+const timeAgo = (dateStr) => {
+  if (!dateStr) return "";
+  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+  if (diff < 60)   return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(dateStr).toLocaleDateString();
 };
 
 const DashboardLayout = () => {
   const stored = getStored();
+  const prefersReducedSidebarMotion = useReducedMotion();
 
   const [language, setLanguage] = useState(stored.language);
   const [primaryColor, setPrimaryColor] = useState(stored.primaryColor);
@@ -252,7 +315,8 @@ const DashboardLayout = () => {
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [notifications, setNotifications] = useState(getStoredNotifications);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [outlets, setOutlets] = useState(defaultOutlets);
   const [selectedOutletId, setSelectedOutletId] = useState(
     localStorage.getItem("bbc_selected_outlet_id") || "all"
@@ -305,15 +369,6 @@ const DashboardLayout = () => {
       if (sidebarNavRef.current) {
         sidebarNavRef.current.scrollTop = snapshot.sidebarTop || 0;
       }
-
-      window.scrollTo({
-        top: snapshot.pageTop || 0,
-        left: snapshot.pageLeft || 0,
-        behavior: "auto",
-      });
-
-      document.documentElement.scrollTop = snapshot.pageTop || 0;
-      document.body.scrollTop = snapshot.pageTop || 0;
     };
 
     requestAnimationFrame(() => {
@@ -339,6 +394,10 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname]);
+
   const t = LANGUAGES[language] || LANGUAGES.en;
 
   const isDark = themeMode === "dark" || (themeMode === "system" && prefersDark);
@@ -360,8 +419,7 @@ const DashboardLayout = () => {
     }),
     [dbPermissions, legacyPermissions]
   );
-  const canView = (moduleKey, fallback = false) =>
-    permissions?.[moduleKey]?.can_view ?? fallback;
+  const canView = (moduleKey) => Boolean(dbPermissions?.[moduleKey]?.can_view);
   const legacyCanView = (moduleKey, fallback = false) =>
     legacyPermissions?.[moduleKey]?.can_view ?? fallback;
   const fullName = user?.full_name || user?.name || "Big Bean User";
@@ -390,7 +448,7 @@ const DashboardLayout = () => {
   const textMain = isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]";
   const contentWidthClass = content === "compact" ? "max-w-[1440px]" : "max-w-none";
 
-  const unreadCount = notifications.filter((item) => !item.read).length;
+  const unreadCount = notifications.filter((item) => !item.is_read).length;
 
   const assignedOutlets = Array.isArray(user?.outlets)
     ? user.outlets.map((item) =>
@@ -433,9 +491,23 @@ const DashboardLayout = () => {
     document.documentElement.classList.toggle("dark", isDark);
   }, [isDark]);
 
+  const fetchNotifications = async () => {
+    try {
+      setNotificationsLoading(true);
+      const res = await notificationAPI.getNotifications({ limit: 50 });
+      if (res.data?.success) setNotifications(res.data.data || []);
+    } catch {
+      // silent — bell stays empty on error
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem("bbc_notifications", JSON.stringify(notifications));
-  }, [notifications]);
+    fetchNotifications();
+    const timer = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const syncUser = async () => {
@@ -468,7 +540,7 @@ const DashboardLayout = () => {
         const response = await masterAPI.getOutlets();
         const apiOutlets = response.data?.data || response.data?.outlets || response.data || [];
         if (Array.isArray(apiOutlets) && apiOutlets.length > 0) {
-          setOutlets(apiOutlets.slice(0, 7));
+          setOutlets(apiOutlets);
         }
       } catch {
         setOutlets(defaultOutlets);
@@ -526,19 +598,21 @@ const DashboardLayout = () => {
     return () => window.removeEventListener("keydown", keyHandler);
   }, []);
 
-  const menuItems = useMemo(
-    () => [
+  const menuItems = useMemo(() => {
+    const items = [
       {
         key: "dashboard",
         title: t.dashboard,
         icon: LayoutDashboard,
         path: "/",
+        section: "Overview",
         show: canView("dashboard", legacyCanView("dashboard", true)),
       },
       {
         key: "users",
         title: "User Management",
         icon: Users,
+        section: "Administration",
         show: canView("users", permissions.canManageUsers) || canView("role_access", false),
         submenu: [
           ...(canView("users", permissions.canManageUsers) ? [{ title: t.users, path: "/users" }] : []),
@@ -549,38 +623,51 @@ const DashboardLayout = () => {
         key: "masters",
         title: t.masters,
         icon: Settings,
-        show: canView("masters", permissions.canManageMasters || permissions.isReadOnly),
+        section: "Administration",
+        show: canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendors") || canView("raw_materials") || canView("menu_items") || canView("locations"),
         submenu: [
+          ...((canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendors") || canView("raw_materials") || canView("menu_items") || canView("locations")) ? [{ title: "All Masters", path: "/masters" }] : []),
           ...(canView("outlets", legacyCanView("outlets", permissions.canManageMasters)) ? [{ title: t.outlets, path: "/masters/outlets" }] : []),
           ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories" }] : []),
           ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers" }] : []),
+          ...(canView("outlet_vendors") ? [{ title: t.outletVendors, path: "/masters/outlet-vendors" }] : []),
           ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials" }] : []),
           ...(canView("menu_items", legacyCanView("menu_items", permissions.canManageMasters)) ? [{ title: t.menuItems, path: "/masters/menu-items" }] : []),
+          ...(canView("locations") ? [{ title: t.locationManagement, path: "/masters/locations" }] : []),
         ],
       },
       {
         key: "daily",
         title: t.dailyAccounts,
         icon: ClipboardList,
-        show: canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) || canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) || canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) || canView("daily_checklist", legacyCanView("daily_checklist", false)),
+        section: "Daily Operations",
+        show: canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) || canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) || canView("bank_deposits", false) || canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) || canView("daily_checklist", legacyCanView("daily_checklist", false)) || canView("outlet_vendors"),
         submenu: [
           ...(canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) ? [{ title: t.cashbook, path: "/daily-accounts/cashbook" }] : []),
           ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: t.expenses, path: "/daily-accounts/expenses" }] : []),
+          ...(canView("bank_deposits", false) ? [{ title: t.bankDeposits, path: "/daily-accounts/bank-deposits" }] : []),
           ...(canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) ? [{ title: t.dayClosing, path: "/daily-accounts/day-closing" }] : []),
           ...(canView("daily_checklist", legacyCanView("daily_checklist", false)) ? [{ title: t.checklist, path: "/daily-accounts/checklist" }] : []),
+          ...(canView("outlet_vendors") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases" }] : []),
         ],
       },
       {
         key: "payroll",
         title: t.payroll,
         icon: Wallet,
-        show: canView("payroll", permissions.canViewPayroll),
-        submenu: [{ title: t.employeeSalary, path: "/payroll/employee-salary" }],
+        section: "Finance",
+        show: canView("payroll", permissions.canViewPayroll) || canView("utility_bills", false) || canView("fixed_costs", false),
+        submenu: [
+          ...(canView("payroll", permissions.canViewPayroll) ? [{ title: t.employeeSalary, path: "/payroll/employee-salary" }] : []),
+          ...(canView("utility_bills", false) ? [{ title: t.utilityBills, path: "/month-end/utility-bills" }] : []),
+          ...(canView("fixed_costs", false) ? [{ title: t.fixedCosts, path: "/month-end/fixed-costs" }] : []),
+        ],
       },
       {
         key: "stock",
         title: t.stock,
         icon: Package,
+        section: "Daily Operations",
         show: canView("opening_stock", permissions.canUploadStock || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("closing_stock", false),
         submenu: [
           ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock" }] : []),
@@ -591,20 +678,31 @@ const DashboardLayout = () => {
         key: "purchases",
         title: t.purchases,
         icon: ShoppingCart,
-        show: canView("material_purchase", permissions.canUploadPurchase || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly),
-        submenu: [{ title: t.materialPurchase, path: "/purchases/material-purchase" }],
+        section: "Daily Operations",
+        show: canView("material_purchase", permissions.canUploadPurchase || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("supplier_payments", false),
+        submenu: [
+          ...(canView("material_purchase") ? [{ title: t.materialPurchase, path: "/purchases/material-purchase" }] : []),
+          ...(canView("supplier_payments") ? [{ title: t.supplierPayments, path: "/purchases/supplier-payments" }] : []),
+        ],
       },
       {
         key: "sales",
         title: t.sales,
         icon: TrendingUp,
-        show: canView("item_sales", permissions.canUploadSales || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly),
-        submenu: [{ title: t.itemSales, path: "/sales/item-sales" }],
+        section: "Daily Operations",
+        show: canView("item_sales") || canView("item_sales_daily") || canView("item_sales_monthly") || canView("item_sales_tax"),
+        submenu: [
+          ...(canView("item_sales") ? [{ title: t.itemSales, path: "/sales/item-sales" }] : []),
+          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload" }] : []),
+          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload" }] : []),
+          ...(canView("item_sales_tax") ? [{ title: t.itemTaxUpload, path: "/sales/item-tax-upload" }] : []),
+        ],
       },
       {
         key: "recipe",
         title: t.recipe,
         icon: Coffee,
+        section: "Inventory & Production",
         show: canView("recipe_list", roleName !== "Outlet Staff" && roleName !== "Outlet Manager" && roleName !== "Outlet Admin"),
         submenu: [
           ...(canView("recipe_list", legacyCanView("recipe_list", roleName !== "Outlet Staff")) ? [{ title: t.recipeList, path: "/recipes" }] : []),
@@ -615,6 +713,7 @@ const DashboardLayout = () => {
         key: "payouts",
         title: t.payouts,
         icon: DollarSign,
+        section: "Finance",
         show: canView("online_payouts", permissions.canViewPayouts) || canView("dine_in_payouts", permissions.canViewPayouts),
         submenu: [
           ...(canView("online_payouts", legacyCanView("online_payouts", permissions.canViewPayouts)) ? [{ title: t.onlinePayouts, path: "/payouts/online" }] : []),
@@ -625,17 +724,82 @@ const DashboardLayout = () => {
         key: "reports",
         title: t.reports,
         icon: FileText,
+        section: "Finance",
         show: canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)),
         submenu: [
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)) ? [{ title: "All Reports", path: "/reports" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.dailyCashbookReport, path: "/reports/daily-cashbook" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.expenseReport, path: "/reports/expense-report" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.actualConsumption, path: "/reports/actual-consumption" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.theoreticalConsumption, path: "/reports/theoretical-consumption" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.supplierPending, path: "/reports/supplier-pending" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.purchaseGST, path: "/reports/purchase-gst" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.salesGST, path: "/reports/sales-gst" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.consumptionVariance, path: "/reports/consumption-variance" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl" }] : []),
+          ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.outletComparison, path: "/reports/outlet-comparison" }] : []),
         ],
       },
-    ],
-    [permissions, roleName, t]
-  );
+      {
+        key: "warehouse",
+        title: t.warehouse,
+        icon: Package,
+        section: "Inventory & Production",
+        show: canView("warehouse_dashboard") || canView("warehouse_stock") || canView("grn") || canView("warehouse_requisitions") || canView("warehouse_transfers"),
+        submenu: [
+          ...(canView("warehouse_dashboard") ? [{ title: t.warehouseDashboard, path: "/warehouse/dashboard", icon: LayoutDashboard }] : []),
+          ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock", icon: Package }] : []),
+          ...(canView("grn") ? [{ title: t.warehouseGRN, path: "/warehouse/grn", icon: ClipboardCheck }] : []),
+          ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger", icon: BookOpen }] : []),
+          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList }] : []),
+          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft }] : []),
+          ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry", icon: Scale }] : []),
+          ...(canView("warehouse_purchase_returns") ? [{ title: t.warehousePurchaseReturns, path: "/warehouse/purchase-returns", icon: Truck }] : []),
+          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale }] : []),
+          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal }] : []),
+          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2 }] : []),
+          ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders", icon: FileText }] : []),
+          ...(canView("warehouse_supplier_history") ? [{ title: t.warehouseSupplierHistory, path: "/warehouse/supplier-history", icon: TrendingUp }] : []),
+          ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder", icon: AlertTriangle }] : []),
+          ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen }] : []),
+          ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings }] : []),
+        ],
+      },
+      {
+        key: "central-kitchen",
+        title: t.centralKitchen,
+        icon: ChefHat,
+        section: "Inventory & Production",
+        show: canView("production_dashboard") || canView("production_requests") || canView("production_planning") || canView("production_batches") || canView("production_wastage") || canView("production_variance") || canView("production_dispatch"),
+        submenu: [
+          ...(canView("production_dashboard") ? [{ title: t.centralKitchenDashboard, path: "/central-kitchen/dashboard", icon: LayoutDashboard }] : []),
+          ...(canView("production_requests") ? [{ title: t.centralKitchenRequests, path: "/central-kitchen/requests", icon: ClipboardList }] : []),
+          ...(canView("production_planning") ? [{ title: t.centralKitchenPlanning, path: "/central-kitchen/plans", icon: ChefHat }] : []),
+          ...(canView("production_batches") ? [{ title: t.centralKitchenBatches, path: "/central-kitchen/batches", icon: Package }] : []),
+          ...(canView("production_wastage") ? [{ title: t.centralKitchenWastage, path: "/central-kitchen/wastage", icon: Trash2 }] : []),
+          ...(canView("production_variance") ? [{ title: t.centralKitchenVariance, path: "/central-kitchen/variance", icon: BarChart3 }] : []),
+          ...(canView("production_dispatch") ? [{ title: t.centralKitchenDispatches, path: "/central-kitchen/dispatches", icon: Truck }] : []),
+        ],
+      },
+      {
+        key: "receive-dispatch",
+        title: t.receiveDispatch,
+        icon: PackageCheck,
+        path: "/central-kitchen-receive",
+        section: "Inventory & Production",
+        // Standalone (not nested under Central Kitchen) so outlet staff who only have
+        // production_dispatch access - not the CK dashboard/planning modules - still see it.
+        show: canView("production_dispatch"),
+      },
+    ];
+
+    // Group into PetPooja-style labeled clusters: same-section items must sit
+    // adjacent to each other, or the sidebar re-prints the section label every
+    // time it reappears instead of once per cluster. Array.prototype.sort is
+    // stable, so relative order within a section is preserved.
+    const SECTION_ORDER = ["Overview", "Daily Operations", "Inventory & Production", "Finance", "Administration"];
+    return items.slice().sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
+  }, [permissions, roleName, t]);
 
   useEffect(() => {
     const activeMenus = {};
@@ -672,6 +836,55 @@ const DashboardLayout = () => {
     if (item.path) return isActive(item.path);
     return item.submenu?.some((sub) => isActive(sub.path));
   };
+
+  const routeModuleMap = {
+    "/": "dashboard",
+    "/users": "users",
+    "/role-access": "role_access",
+    "/masters/outlets": "outlets",
+    "/masters/categories": "categories",
+    "/masters/suppliers": "suppliers",
+    "/masters/raw-materials": "raw_materials",
+    "/masters/menu-items": "menu_items",
+    "/daily-accounts/cashbook": "daily_cashbook",
+    "/daily-accounts/expenses": "daily_expenses",
+    "/daily-accounts/bank-deposits": "bank_deposits",
+    "/daily-accounts/day-closing": "day_closing",
+    "/daily-accounts/checklist": "daily_checklist",
+    "/payroll/employee-salary": "payroll",
+    "/month-end/utility-bills": "utility_bills",
+    "/month-end/fixed-costs": "fixed_costs",
+    "/stock/opening-stock": "opening_stock",
+    "/stock/closing-stock": "closing_stock",
+    "/purchases/material-purchase": "material_purchase",
+    "/purchases/supplier-payments": "supplier_payments",
+    "/sales/item-sales": "item_sales",
+    "/sales/daily-upload": "item_sales_daily",
+    "/sales/monthly-upload": "item_sales_monthly",
+    "/sales/item-tax-upload": "item_sales_tax",
+    "/recipes": "recipe_list",
+    "/recipes/new": "add_recipe",
+    "/payouts/online": "online_payouts",
+    "/payouts/dine-in": "dine_in_payouts",
+    "/reports/daily-cashbook": "reports",
+    "/reports/expense-report": "reports",
+    "/reports/actual-consumption": "reports",
+    "/reports/theoretical-consumption": "reports",
+    "/reports/supplier-pending": "reports",
+    "/reports/purchase-gst": "reports",
+    "/reports/sales-gst": "reports",
+    "/reports/consumption-variance": "reports",
+    "/reports/monthly-pl": "monthly_pl",
+    "/reports/outlet-comparison": "monthly_pl",
+    "/warehouse": "warehouse_dashboard",
+  };
+
+  useEffect(() => {
+    const moduleKey = routeModuleMap[location.pathname];
+    if (moduleKey && !canView(moduleKey)) {
+      navigate("/", { replace: true });
+    }
+  }, [location.pathname, dbPermissions]);
 
   const searchItems = useMemo(() => {
     const items = [];
@@ -711,25 +924,26 @@ const DashboardLayout = () => {
       .slice(0, 12);
   }, [query, searchItems]);
 
-  const markNotificationAsRead = (id) => {
+  const markNotificationAsRead = async (id, navPath) => {
     setNotifications((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, read: true } : item))
+      prev.map((item) => (item.id === id ? { ...item, is_read: 1 } : item))
     );
+    try { await notificationAPI.markAsRead(id); } catch { /* ignore */ }
+    if (navPath) navigate(navPath);
   };
 
-  const markAllNotificationsRead = () => {
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
-    toast.success("All notifications marked as read");
-  };
-
-  const clearNotifications = () => {
-    setNotifications([]);
-    toast.success("Notifications cleared");
+  const markAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((item) => ({ ...item, is_read: 1 })));
+    try {
+      await notificationAPI.markAllAsRead();
+      toast.success("All notifications marked as read");
+    } catch { /* ignore */ }
   };
 
   const getNotificationIcon = (type) => {
     if (type === "success") return CheckCircle2;
     if (type === "warning") return AlertCircle;
+    if (type === "danger")  return AlertCircle;
     return Bell;
   };
 
@@ -753,8 +967,7 @@ const DashboardLayout = () => {
     setTimeout(restoreStableScroll, 0);
   };
 
-  const handleOutletChange = (event) => {
-    const nextOutletId = event.target.value;
+  const selectOutlet = (nextOutletId) => {
     setSelectedOutletId(nextOutletId);
     localStorage.setItem("bbc_selected_outlet_id", nextOutletId);
     window.dispatchEvent(
@@ -762,6 +975,10 @@ const DashboardLayout = () => {
         detail: nextOutletId,
       })
     );
+  };
+
+  const handleOutletChange = (event) => {
+    selectOutlet(event.target.value);
   };
 
   const resetCustomizer = () => {
@@ -876,7 +1093,7 @@ const DashboardLayout = () => {
     const totalModules = searchItems.length;
     const profileStats = [
       { label: "Accessible Modules", value: totalModules, icon: Grid3X3 },
-      { label: "Role", value: roleName, icon: CheckCircle2 },
+      { label: "Role", value: displayLabel(roleName), icon: CheckCircle2 },
       { label: "Outlet", value: outletName, icon: Coffee },
     ];
 
@@ -917,7 +1134,7 @@ const DashboardLayout = () => {
                     <div className={`mt-4 flex flex-wrap gap-6 text-[16px] ${textMuted}`}>
                       <span className="flex items-center gap-2">
                         <Coffee size={21} />
-                        {roleName}
+                        {displayLabel(roleName)}
                       </span>
 
                       <span className="flex items-center gap-2">
@@ -1005,7 +1222,7 @@ const DashboardLayout = () => {
                   <Coffee size={22} className={textMuted} />
                   <p className={`text-[16px] ${textMuted}`}>
                     Role:{" "}
-                    <span className={`font-semibold ${textMain}`}>{roleName}</span>
+                    <span className={`font-semibold ${textMain}`}>{displayLabel(roleName)}</span>
                   </p>
                 </div>
 
@@ -1152,123 +1369,367 @@ const DashboardLayout = () => {
     );
   };
 
-  const NotificationDropdown = () => (
-    <div
-      className={`absolute right-0 top-14 z-50 w-[380px] overflow-hidden rounded-md border shadow-xl ${cardClass}`}
-    >
-      <div className="flex items-center justify-between border-b border-[#DBDADE] px-5 py-4">
-        <div>
-          <p className={`text-[17px] font-semibold ${textMain}`}>
-            Notifications
-          </p>
-          <p className={`text-[13px] ${textMuted}`}>
-            {unreadCount} unread notification{unreadCount === 1 ? "" : "s"}
-          </p>
-        </div>
+  const NotificationDropdown = () => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const prefersReduced = useReducedMotion();
 
-        <button
-          type="button"
-          onClick={markAllNotificationsRead}
-          className="text-[13px] font-semibold"
-          style={{ color: primaryColor }}
-        >
-          Mark all read
-        </button>
-      </div>
+    const borderColor = isDark ? "border-[#3B405A]" : "border-[#DBDADE]";
+    const unreadRowBg = isDark ? "bg-[#3B405A]/40" : "bg-[#F8F7FA]";
+    const hoverBg    = isDark ? "hover:bg-[#3B405A]/60" : "hover:bg-[#F3F2F7]";
+    const iconColors = {
+      success: { bg: "#E9F9EF", fg: "#28C76F" },
+      warning: { bg: "#FFF4E5", fg: "#FF9F43" },
+      danger:  { bg: "#FDEAEA", fg: "#EA5455" },
+      info:    { bg: `${primaryColor}18`, fg: primaryColor },
+    };
 
-      <div className="max-h-[360px] overflow-y-auto">
-        {notifications.length === 0 ? (
-          <div className="px-5 py-10 text-center">
-            <Bell size={34} className="mx-auto text-[#A8AAAE]" />
-            <p className={`mt-3 text-[15px] font-semibold ${textMain}`}>
-              No notifications
-            </p>
-            <p className={`mt-1 text-[13px] ${textMuted}`}>
-              New alerts will appear here.
-            </p>
-          </div>
-        ) : (
-          notifications.map((item) => {
-            const NotificationIcon = getNotificationIcon(item.type);
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => markNotificationAsRead(item.id)}
-                className={`flex w-full gap-4 border-b border-[#DBDADE] px-5 py-4 text-left transition hover:bg-[#F8F7FA] ${
-                  !item.read ? "bg-[#F8F7FA]" : ""
-                }`}
-              >
-                <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md"
-                  style={{
-                    backgroundColor:
-                      item.type === "success"
-                        ? "#E9F9EF"
-                        : item.type === "warning"
-                        ? "#FFF4E5"
-                        : `${primaryColor}18`,
-                    color:
-                      item.type === "success"
-                        ? "#28C76F"
-                        : item.type === "warning"
-                        ? "#FF9F43"
-                        : primaryColor,
-                  }}
-                >
-                  <NotificationIcon size={20} />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className={`text-[15px] font-semibold ${textMain}`}>
-                      {item.title}
-                    </p>
-
-                    {!item.read && (
-                      <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />
-                    )}
-                  </div>
-
-                  <p className={`mt-1 text-[13px] ${textMuted}`}>
-                    {item.message}
-                  </p>
-
-                  <p className="mt-2 text-[12px] font-medium text-[#A8AAAE]">
-                    {item.time}
-                  </p>
-                </div>
-              </button>
-            );
-          })
-        )}
-      </div>
-
-      {notifications.length > 0 && (
-        <div className="border-t border-[#DBDADE] p-3">
-          <button
-            type="button"
-            onClick={clearNotifications}
-            className="flex w-full items-center justify-center rounded-md bg-[#FCEAEA] px-4 py-2.5 text-[14px] font-semibold text-[#EA5455]"
-          >
-            Clear Notifications
-          </button>
-        </div>
-      )}
-    </div>
-  );
-
-  const Sidebar = ({ mobile = false }) => {
-    if (isHorizontal && !mobile) return null;
+    const STACK = 3;
+    const peekCount = Math.max(0, Math.min(STACK, notifications.length) - 1);
+    const spring = prefersReduced
+      ? { duration: 0 }
+      : { type: "spring", stiffness: 360, damping: 26, mass: 0.8 };
+    const fade = prefersReduced ? { duration: 0 } : { duration: 0.13 };
 
     return (
-      <aside
-        className={`flex h-full flex-col border-r ${sideClass} ${
-          mobile ? "w-[300px]" : sidebarOpen ? "w-[300px]" : "w-[82px]"
-        } transition-all duration-300`}
+      <motion.div
+        layout="size"
+        className={`absolute right-0 top-14 z-50 w-[calc(100vw-2rem)] max-w-[380px] overflow-hidden rounded-md border shadow-xl dropdown-enter ${cardClass}`}
+        onMouseEnter={() => setIsExpanded(true)}
+        onMouseLeave={() => setIsExpanded(false)}
+        transition={spring}
       >
-        <div className="flex h-[72px] items-center justify-between px-6">
+        {/* ── Header ── */}
+        <div className={`flex items-center justify-between border-b ${borderColor} px-5 py-4`}>
+          <div>
+            <p className={`text-[17px] font-semibold ${textMain}`}>Notifications</p>
+            <p className={`text-[13px] ${textMuted}`}>
+              {unreadCount} unread notification{unreadCount === 1 ? "" : "s"}
+            </p>
+          </div>
+          {unreadCount > 0 && (
+            <button type="button" onClick={markAllNotificationsRead} className="text-[13px] font-semibold" style={{ color: primaryColor }}>
+              Mark all read
+            </button>
+          )}
+        </div>
+
+        {/* ── Body ── */}
+        {notificationsLoading && notifications.length === 0 ? (
+          <div className="flex items-center justify-center px-5 py-10">
+            <RefreshCw size={24} className="animate-spin text-[#A8AAAE]" />
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <Bell size={34} className="mx-auto text-[#A8AAAE]" />
+            <p className={`mt-3 text-[15px] font-semibold ${textMain}`}>No notifications</p>
+            <p className={`mt-1 text-[13px] ${textMuted}`}>New alerts will appear here.</p>
+          </div>
+        ) : (
+          <AnimatePresence mode="wait" initial={false}>
+            {!isExpanded ? (
+              /* ── STACKED (collapsed) view ── */
+              <motion.div
+                key="stacked"
+                initial={prefersReduced ? {} : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={prefersReduced ? {} : { opacity: 0 }}
+                transition={fade}
+                className="relative cursor-pointer select-none"
+                style={{ paddingBottom: peekCount * 8 }}
+                onClick={() => setIsExpanded(true)}
+              >
+                {/* Front card – in normal flow so it sets the container height */}
+                {(() => {
+                  const item = notifications[0];
+                  const Icon = getNotificationIcon(item.type);
+                  const colors = iconColors[item.type] || iconColors.info;
+                  return (
+                    <div
+                      className={`relative flex items-center gap-3 border-b ${borderColor} px-5 py-4 ${!item.is_read ? unreadRowBg : ""}`}
+                      style={{ zIndex: STACK }}
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
+                        <Icon size={20} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className={`truncate text-[15px] font-semibold ${textMain}`}>{item.title}</p>
+                        <p className={`mt-0.5 truncate text-[13px] ${textMuted}`}>{item.message}</p>
+                      </div>
+                      {!item.is_read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
+                    </div>
+                  );
+                })()}
+
+                {/* Back cards – absolute, peek below front card */}
+                {notifications.slice(1, STACK).map((item, i) => {
+                  const stackIdx = i + 1;
+                  const Icon = getNotificationIcon(item.type);
+                  const colors = iconColors[item.type] || iconColors.info;
+                  return (
+                    <motion.div
+                      key={item.id}
+                      className={`absolute inset-x-0 top-0 flex items-center gap-3 border-b ${borderColor} px-5 py-4 ${!item.is_read ? unreadRowBg : ""}`}
+                      style={{ zIndex: STACK - stackIdx, transformOrigin: "50% 0%" }}
+                      animate={prefersReduced ? {} : {
+                        y: stackIdx * 8,
+                        scale: 1 - stackIdx * 0.03,
+                        opacity: 1 - stackIdx * 0.22,
+                      }}
+                      transition={spring}
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
+                        <Icon size={20} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className={`truncate text-[15px] font-semibold ${textMain}`}>{item.title}</p>
+                        <p className={`mt-0.5 truncate text-[13px] ${textMuted}`}>{item.message}</p>
+                      </div>
+                      {!item.is_read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            ) : (
+              /* ── EXPANDED view ── */
+              <motion.div
+                key="expanded"
+                initial={prefersReduced ? {} : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={prefersReduced ? {} : { opacity: 0 }}
+                transition={fade}
+                className="max-h-[360px] overflow-y-auto"
+              >
+                {notifications.map((item) => {
+                  const Icon = getNotificationIcon(item.type);
+                  const colors = iconColors[item.type] || iconColors.info;
+                  const isUnread = !item.is_read;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => { setNotificationOpen(false); markNotificationAsRead(item.id, item.nav_path); }}
+                      className={`flex w-full gap-4 border-b ${borderColor} px-5 py-4 text-left transition ${hoverBg} ${isUnread ? unreadRowBg : ""}`}
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
+                        <Icon size={20} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className={`text-[15px] font-semibold ${textMain}`}>{item.title}</p>
+                          {isUnread && <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
+                        </div>
+                        <p className={`mt-1 text-[13px] ${textMuted}`}>{item.message}</p>
+                        <div className="mt-2 flex items-center gap-2 text-[12px] font-medium text-[#A8AAAE]">
+                          <span>{timeAgo(item.created_at)}</span>
+                          {item.outlet_name && <><span>·</span><span>{item.outlet_name}</span></>}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        )}
+
+        {/* ── Footer ── */}
+        {notifications.length > 0 && (
+          <div className={`border-t ${borderColor} px-5 py-3 text-center`}>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={isExpanded ? "viewall" : "notifs"}
+                className={`text-[13px] font-medium ${textMuted}`}
+                initial={prefersReduced ? {} : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={prefersReduced ? {} : { opacity: 0, y: -4 }}
+                transition={{ duration: 0.12 }}
+              >
+                {isExpanded ? "View all" : "Notifications"}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const OutletSelector = ({ variant = "desktop" }) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    const prefersReduced = useReducedMotion();
+    const locked = permissions.isOutletLocked;
+
+    useEffect(() => {
+      if (!open) return undefined;
+      const onDown = (event) => {
+        if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+      };
+      document.addEventListener("mousedown", onDown);
+      return () => document.removeEventListener("mousedown", onDown);
+    }, [open]);
+
+    const options = [
+      ...(permissions.canAccessAllOutlets
+        ? [{ id: "all", outlet_name: "All Outlets" }]
+        : []),
+      ...availableOutlets.map((o) => ({
+        id: o.id,
+        outlet_name: o.outlet_name || o.name || o.outlet_code,
+      })),
+    ];
+
+    const currentLabel =
+      selectedOutlet?.outlet_name || outletName || "Select outlet";
+
+    const panelTransition = prefersReduced
+      ? { duration: 0 }
+      : { type: "spring", stiffness: 420, damping: 32, mass: 0.7 };
+    const chevronTransition = prefersReduced ? { duration: 0 } : { duration: 0.18 };
+
+    return (
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          disabled={locked}
+          onClick={() => !locked && setOpen((prev) => !prev)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          title={locked ? "Assigned outlet only" : "Select outlet"}
+          className={`flex h-10 w-full items-center justify-between gap-2 rounded-md border px-3 text-left outline-none ${
+            variant === "mobile" ? "text-[14px]" : "text-[13px] md:text-[14px]"
+          } ${locked ? "cursor-not-allowed opacity-70" : "cursor-pointer"} ${
+            isDark
+              ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]"
+              : "border-[#DBDADE] bg-white text-[#2F2B3D]"
+          }`}
+        >
+          <span className="truncate">{currentLabel}</span>
+          <motion.span
+            animate={{ rotate: open ? 180 : 0 }}
+            transition={chevronTransition}
+            className="shrink-0"
+          >
+            <ChevronDown size={16} />
+          </motion.span>
+        </button>
+
+        <AnimatePresence>
+          {open && !locked && (
+            <motion.div
+              role="listbox"
+              initial={
+                prefersReduced
+                  ? { opacity: 0 }
+                  : { opacity: 0, y: -6, scale: 0.98 }
+              }
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={
+                prefersReduced
+                  ? { opacity: 0 }
+                  : { opacity: 0, y: -6, scale: 0.98 }
+              }
+              transition={panelTransition}
+              style={{ transformOrigin: "top" }}
+              className={`absolute left-0 z-50 mt-1 max-h-[280px] w-full min-w-[180px] overflow-y-auto rounded-md border shadow-xl ${cardClass}`}
+            >
+              {options.map((opt) => {
+                const isSel = String(opt.id) === String(selectedOutletId);
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSel}
+                    onClick={() => {
+                      selectOutlet(opt.id);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[14px] transition ${
+                      isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"
+                    }`}
+                    style={
+                      isSel
+                        ? { backgroundColor: `${primaryColor}18`, color: primaryColor }
+                        : undefined
+                    }
+                  >
+                    <span className="truncate">{opt.outlet_name}</span>
+                    {isSel && <CheckCircle2 size={15} className="shrink-0" />}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
+  const Sidebar = ({ mobile = false }) => {
+    const [hoveredMenuKey, setHoveredMenuKey] = useState(null);
+
+    if (isHorizontal && !mobile) return null;
+
+    const expandedView = mobile || sidebarOpen;
+    const sidebarTransition = prefersReducedSidebarMotion
+      ? { duration: 0 }
+      : SIDEBAR_SPRING;
+    const highlightTransition = prefersReducedSidebarMotion
+      ? { duration: 0 }
+      : MENU_HIGHLIGHT_SPRING;
+    const submenuTransition = prefersReducedSidebarMotion
+      ? { duration: 0 }
+      : SUBMENU_TRANSITION;
+    const chevronTransition = prefersReducedSidebarMotion
+      ? { duration: 0 }
+      : CHEVRON_TRANSITION;
+    const highlightId = mobile
+      ? "sidebar-active-highlight-mobile"
+      : "sidebar-active-highlight-desktop";
+    const subHighlightId = mobile
+      ? "sidebar-sub-active-highlight-mobile"
+      : "sidebar-sub-active-highlight-desktop";
+
+    const toggleParentMenu = (item) => {
+      runWithoutScrollJump(() => {
+        // In collapsed desktop mode, clicking a parent icon first opens the
+        // sidebar and keeps that submenu expanded so the interaction is useful.
+        if (!mobile && !sidebarOpen) {
+          setLayout("vertical");
+          setExpandedMenus((prev) => ({ ...prev, [item.key]: true }));
+          return;
+        }
+
+        setExpandedMenus((prev) => ({
+          ...prev,
+          [item.key]: !prev[item.key],
+        }));
+      });
+    };
+
+    const menuTextClass = effectiveSidebarDark
+      ? "text-[#D0D2D6]"
+      : "text-[#5D596C]";
+    const menuHoverClass = effectiveSidebarDark
+      ? "hover:bg-[#3B405A]"
+      : "hover:bg-[#F3F2F7]";
+    const subTextClass = effectiveSidebarDark
+      ? "text-[#B6B8C7]"
+      : "text-[#5D596C]";
+
+    return (
+      <motion.aside
+        initial={false}
+        animate={{ width: expandedView ? 300 : 82 }}
+        transition={sidebarTransition}
+        className={`relative flex h-full shrink-0 flex-col border-r ${sideClass}`}
+      >
+        {/* Brand / sidebar toggle */}
+        <div
+          className={`relative flex h-[72px] shrink-0 items-center ${
+            expandedView ? "justify-between px-6" : "justify-center px-3"
+          }`}
+        >
           <Link
             to="/"
             preventScrollReset
@@ -1276,188 +1737,386 @@ const DashboardLayout = () => {
               saveStableScroll();
               if (mobile) setMobileOpen(false);
             }}
-            className="flex min-w-0 items-center gap-3"
+            className={`flex min-w-0 items-center ${expandedView ? "gap-3" : "justify-center"}`}
+            aria-label="Big Bean Café Dashboard"
           >
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl">
+            <motion.div
+              layout
+              transition={highlightTransition}
+              className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl"
+            >
               <img
                 src={LOGO_SRC}
                 alt="Big Bean Café"
                 className="h-10 w-10 object-contain"
               />
-            </div>
+            </motion.div>
 
-            {(sidebarOpen || mobile) && (
-              <div className="min-w-0">
-                <h1
-                  className={`truncate text-[22px] font-bold ${
-                    effectiveSidebarDark ? "text-white" : textMain
-                  }`}
+            <AnimatePresence initial={false}>
+              {expandedView && (
+                <motion.div
+                  key="sidebar-brand-text"
+                  initial={prefersReducedSidebarMotion ? false : { opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={prefersReducedSidebarMotion ? { opacity: 0 } : { opacity: 0, x: -8 }}
+                  transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.16 }}
+                  className="min-w-0"
                 >
-                  Big Bean Cafe
-                </h1>
-                <p
-                  className={`text-[11px] font-semibold ${
-                    effectiveSidebarDark ? "text-[#A5A8B6]" : textMuted
-                  }`}
-                >
-                  Cafe ERP
-                </p>
-              </div>
-            )}
+                  <h1
+                    className={`truncate text-[22px] font-bold ${
+                      effectiveSidebarDark ? "text-white" : textMain
+                    }`}
+                  >
+                    Big Bean Cafe
+                  </h1>
+                  <p
+                    className={`text-[11px] font-semibold ${
+                      effectiveSidebarDark ? "text-[#A5A8B6]" : textMuted
+                    }`}
+                  >
+                    Cafe ERP
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </Link>
 
-          <button
-            type="button"
-            onClick={() =>
-              runWithoutScrollJump(() =>
-                mobile
-                  ? setMobileOpen(false)
-                  : setLayout(sidebarOpen ? "collapsed" : "vertical")
-              )
-            }
-            className={`rounded-full p-2 transition ${
-              effectiveSidebarDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"
-            }`}
-          >
-            {mobile ? (
-              <X size={20} />
-            ) : sidebarOpen ? (
-              <Circle size={18} />
-            ) : (
-              <Menu size={20} />
-            )}
-          </button>
+          {expandedView ? (
+            <motion.button
+              type="button"
+              onClick={() =>
+                runWithoutScrollJump(() =>
+                  mobile
+                    ? setMobileOpen(false)
+                    : setLayout(sidebarOpen ? "collapsed" : "vertical")
+                )
+              }
+              whileHover={prefersReducedSidebarMotion ? undefined : { scale: 1.05 }}
+              whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.94 }}
+              transition={highlightTransition}
+              className={`rounded-full p-2 ${
+                effectiveSidebarDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"
+              }`}
+              aria-label={mobile ? "Close sidebar" : "Collapse sidebar"}
+              title={mobile ? "Close sidebar" : "Collapse sidebar"}
+            >
+              {mobile ? <X size={20} /> : <Circle size={18} />}
+            </motion.button>
+          ) : (
+            <motion.button
+              type="button"
+              onClick={() => runWithoutScrollJump(() => setLayout("vertical"))}
+              whileHover={prefersReducedSidebarMotion ? undefined : { scale: 1.06 }}
+              whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.94 }}
+              transition={highlightTransition}
+              className={`absolute -right-3 top-[22px] z-20 flex h-7 w-7 items-center justify-center rounded-full border shadow-md ${
+                effectiveSidebarDark
+                  ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6] hover:bg-[#3B405A]"
+                  : "border-[#DBDADE] bg-white text-[#5D596C] hover:bg-[#F3F2F7]"
+              }`}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <ChevronRight size={16} />
+            </motion.button>
+          )}
         </div>
 
+        {/* Navigation */}
         <nav
           ref={sidebarNavRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-5"
+          className={`flex-1 overflow-y-auto overflow-x-hidden pb-5 ${
+            expandedView ? "px-4" : "px-3"
+          }`}
           style={{ scrollbarGutter: "stable" }}
         >
           <div className="space-y-1">
-            {menuItems.map((item) => {
-              if (!canShowMenu(item)) return null;
+            {(() => {
+              let lastSection = null;
+              return menuItems.flatMap((item) => {
+                if (!canShowMenu(item)) return null;
+
+                const showSectionHeader = expandedView && item.section && item.section !== lastSection;
+                if (item.section) lastSection = item.section;
+                const sectionHeader = showSectionHeader ? (
+                  <div
+                    key={`section-${item.section}`}
+                    className={`mb-1.5 mt-4 px-4 text-[11px] font-semibold uppercase tracking-wider first:mt-0 ${
+                      effectiveSidebarDark ? "text-[#6B7094]" : "text-[#A8AAAE]"
+                    }`}
+                  >
+                    {item.section}
+                  </div>
+                ) : null;
 
               const Icon = item.icon;
               const active = isParentActive(item);
               const expanded = expandedMenus[item.key];
+              const itemKey = item.key || item.path;
+              const hovered = hoveredMenuKey === itemKey;
 
               if (item.submenu) {
-                return (
-                  <div key={item.key}>
-                    <button
+                return [sectionHeader, (
+                  <div key={item.key} className="relative">
+                    <motion.button
                       type="button"
-                      onClick={() =>
-                        runWithoutScrollJump(() =>
-                          setExpandedMenus((prev) => ({
-                            ...prev,
-                            [item.key]: !prev[item.key],
-                          }))
-                        )
-                      }
-                      style={active ? activeStyle : undefined}
-                      className={`flex w-full items-center justify-between rounded-md px-4 py-2.5 text-[15px] transition ${
-                        active
-                          ? ""
-                          : effectiveSidebarDark
-                          ? "text-[#D0D2D6] hover:bg-[#3B405A]"
-                          : "text-[#5D596C] hover:bg-[#F3F2F7]"
-                      }`}
+                      onMouseEnter={() => setHoveredMenuKey(itemKey)}
+                      onMouseLeave={() => setHoveredMenuKey(null)}
+                      onClick={() => toggleParentMenu(item)}
+                      whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.985 }}
+                      transition={highlightTransition}
+                      aria-expanded={Boolean(expanded)}
+                      aria-label={item.title}
+                      title={!expandedView ? item.title : undefined}
+                      className={`group relative flex w-full items-center overflow-hidden rounded-md py-2.5 text-[15px] ${
+                        expandedView ? "justify-between px-4" : "justify-center px-0"
+                      } ${active ? "text-white" : `${menuTextClass} ${menuHoverClass}`}`}
                     >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Icon size={20} />
-                        {(sidebarOpen || mobile) && (
-                          <span className="truncate font-medium">{item.title}</span>
-                        )}
-                      </div>
-
-                      {(sidebarOpen || mobile) && (
-                        <ChevronDown
-                          size={18}
-                          className={`transition ${expanded ? "rotate-180" : ""}`}
+                      {active && (
+                        <motion.span
+                          layoutId={highlightId}
+                          className="absolute inset-0 rounded-md"
+                          style={{
+                            backgroundColor: primaryColor,
+                            boxShadow: `0 3px 12px ${primaryColor}55`,
+                          }}
+                          transition={highlightTransition}
                         />
                       )}
-                    </button>
 
-                    {expanded && (sidebarOpen || mobile) && (
-                      <div className="mt-1 space-y-1 pl-3">
-                        {item.submenu.map((sub) => {
-                          const subActive = isActive(sub.path);
+                      {!active && hovered && !prefersReducedSidebarMotion && (
+                        <motion.span
+                          layoutId={`${highlightId}-hover`}
+                          className={`pointer-events-none absolute inset-0 rounded-md ${
+                            effectiveSidebarDark ? "bg-[#3B405A]/70" : "bg-[#F3F2F7]"
+                          }`}
+                          transition={highlightTransition}
+                        />
+                      )}
 
-                          return (
-                            <button
-                              key={sub.path}
-                              type="button"
-                              onClick={() => goTo(sub.path)}
-                              className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left text-[15px] transition ${
-                                subActive
-                                  ? ""
-                                  : effectiveSidebarDark
-                                  ? "text-[#B6B8C7] hover:bg-[#3B405A]"
-                                  : "text-[#5D596C] hover:bg-[#F3F2F7]"
-                              }`}
-                              style={subActive ? subActiveStyle : undefined}
+                      <div
+                        className={`relative z-10 flex min-w-0 items-center ${
+                          expandedView ? "gap-3" : "justify-center"
+                        }`}
+                      >
+                        <motion.span
+                          layout
+                          className="flex shrink-0 items-center justify-center"
+                          transition={highlightTransition}
+                        >
+                          <Icon size={20} />
+                        </motion.span>
+
+                        <AnimatePresence initial={false}>
+                          {expandedView && (
+                            <motion.span
+                              key={`${item.key}-label`}
+                              initial={prefersReducedSidebarMotion ? false : { opacity: 0, x: -6 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={prefersReducedSidebarMotion ? { opacity: 0 } : { opacity: 0, x: -6 }}
+                              transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.14 }}
+                              className="truncate font-medium"
                             >
-                              <Circle size={9} />
-                              <span className="truncate">{sub.title}</span>
-                            </button>
-                          );
-                        })}
+                              {item.title}
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
                       </div>
-                    )}
+
+                      <AnimatePresence initial={false}>
+                        {expandedView && (
+                          <motion.span
+                            key={`${item.key}-chevron`}
+                            className="relative z-10 flex shrink-0 items-center justify-center"
+                            initial={prefersReducedSidebarMotion ? false : { opacity: 0 }}
+                            animate={{ opacity: 1, rotate: expanded ? 180 : 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={chevronTransition}
+                          >
+                            <ChevronDown size={18} />
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </motion.button>
+
+                    <AnimatePresence initial={false}>
+                      {expanded && expandedView && (
+                        <motion.div
+                          key={`${item.key}-submenu`}
+                          initial={
+                            prefersReducedSidebarMotion
+                              ? false
+                              : { height: 0, opacity: 0, y: -4 }
+                          }
+                          animate={{ height: "auto", opacity: 1, y: 0 }}
+                          exit={
+                            prefersReducedSidebarMotion
+                              ? { opacity: 0 }
+                              : { height: 0, opacity: 0, y: -4 }
+                          }
+                          transition={submenuTransition}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-1 space-y-1 pl-3">
+                            {item.submenu.map((sub) => {
+                              const subActive = isActive(sub.path);
+
+                              return (
+                                <motion.button
+                                  key={sub.path}
+                                  type="button"
+                                  onClick={() => goTo(sub.path)}
+                                  whileHover={
+                                    prefersReducedSidebarMotion ? undefined : { x: 3 }
+                                  }
+                                  whileTap={
+                                    prefersReducedSidebarMotion
+                                      ? undefined
+                                      : { scale: 0.985 }
+                                  }
+                                  transition={highlightTransition}
+                                  className={`relative flex w-full items-center gap-3 overflow-hidden rounded-md px-4 py-2.5 text-left text-[15px] ${
+                                    subActive
+                                      ? ""
+                                      : `${subTextClass} ${menuHoverClass}`
+                                  }`}
+                                  style={subActive ? { color: primaryColor } : undefined}
+                                >
+                                  {subActive && (
+                                    <motion.span
+                                      layoutId={subHighlightId}
+                                      className="absolute inset-0 rounded-md"
+                                      style={{ backgroundColor: `${primaryColor}18` }}
+                                      transition={highlightTransition}
+                                    />
+                                  )}
+                                  {sub.icon ? (
+                                    <sub.icon size={16} className="relative z-10 shrink-0" />
+                                  ) : (
+                                    <Circle size={9} className="relative z-10 shrink-0" />
+                                  )}
+                                  <span className="relative z-10 truncate">{sub.title}</span>
+                                </motion.button>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                );
+                )].filter(Boolean);
               }
 
-              return (
-                <button
+              return [sectionHeader, (
+                <motion.button
                   key={item.path}
                   type="button"
+                  onMouseEnter={() => setHoveredMenuKey(itemKey)}
+                  onMouseLeave={() => setHoveredMenuKey(null)}
                   onClick={() => goTo(item.path)}
-                  style={active ? activeStyle : undefined}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-left text-[15px] transition ${
-                    active
-                      ? ""
-                      : effectiveSidebarDark
-                      ? "text-[#D0D2D6] hover:bg-[#3B405A]"
-                      : "text-[#5D596C] hover:bg-[#F3F2F7]"
-                  }`}
+                  whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.985 }}
+                  transition={highlightTransition}
+                  aria-label={item.title}
+                  title={!expandedView ? item.title : undefined}
+                  className={`group relative flex w-full items-center overflow-hidden rounded-md py-2.5 text-left text-[15px] ${
+                    expandedView ? "gap-3 px-4" : "justify-center px-0"
+                  } ${active ? "text-white" : `${menuTextClass} ${menuHoverClass}`}`}
                 >
-                  <Icon size={20} />
-                  {(sidebarOpen || mobile) && (
-                    <span className="truncate font-medium">{item.title}</span>
+                  {active && (
+                    <motion.span
+                      layoutId={highlightId}
+                      className="absolute inset-0 rounded-md"
+                      style={{
+                        backgroundColor: primaryColor,
+                        boxShadow: `0 3px 12px ${primaryColor}55`,
+                      }}
+                      transition={highlightTransition}
+                    />
                   )}
-                </button>
-              );
-            })}
+
+                  {!active && hovered && !prefersReducedSidebarMotion && (
+                    <motion.span
+                      layoutId={`${highlightId}-hover`}
+                      className={`pointer-events-none absolute inset-0 rounded-md ${
+                        effectiveSidebarDark ? "bg-[#3B405A]/70" : "bg-[#F3F2F7]"
+                      }`}
+                      transition={highlightTransition}
+                    />
+                  )}
+
+                  <motion.span
+                    layout
+                    className="relative z-10 flex shrink-0 items-center justify-center"
+                    transition={highlightTransition}
+                  >
+                    <Icon size={20} />
+                  </motion.span>
+
+                  <AnimatePresence initial={false}>
+                    {expandedView && (
+                      <motion.span
+                        key={`${itemKey}-label`}
+                        initial={prefersReducedSidebarMotion ? false : { opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={prefersReducedSidebarMotion ? { opacity: 0 } : { opacity: 0, x: -6 }}
+                        transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.14 }}
+                        className="relative z-10 truncate font-medium"
+                      >
+                        {item.title}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
+              )].filter(Boolean);
+              });
+            })()}
           </div>
         </nav>
-      </aside>
+      </motion.aside>
     );
   };
 
   return (
     <div
-      className={`min-h-screen ${appClass}`}
+      className={`min-h-screen w-full min-w-0 overflow-x-hidden ${appClass}`}
       style={{
         fontFamily:
           '"Public Sans", "Inter", "Noto Sans Kannada", system-ui, sans-serif',
       }}
     >
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="relative h-full">
-            <Sidebar mobile />
-          </div>
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {mobileOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 lg:hidden"
+            initial={prefersReducedSidebarMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.16 }}
+          >
+            <motion.button
+              type="button"
+              className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
+              initial={prefersReducedSidebarMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.16 }}
+            />
+            <motion.div
+              className="relative h-full w-[300px]"
+              initial={prefersReducedSidebarMotion ? false : { x: -320 }}
+              animate={{ x: 0 }}
+              exit={prefersReducedSidebarMotion ? { x: 0 } : { x: -320 }}
+              transition={prefersReducedSidebarMotion ? { duration: 0 } : SIDEBAR_SPRING}
+            >
+              <Sidebar mobile />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
         {!isHorizontal && (
           <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
             <Sidebar />
@@ -1465,14 +2124,14 @@ const DashboardLayout = () => {
         )}
 
         <div
-          className={`flex min-h-screen flex-1 flex-col transition-all duration-300 ${
+          className={`flex min-h-screen min-w-0 flex-1 flex-col transition-[padding-left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             !isHorizontal ? (sidebarOpen ? "lg:pl-[300px]" : "lg:pl-[82px]") : ""
           }`}
         >
-          <header className="sticky top-0 z-30 px-3 pt-3 md:px-6 md:pt-5">
-            <div className={`${contentWidthClass} mx-auto`}>
+          <header className={`fixed left-0 right-0 top-0 z-30 min-w-0 px-3 pt-3 md:px-6 md:pt-5 ${!isHorizontal ? (sidebarOpen ? "lg:left-[300px]" : "lg:left-[82px]") : ""} ${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
+            <div className="w-full min-w-0">
               <div
-                className={`flex min-h-[66px] items-center justify-between gap-3 rounded-md border px-3 py-3 shadow-[0_2px_12px_rgba(47,43,61,0.12)] md:px-6 ${cardClass} ${
+                className={`flex min-h-[76px] items-center justify-between gap-3 rounded-md border px-3 py-3 shadow-[0_2px_12px_rgba(47,43,61,0.12)] md:px-6 ${cardClass} ${
                   isBordered ? "border-2" : ""
                 }`}
               >
@@ -1480,7 +2139,7 @@ const DashboardLayout = () => {
                   <button
                     type="button"
                     onClick={() => setMobileOpen(true)}
-                    className="lg:hidden"
+                    className="flex h-10 w-10 items-center justify-center lg:hidden"
                   >
                     <Menu size={24} />
                   </button>
@@ -1488,33 +2147,18 @@ const DashboardLayout = () => {
                   <button
                     type="button"
                     onClick={() => setSearchOpen(true)}
-                    className="hidden min-w-0 items-center gap-3 text-left sm:flex md:min-w-[220px] md:gap-4"
+                    className="hidden w-[180px] max-w-[240px] shrink-0 items-center gap-3 text-left sm:flex xl:w-[240px] md:gap-4"
                   >
                     <Search size={25} className={textMain} />
                     <span className={`hidden text-[16px] ${textMuted} md:inline`}>{t.search}</span>
                   </button>
+
+                  <div className="hidden w-[200px] max-w-[220px] shrink-0 sm:block xl:w-[220px]">
+                    <OutletSelector variant="desktop" />
+                  </div>
                 </div>
 
-                <div className="flex min-w-0 items-center gap-2 md:gap-4">
-                  <div className="block min-w-0 max-w-[150px] sm:max-w-[190px] md:min-w-[190px]">
-                    <select
-                      value={selectedOutletId}
-                      onChange={handleOutletChange}
-                      disabled={permissions.isOutletLocked}
-                      className={`h-10 w-full truncate rounded-md border px-2 text-[13px] outline-none md:px-3 md:text-[14px] ${
-                        permissions.isOutletLocked ? "cursor-not-allowed opacity-70" : ""
-                      } ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#DBDADE] bg-white"}`}
-                      title={permissions.isOutletLocked ? "Assigned outlet only" : "Select outlet"}
-                    >
-                      {permissions.canAccessAllOutlets && <option value="all">All Outlets</option>}
-                      {availableOutlets.map((outlet) => (
-                        <option key={outlet.id} value={outlet.id}>
-                          {outlet.outlet_name || outlet.name || outlet.outlet_code}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
+                <div className="flex shrink-0 items-center gap-2 whitespace-nowrap md:gap-4">
                   <div className="relative">
                     <button
                       type="button"
@@ -1531,7 +2175,7 @@ const DashboardLayout = () => {
 
                     {languageOpen && (
                       <div
-                        className={`absolute right-0 top-12 z-50 w-[210px] rounded-md border p-2 shadow-xl ${cardClass}`}
+                        className={`absolute right-0 top-12 z-50 w-[210px] rounded-md border p-2 shadow-xl dropdown-enter ${cardClass}`}
                       >
                         {Object.entries(LANGUAGES).map(([code, item]) => (
                           <button
@@ -1575,7 +2219,7 @@ const DashboardLayout = () => {
 
                     {themeOpen && (
                       <div
-                        className={`absolute right-0 top-12 z-50 w-[210px] rounded-md border p-2 shadow-xl ${cardClass}`}
+                        className={`absolute right-0 top-12 z-50 w-[210px] rounded-md border p-2 shadow-xl dropdown-enter ${cardClass}`}
                       >
                         {[
                           { value: "light", label: t.themeLight, icon: Sun },
@@ -1626,10 +2270,12 @@ const DashboardLayout = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setNotificationOpen((prev) => !prev);
+                        const opening = !notificationOpen;
+                        setNotificationOpen(opening);
                         setLanguageOpen(false);
                         setThemeOpen(false);
                         setProfileOpen(false);
+                        if (opening) fetchNotifications();
                       }}
                       className="relative flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
                     >
@@ -1674,7 +2320,7 @@ const DashboardLayout = () => {
 
                     {profileOpen && (
                       <div
-                        className={`absolute right-0 top-14 z-50 w-[290px] overflow-hidden rounded-md border shadow-xl ${cardClass}`}
+                        className={`absolute right-0 top-14 z-50 w-[85vw] max-w-[290px] overflow-hidden rounded-md border shadow-xl dropdown-enter ${cardClass}`}
                       >
                         <div className="flex items-center gap-3 border-b border-[#DBDADE] px-5 py-4">
                           <ProfileAvatar />
@@ -1687,7 +2333,7 @@ const DashboardLayout = () => {
                               {email}
                             </p>
                             <p className={`truncate text-[12px] ${textMuted}`}>
-                              {roleName}
+                              {displayLabel(roleName)}
                             </p>
                           </div>
                         </div>
@@ -1731,18 +2377,35 @@ const DashboardLayout = () => {
                   </div>
                 </div>
               </div>
+
+              <div className="block sm:hidden pb-2 pt-0">
+                <OutletSelector variant="mobile" />
+              </div>
             </div>
           </header>
 
-          <main className="flex-1 px-6 py-6">
-            <div className={`${contentWidthClass} mx-auto space-y-4`}>
-              <div className={`inline-flex rounded-md border px-3 py-2 text-[13px] font-medium ${cardClass}`}>
-                Showing data for:
-                <span className={`ml-1 font-semibold ${textMain}`}>
-                  {selectedOutlet?.outlet_name || outletName}
-                </span>
-              </div>
-              <Outlet key={selectedOutletId} />
+          <main className="min-w-0 w-full flex-1 overflow-x-hidden px-3 pt-[100px] pb-3 sm:px-4 sm:pt-[104px] sm:pb-4 md:px-6 md:pt-[120px] md:pb-6">
+            <div className={`${contentWidthClass} mx-auto w-full min-w-0 space-y-4`}>
+              {location.pathname.startsWith('/warehouse') ? (
+                <div className={`inline-flex rounded-md border px-3 py-2 text-[13px] font-medium ${cardClass}`}>
+                  Warehouse inventory uses the selected warehouse location.
+                </div>
+              ) : (
+                <div className={`inline-flex rounded-md border px-3 py-2 text-[13px] font-medium ${cardClass}`}>
+                  Showing data for:
+                  <span className={`ml-1 font-semibold ${textMain}`}>
+                    {selectedOutlet?.outlet_name || outletName}
+                  </span>
+                </div>
+              )}
+              <Outlet
+                key={selectedOutletId}
+                context={{
+                  selectedOutletId,
+                  availableOutlets,
+                  isOutletLocked: permissions.isOutletLocked,
+                }}
+              />
             </div>
           </main>
         </div>
@@ -1940,9 +2603,9 @@ const DashboardLayout = () => {
       )}
 
       {searchOpen && (
-        <div className="fixed inset-0 z-[70000] flex items-start justify-center bg-[#2F2B3D]/55 px-5 pt-[85px] backdrop-blur-[1px]">
+        <div className="fixed inset-0 z-[70000] flex items-start justify-center bg-[#2F2B3D]/55 px-3 pt-[70px] sm:px-5 sm:pt-[85px] backdrop-blur-[1px] modal-overlay-enter">
           <div
-            className={`w-full max-w-[850px] overflow-hidden rounded-md border shadow-2xl ${cardClass}`}
+            className={`w-full max-w-[850px] overflow-hidden rounded-md border shadow-2xl modal-enter ${cardClass}`}
           >
             <div className="flex h-[76px] items-center justify-between border-b border-[#DBDADE] px-6">
               <div className="flex flex-1 items-center gap-4">

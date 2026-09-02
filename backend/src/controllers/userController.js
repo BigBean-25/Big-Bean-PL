@@ -1,6 +1,15 @@
 import { query } from '../config/database.js';
 import bcrypt from 'bcryptjs';
 import { logAudit } from '../utils/logger.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
+import { validateContactFields } from '../utils/validators.js';
+
+// Reassigning someone's role_id is a stronger action than "edit a user's
+// contact details" - it's a privilege change. users.can_edit alone is too
+// broad a gate for it (e.g. Technical Admin has users.can_edit for
+// onboarding/support, but was never meant to be able to promote an account,
+// including its own, to Super Admin). Only these two roles may change role_id.
+const ROLE_REASSIGNMENT_ROLES = ['Super Admin', 'Developer'];
 
 export const getUsers = async (req, res) => {
   try {
@@ -20,7 +29,17 @@ export const getUsers = async (req, res) => {
       params.push(is_active);
     }
 
-    if (outlet_id) {
+    // req.outletScope (set by applyOutletScope) is the source of truth for
+    // outlet-locked roles - it already resolves to the caller's own assigned
+    // outlet even when the client sends no outlet_id at all, so a Outlet
+    // Admin/Staff/Manager can never list another outlet's users just by
+    // omitting the query param. Full-access roles keep seeing every outlet
+    // unless they explicitly filter.
+    const scope = req.outletScope;
+    if (scope && !scope.all) {
+      whereClause += ' AND uo.outlet_id = ?';
+      params.push(scope.outletIds[0]);
+    } else if (outlet_id) {
       whereClause += ' AND uo.outlet_id = ?';
       params.push(outlet_id);
     }
@@ -105,6 +124,10 @@ export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!id || isNaN(Number(id))) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     const users = await query(
       `SELECT u.*, r.role_name,
               GROUP_CONCAT(uo.outlet_id) as outlet_ids
@@ -150,6 +173,11 @@ export const getUserById = async (req, res) => {
 export const createUser = async (req, res) => {
   try {
     const { full_name, email, password, phone, role_id, is_active = 1, outlet_ids } = req.body;
+
+    const contactError = validateContactFields({ email, phone });
+    if (contactError) {
+      return res.status(400).json({ success: false, message: contactError });
+    }
 
     // Check if email already exists
     const existing = await query('SELECT id FROM users WHERE email = ?', [email]);
@@ -203,6 +231,11 @@ export const updateUser = async (req, res) => {
     const { id } = req.params;
     const { full_name, email, password, phone, role_id, is_active, outlet_ids } = req.body;
 
+    const contactError = validateContactFields({ email, phone });
+    if (contactError) {
+      return res.status(400).json({ success: false, message: contactError });
+    }
+
     // Check if user exists
     const existing = await query('SELECT * FROM users WHERE id = ?', [id]);
     if (existing.length === 0) {
@@ -210,6 +243,26 @@ export const updateUser = async (req, res) => {
         success: false,
         message: 'User not found'
       });
+    }
+
+    if (role_id && Number(role_id) !== Number(existing[0].role_id) && !ROLE_REASSIGNMENT_ROLES.includes(req.user.role_name)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Super Admin or Developer can change a user\'s role'
+      });
+    }
+
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      const targetOutletRows = await query('SELECT outlet_id FROM user_outlets WHERE user_id = ?', [id]);
+      const targetOutletIds = targetOutletRows.map((r) => Number(r.outlet_id));
+      const sharesOutlet = targetOutletIds.some((oid) => callerOutletIds.includes(oid));
+      if (!sharesOutlet) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only manage users assigned to your own outlet'
+        });
+      }
     }
 
     // Check if email is taken by another user
@@ -263,12 +316,20 @@ export const updateUser = async (req, res) => {
       );
     }
 
-    // Update outlet assignments if provided
+    // Update outlet assignments if provided. A non-full-access editor can
+    // only grant outlets they themselves have - otherwise editing a peer's
+    // outlet_ids would be a way to hand out access to outlets the editor
+    // can't even see themselves.
     if (outlet_ids !== undefined) {
+      let nextOutletIds = outlet_ids;
+      if (!canAccessAllOutlets(req.user.role_name)) {
+        const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+        nextOutletIds = outlet_ids.filter((oid) => callerOutletIds.includes(Number(oid)));
+      }
       await query('DELETE FROM user_outlets WHERE user_id = ?', [id]);
-      
-      if (outlet_ids.length > 0) {
-        for (const outlet_id of outlet_ids) {
+
+      if (nextOutletIds.length > 0) {
+        for (const outlet_id of nextOutletIds) {
           await query(
             'INSERT INTO user_outlets (user_id, outlet_id, created_at) VALUES (?, ?, NOW())',
             [id, outlet_id]
@@ -292,12 +353,53 @@ export const updateUser = async (req, res) => {
   }
 };
 
+export const toggleUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    const userId = Number(id);
+    if (!id || isNaN(userId)) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (userId === Number(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You cannot delete or deactivate your own account'
+      });
+    }
+
+    const existing = await query('SELECT id, is_active FROM users WHERE id = ?', [userId]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const next = Number(is_active) === 1 ? 1 : 0;
+
+    await query('UPDATE users SET is_active = ?, updated_at = NOW() WHERE id = ?', [next, userId]);
+
+    res.status(200).json({
+      success: true,
+      message: next === 1 ? 'User activated successfully' : 'User deactivated successfully'
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    res.status(500).json({ success: false, message: 'Error updating user status' });
+  }
+};
+
 export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const userId = Number(id);
+    if (!id || isNaN(userId)) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     // Check if user exists
-    const existing = await query('SELECT * FROM users WHERE id = ?', [id]);
+    const existing = await query('SELECT id, is_active FROM users WHERE id = ?', [userId]);
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
@@ -306,24 +408,72 @@ export const deleteUser = async (req, res) => {
     }
 
     // Don't allow deleting yourself
-    if (id == req.user.id) {
-      return res.status(400).json({
+    if (userId === Number(req.user.id)) {
+      return res.status(403).json({
         success: false,
-        message: 'Cannot delete your own account'
+        message: 'You cannot delete or deactivate your own account'
       });
     }
 
+    // Check for foreign-key references before deleting
+    const conflictBody = {
+      success: false,
+      code: 'USER_HAS_HISTORY',
+      message: 'This user cannot be permanently deleted because historical records are linked to this account. Deactivate the user instead.'
+    };
+
+    try {
+      const foreignKeys = await query(
+        `SELECT TABLE_NAME, COLUMN_NAME
+         FROM information_schema.KEY_COLUMN_USAGE
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND REFERENCED_TABLE_NAME = 'users'
+           AND REFERENCED_COLUMN_NAME = 'id'`,
+        []
+      );
+
+      const excludeTables = ['users', 'user_outlets'];
+      const childTables = foreignKeys.filter((row) => !excludeTables.includes(row.TABLE_NAME));
+
+      if (childTables.length > 0) {
+        const checkSql = childTables
+          .map((row) => `(SELECT 1 AS dep FROM \`${row.TABLE_NAME}\` WHERE \`${row.COLUMN_NAME}\` = ? LIMIT 1)`)
+          .join(' UNION ALL ');
+        const params = childTables.map(() => userId);
+
+        const dependencies = await query(checkSql, params);
+        if (dependencies.length > 0) {
+          return res.status(409).json(conflictBody);
+        }
+      }
+    } catch (fkError) {
+      console.warn('FK dependency check warning:', fkError.message || fkError);
+    }
+
     // Delete outlet assignments first
-    await query('DELETE FROM user_outlets WHERE user_id = ?', [id]);
+    await query('DELETE FROM user_outlets WHERE user_id = ?', [userId]);
 
     // Delete user
-    await query('DELETE FROM users WHERE id = ?', [id]);
+    try {
+      await query('DELETE FROM users WHERE id = ?', [userId]);
+    } catch (error) {
+      if (
+        error.code === 'ER_ROW_IS_REFERENCED_2' ||
+        error.code === 'ER_ROW_IS_REFERENCED' ||
+        error.code === 'ER_FK_CONSTRAINT_VIOLATION' ||
+        error.code === 'ER_CANNOT_DELETE_PARENT' ||
+        error.sqlMessage?.includes('foreign key constraint')
+      ) {
+        return res.status(409).json(conflictBody);
+      }
+      throw error;
+    }
 
-    await logAudit(req.user.id, 'DELETE', 'users', id, existing[0], null, 'Deleted user');
+    await logAudit(req.user.id, 'DELETE', 'users', userId, existing[0], null, 'Deleted user permanently');
 
     res.status(200).json({
       success: true,
-      message: 'User deleted successfully'
+      message: 'User deleted permanently'
     });
   } catch (error) {
     console.error('Delete user error:', error);
@@ -348,12 +498,18 @@ export const assignUserToOutlet = async (req, res) => {
       });
     }
 
+    let nextOutletIds = outlet_ids || [];
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      nextOutletIds = nextOutletIds.filter((oid) => callerOutletIds.includes(Number(oid)));
+    }
+
     // Remove existing assignments
     await query('DELETE FROM user_outlets WHERE user_id = ?', [id]);
 
     // Add new assignments
-    if (outlet_ids && outlet_ids.length > 0) {
-      for (const outlet_id of outlet_ids) {
+    if (nextOutletIds.length > 0) {
+      for (const outlet_id of nextOutletIds) {
         await query(
           'INSERT INTO user_outlets (user_id, outlet_id, created_at) VALUES (?, ?, NOW())',
           [id, outlet_id]
