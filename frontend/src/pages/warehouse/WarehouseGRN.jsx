@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Truck, Eye, X, ClipboardCheck } from "lucide-react";
@@ -14,6 +14,9 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
   const [saving, setSaving] = useState(false);
   const [filters, setFilters] = useState({ search: "", status: "", supplier: "" });
   const [print, setPrint] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
 
   const getMaterialGstRate = (rawMaterialId) => {
@@ -80,17 +83,29 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     items: [{ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }],
   });
 
-  const fetchGRNs = async () => {
+  const fetchGRNs = async (pageArg = page) => {
     if (!locationId) return;
     setLoading(true);
     try {
-      const res = await warehouseAPI.getGRNs({ location_id: locationId });
+      const res = await warehouseAPI.getGRNs({ location_id: locationId, page: pageArg, limit: pageSize });
       setGrns(res?.data?.data || []);
+      if (res?.data?.pagination) setPagination(res.data.pagination);
     } catch (error) { toast.error("Failed to load Goods Receipts"); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchGRNs(); }, [locationId]);
+  // Switching warehouse resets to page 1 and fetches directly (rather than
+  // waiting for the page state update to flush and re-trigger the effect
+  // below), so the list never briefly shows a stale, wrong-location page.
+  useEffect(() => {
+    setPage(1);
+    fetchGRNs(1);
+  }, [locationId]);
+
+  useEffect(() => {
+    if (page === 1) return;
+    fetchGRNs(page);
+  }, [page]);
 
   const addItem = () => setForm({ ...form, items: [...form.items, { raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }] });
   const updateItem = (idx, key, value) => {
@@ -214,7 +229,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         <td className="px-3 py-2.5 text-right">{fmtCurrency(g.total_amount)}</td>
                         <td className="px-3 py-2.5 text-center"><StatusBadge status={g.status} /></td>
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
-                          {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(fetchGRNs), { loading: "Posting...", success: "Goods Receipt posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
+                          {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(() => fetchGRNs()), { loading: "Posting...", success: "Goods Receipt posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
                           <button onClick={() => openPrint(g.id)} title="View / Print" className={`ml-1 rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                         </td>
                       </tr>
@@ -226,6 +241,14 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
             </tbody>
           </table>
         </TableWrapper>
+        <Pagination
+          page={pagination.page || page}
+          pages={pagination.pages || 1}
+          total={pagination.total || 0}
+          limit={pagination.limit || pageSize}
+          onPageChange={setPage}
+          isDark={isDark}
+        />
       </SectionCard>
 
       {showCreate && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList } from "lucide-react";
@@ -15,6 +15,9 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   const [approval, setApproval] = useState({ items: [], open: false });
   const [warehouseStock, setWarehouseStock] = useState({});
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
 
   const warehouses = locations.filter((l) => l.location_type === "Central Warehouse");
@@ -42,16 +45,28 @@ export default function WarehouseRequisitions({ locationId, locations, materials
     items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }],
   });
 
-  const fetchRequisitions = async () => {
+  const fetchRequisitions = async (pageArg = page) => {
     setLoading(true);
     try {
-      const res = await warehouseAPI.getRequisitions(filters);
+      const res = await warehouseAPI.getRequisitions({ ...filters, page: pageArg, limit: pageSize });
       setRequisitions(res?.data?.data || []);
+      if (res?.data?.pagination) setPagination(res.data.pagination);
     } catch (error) { toast.error("Failed to load outlet purchase orders"); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchRequisitions(); }, [filters]);
+  // Changing a filter resets to page 1 and fetches directly (rather than
+  // waiting for the page state update to flush and re-trigger the effect
+  // below), so the list never briefly shows a stale page under new filters.
+  useEffect(() => {
+    setPage(1);
+    fetchRequisitions(1);
+  }, [filters]);
+
+  useEffect(() => {
+    if (page === 1) return;
+    fetchRequisitions(page);
+  }, [page]);
 
   const addItem = () => setForm({ ...form, items: [...form.items, { raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
   const updateItem = (idx, key, value) => {
@@ -210,6 +225,14 @@ export default function WarehouseRequisitions({ locationId, locations, materials
             </tbody>
           </table>
         </TableWrapper>
+        <Pagination
+          page={pagination.page || page}
+          pages={pagination.pages || 1}
+          total={pagination.total || 0}
+          limit={pagination.limit || pageSize}
+          onPageChange={setPage}
+          isDark={isDark}
+        />
       </SectionCard>
 
       {showCreate && (

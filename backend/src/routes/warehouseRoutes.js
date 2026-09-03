@@ -126,8 +126,21 @@ router.get('/stock', checkPermission('warehouse_stock', 'can_view'), applyLocati
 
 router.get('/ledger', checkPermission('warehouse_ledger', 'can_view'), applyLocationScope, async (req, res) => {
   try {
-    const data = await getStockLedger(req.query);
-    res.json({ success: true, data });
+    // getStockLedger computes a running balance by walking every matching row
+    // in order (balance += qty_in - qty_out, cumulative from the start of the
+    // filtered set) - it also backs the ledger report/export, which need that
+    // complete computed array. So the query and balance math stay untouched
+    // here; pagination is applied afterwards, in memory, on the already-
+    // computed array, purely to bound what actually gets sent to the browser.
+    const allowedLocationIds = resolveScopedLocationIds(req, res, req.query.location_id);
+    if (allowedLocationIds === undefined) return;
+    const fullData = await getStockLedger({ ...req.query, allowedLocationIds });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit, 10) || 25);
+    const total = fullData.length;
+    const start = (page - 1) * limit;
+    const data = fullData.slice(start, start + limit);
+    res.json({ success: true, data, pagination: { total, page, limit, pages: Math.ceil(total / limit) || 1 } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -144,8 +157,10 @@ router.post('/opening', checkPermission('warehouse_stock', 'can_create'), checkL
 
 router.get('/grn', checkPermission('grn', 'can_view'), applyLocationScope, async (req, res) => {
   try {
-    const data = await getGRNs(req.query);
-    res.json({ success: true, data });
+    const allowedLocationIds = resolveScopedLocationIds(req, res, req.query.location_id);
+    if (allowedLocationIds === undefined) return;
+    const result = await getGRNs({ ...req.query, allowedLocationIds });
+    res.json({ success: true, data: result.data, pagination: result.pagination });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -187,8 +202,8 @@ router.get('/requisitions', checkPermission('warehouse_requisitions', 'can_view'
   try {
     const allowedLocationIds = resolveScopedLocationIds(req, res, req.query.location_id, req.query.from_location_id, req.query.to_location_id);
     if (allowedLocationIds === undefined) return;
-    const data = await getRequisitions({ ...req.query, allowedLocationIds });
-    res.json({ success: true, data });
+    const result = await getRequisitions({ ...req.query, allowedLocationIds });
+    res.json({ success: true, data: result.data, pagination: result.pagination });
   }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Package, FileText, BarChart2 } from 'lucide-react';
+import { Download, Search, Loader2, Package, FileText, BarChart2 } from 'lucide-react';
 import { reportAPI, masterAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { exportReportPDF } from '../../utils/pdfReport';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -61,11 +62,41 @@ const TheoreticalConsumptionReport = () => {
   }
   const materialRows = Object.values(byMaterial);
 
+  const handleExport = async () => {
+    const rows = materialRows.map((m) => [
+      m.material_name,
+      m.material_code,
+      m.unit,
+      m.items.map((i) => i.item_name).join(", "),
+      fmtQty(m.total_used_qty),
+    ]);
+
+    const outletName = outlets.find((o) => String(o.id) === String(filters.outlet_id))?.outlet_name;
+
+    await exportReportPDF({
+      title: "Theoretical Consumption Report",
+      outletName,
+      dateRangeLabel: `${MONTHS[filters.month - 1]} ${filters.year}`,
+      columns: ["Material", "Code", "Unit", "Sold From (menu items)", "Total Theoretical Qty"],
+      rows,
+      summaryLines: [`Materials with Theoretical Usage: ${materialRows.length}`],
+      fileName: `theoretical-consumption-${filters.month}-${filters.year}.pdf`,
+    });
+    toast.success("Report exported");
+  };
+
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
-      <div>
-        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Theoretical Consumption Report</h1>
-        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Expected raw-material usage, derived from recipes and units sold</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Theoretical Consumption Report</h1>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Expected raw-material usage, derived from recipes and units sold</p>
+        </div>
+        {!loading && materialRows.length > 0 && (
+          <button onClick={handleExport} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]" style={{ backgroundColor: primaryColor }}>
+            <Download size={16} /> Export
+          </button>
+        )}
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>

@@ -217,6 +217,79 @@ export const FilterBar = ({ children, isDark = false, title = "Filters", classNa
 };
 
 /* ──────────────────────────────────────────────────────────── *
+ * Pagination — prev/next + page-number controls for a server-paginated list
+ * Usage:
+ *   <Pagination
+ *     page={page} pages={pagination.pages} total={pagination.total} limit={limit}
+ *     onPageChange={setPage} isDark={isDark}
+ *   />
+ * Renders nothing when there's only one page (or no rows yet).
+ * ──────────────────────────────────────────────────────────── */
+export const Pagination = ({ page = 1, pages = 1, total = 0, limit = 25, onPageChange, isDark = false }) => {
+  if (!pages || pages <= 1) return null;
+
+  const cardCls = isDark
+    ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]"
+    : "border-[#EBE9F1] bg-white text-[#2F2B3D]";
+  const mutedCls = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
+  const primaryColor = getPrimaryColor();
+
+  const pageNumbers = () => {
+    const windowSize = 5;
+    let start = Math.max(1, page - Math.floor(windowSize / 2));
+    const end = Math.min(pages, start + windowSize - 1);
+    start = Math.max(1, end - windowSize + 1);
+    const nums = [];
+    for (let i = start; i <= end; i++) nums.push(i);
+    return nums;
+  };
+
+  const from = total === 0 ? 0 : (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
+
+  return (
+    <div className={`flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+      <p className={`text-[13px] ${mutedCls}`}>
+        Showing {from}-{to} of {total}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className={`h-9 rounded-md border px-3 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-50 ${cardCls}`}
+        >
+          Prev
+        </button>
+        {pageNumbers().map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onPageChange(n)}
+            className="h-9 min-w-[36px] rounded-md px-3 text-[13px] font-semibold"
+            style={
+              n === page
+                ? { backgroundColor: primaryColor, color: "#fff" }
+                : { backgroundColor: isDark ? "#2F3349" : "#F3F2F7", color: isDark ? "#D0D2D6" : "#5D596C" }
+            }
+          >
+            {n}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(pages, page + 1))}
+          disabled={page >= pages}
+          className={`h-9 rounded-md border px-3 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-50 ${cardCls}`}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* ──────────────────────────────────────────────────────────── *
  * MobileActionMenu — ⋮ kebab menu for table row actions on mobile
  * Usage:
  *   <MobileActionMenu actions={[{ label: "Edit", icon: Edit2, onClick: fn }, ...]} isDark={isDark} />

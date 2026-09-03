@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, TransactionLabel, fmtQty, fmtCurrency, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, BookOpen } from "lucide-react";
@@ -10,19 +10,39 @@ export default function WarehouseLedger({ locationId, locations, isDark }) {
   const [loading, setLoading] = useState(true);
   const [ledger, setLedger] = useState([]);
   const [filters, setFilters] = useState({ search: "", transaction_type: "", from_date: "", to_date: "" });
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
 
-  const fetchLedger = async () => {
+  // The backend computes a running balance by walking every matching ledger
+  // row in order, so it can't paginate at the SQL level (page 2 would have
+  // to restart the balance from 0). It computes the full ordered result
+  // server-side same as before and slices it in memory before responding -
+  // this just requests one page of that already-correct array.
+  const fetchLedger = async (pageArg = page) => {
     if (!locationId) return;
     setLoading(true);
     try {
-      const res = await warehouseAPI.getLedger({ location_id: locationId });
+      const res = await warehouseAPI.getLedger({ location_id: locationId, page: pageArg, limit: pageSize });
       setLedger(res?.data?.data || []);
+      if (res?.data?.pagination) setPagination(res.data.pagination);
     } catch (error) { toast.error("Failed to load stock ledger"); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchLedger(); }, [locationId]);
+  // Switching location resets to page 1 and fetches directly (rather than
+  // waiting for the page state update to flush and re-trigger the effect
+  // below), so the list never briefly shows a stale, wrong-location page.
+  useEffect(() => {
+    setPage(1);
+    fetchLedger(1);
+  }, [locationId]);
+
+  useEffect(() => {
+    if (page === 1) return;
+    fetchLedger(page);
+  }, [page]);
 
   const filtered = ledger.filter((r) => {
     const term = filters.search.toLowerCase();
@@ -124,6 +144,14 @@ export default function WarehouseLedger({ locationId, locations, isDark }) {
             </tbody>
           </table>
         </TableWrapper>
+        <Pagination
+          page={pagination.page || page}
+          pages={pagination.pages || 1}
+          total={pagination.total || 0}
+          limit={pagination.limit || pageSize}
+          onPageChange={setPage}
+          isDark={isDark}
+        />
       </SectionCard>
     </div>
   );

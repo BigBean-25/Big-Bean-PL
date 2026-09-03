@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Wallet, FileText, AlertCircle } from 'lucide-react';
+import { Download, Search, Loader2, Wallet, FileText, AlertCircle } from 'lucide-react';
 import { reportAPI, masterAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { exportReportPDF } from '../../utils/pdfReport';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -49,11 +51,50 @@ const SupplierPendingReport = () => {
 
   const totalPending = reportData.reduce((sum, item) => sum + parseFloat(item.balance_pending || 0), 0);
 
+  const handleExport = async () => {
+    const rows = reportData.map((item) => [
+      item.outlet_name,
+      item.supplier_name,
+      fmtINR(item.purchase_value),
+      fmtINR(item.paid_amount),
+      fmtINR(item.balance_pending),
+      item.as_of_date,
+    ]);
+
+    const outletName = filters.outlet_id === 'all'
+      ? 'All Outlets'
+      : (outlets.find((o) => String(o.id) === String(filters.outlet_id))?.outlet_name || `Outlet #${filters.outlet_id}`);
+    const supplierName = filters.supplier_id === 'all'
+      ? 'All Suppliers'
+      : (suppliers.find((s) => String(s.id) === String(filters.supplier_id))?.supplier_name || `Supplier #${filters.supplier_id}`);
+
+    await exportReportPDF({
+      title: "Supplier Outstanding Report",
+      outletName,
+      dateRangeLabel: `As of ${format(new Date(filters.as_of_date), 'dd MMM yyyy')}`,
+      columns: ["Outlet", "Supplier", "Purchase Value", "Paid Amount", "Balance Pending", "As of"],
+      rows,
+      summaryLines: [
+        `Supplier Filter: ${supplierName}`,
+        `Total Outstanding Balance: ${fmtINR(totalPending)}`,
+      ],
+      fileName: `supplier-outstanding-${filters.as_of_date}.pdf`,
+    });
+    toast.success("Report exported");
+  };
+
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
-      <div>
-        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Supplier Outstanding Report</h1>
-        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Purchase value, payments and pending balance per supplier, per outlet</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Supplier Outstanding Report</h1>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Purchase value, payments and pending balance per supplier, per outlet</p>
+        </div>
+        {!loading && reportData.length > 0 && (
+          <button onClick={handleExport} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]" style={{ backgroundColor: primaryColor }}>
+            <Download size={16} /> Export
+          </button>
+        )}
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>

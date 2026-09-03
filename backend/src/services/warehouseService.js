@@ -412,13 +412,34 @@ export const postGRN = async (grnId, postedBy) => {
 };
 
 export const getGRNs = async (filters) => {
-  const { location_id, status } = filters || {};
-  let sql = `SELECT g.*, s.supplier_name, l.location_name FROM grn g LEFT JOIN suppliers s ON s.id = g.supplier_id LEFT JOIN locations l ON l.id = g.warehouse_location_id WHERE 1=1`;
-  const params = [];
-  if (location_id) { sql += ' AND g.warehouse_location_id = ?'; params.push(location_id); }
-  if (status) { sql += ' AND g.status = ?'; params.push(status); }
-  sql += ' ORDER BY g.created_at DESC';
-  return query(sql, params);
+  const { location_id, status, page, limit, allowedLocationIds } = filters || {};
+  // Same WHERE clause reused for both the COUNT and the page SELECT, so the
+  // total always matches what the filters actually restrict - built once
+  // here rather than duplicated as two separately-maintained strings.
+  let whereSql = 'WHERE 1=1';
+  const whereParams = [];
+  if (location_id) { whereSql += ' AND g.warehouse_location_id = ?'; whereParams.push(location_id); }
+  if (status) { whereSql += ' AND g.status = ?'; whereParams.push(status); }
+  // Confines a location-scoped caller to GRNs at a location they're actually
+  // allowed to see, regardless of location_id above - see resolveScopedLocationIds
+  // in warehouseMiddleware.js. undefined means the caller has full access.
+  if (allowedLocationIds) {
+    whereSql += allowedLocationIds.length ? ' AND g.warehouse_location_id IN (?)' : ' AND 1=0';
+    if (allowedLocationIds.length) whereParams.push(allowedLocationIds);
+  }
+
+  const countRows = await query(`SELECT COUNT(*) as total FROM grn g ${whereSql}`, whereParams);
+  const total = countRows[0]?.total || 0;
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, parseInt(limit, 10) || 25);
+  const offset = (pageNum - 1) * limitNum;
+
+  const rows = await query(
+    `SELECT g.*, s.supplier_name, l.location_name FROM grn g LEFT JOIN suppliers s ON s.id = g.supplier_id LEFT JOIN locations l ON l.id = g.warehouse_location_id ${whereSql} ORDER BY g.created_at DESC LIMIT ? OFFSET ?`,
+    [...whereParams, limitNum, offset]
+  );
+  return { data: rows, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) || 1 } };
 };
 
 export const getGRNById = async (id) => {
@@ -478,7 +499,7 @@ export const getCurrentStock = async (locationId, options = {}) => {
 };
 
 export const getStockLedger = async (filters) => {
-  const { location_id, raw_material_id, transaction_type, from_date, to_date } = filters || {};
+  const { location_id, raw_material_id, transaction_type, from_date, to_date, allowedLocationIds } = filters || {};
   let sql = `SELECT sl.*, rm.material_name, rm.material_code, u.unit_name, l.location_name, us.full_name as created_by_name
     FROM stock_ledger sl
     LEFT JOIN raw_materials rm ON rm.id = sl.raw_material_id
@@ -491,6 +512,15 @@ export const getStockLedger = async (filters) => {
   if (raw_material_id) { sql += ' AND sl.raw_material_id = ?'; params.push(raw_material_id); }
   if (transaction_type) { sql += ' AND sl.transaction_type = ?'; params.push(transaction_type); }
   if (from_date && to_date) { sql += ' AND sl.transaction_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
+  // Confines a location-scoped caller to their own location's ledger, same as
+  // every other list endpoint in this file - see resolveScopedLocationIds in
+  // warehouseMiddleware.js. Filtering here (not just after) also keeps the
+  // running balance below correct for a scoped caller: it must only ever
+  // accumulate from rows they're actually allowed to see.
+  if (allowedLocationIds) {
+    sql += allowedLocationIds.length ? ' AND sl.location_id IN (?)' : ' AND 1=0';
+    if (allowedLocationIds.length) params.push(allowedLocationIds);
+  }
   sql += ' ORDER BY sl.transaction_date, sl.id';
   const rows = await query(sql, params);
   let balance = 0;
@@ -557,18 +587,16 @@ export const getDashboardMetrics = async (locationId) => {
 // --- Phase 2B: Requisitions & Stock Transfers ---
 
 export const getRequisitions = async (filters = {}) => {
-  const { location_id, from_location_id, to_location_id, status, allowedLocationIds } = filters;
-  let sql = `SELECT sr.*, fl.location_name as from_location, tl.location_name as to_location, u.full_name as created_by_name
-    FROM stock_requisitions sr
-    LEFT JOIN locations fl ON fl.id = sr.from_location_id
-    LEFT JOIN locations tl ON tl.id = sr.to_location_id
-    LEFT JOIN users u ON u.id = sr.created_by
-    WHERE 1=1`;
-  const params = [];
-  if (location_id) { sql += ' AND (sr.from_location_id = ? OR sr.to_location_id = ?)'; params.push(location_id, location_id); }
-  if (from_location_id) { sql += ' AND sr.from_location_id = ?'; params.push(from_location_id); }
-  if (to_location_id) { sql += ' AND sr.to_location_id = ?'; params.push(to_location_id); }
-  if (status) { sql += ' AND sr.status = ?'; params.push(status); }
+  const { location_id, from_location_id, to_location_id, status, allowedLocationIds, page, limit } = filters;
+  // Same WHERE clause reused for both the COUNT and the page SELECT (see
+  // getGRNs above), so the total always matches what allowedLocationIds
+  // actually restricts.
+  let whereSql = 'WHERE 1=1';
+  const whereParams = [];
+  if (location_id) { whereSql += ' AND (sr.from_location_id = ? OR sr.to_location_id = ?)'; whereParams.push(location_id, location_id); }
+  if (from_location_id) { whereSql += ' AND sr.from_location_id = ?'; whereParams.push(from_location_id); }
+  if (to_location_id) { whereSql += ' AND sr.to_location_id = ?'; whereParams.push(to_location_id); }
+  if (status) { whereSql += ' AND sr.status = ?'; whereParams.push(status); }
   // Confines a location-scoped caller (e.g. an outlet user, or Warehouse
   // Admin) to requisitions touching a location they're actually allowed to
   // see, regardless of whatever from/to/location_id filter (or lack of one)
@@ -577,13 +605,29 @@ export const getRequisitions = async (filters = {}) => {
     // allowedLocationIds is an array (possibly empty - e.g. a Warehouse
     // Admin when no Central Warehouse location is active) whenever the
     // caller is location-scoped; undefined means full access, no restriction.
-    sql += allowedLocationIds.length
+    whereSql += allowedLocationIds.length
       ? ' AND (sr.from_location_id IN (?) OR sr.to_location_id IN (?))'
       : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds, allowedLocationIds);
+    if (allowedLocationIds.length) whereParams.push(allowedLocationIds, allowedLocationIds);
   }
-  sql += ' ORDER BY sr.created_at DESC';
-  return query(sql, params);
+
+  const countRows = await query(`SELECT COUNT(*) as total FROM stock_requisitions sr ${whereSql}`, whereParams);
+  const total = countRows[0]?.total || 0;
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, parseInt(limit, 10) || 25);
+  const offset = (pageNum - 1) * limitNum;
+
+  const rows = await query(
+    `SELECT sr.*, fl.location_name as from_location, tl.location_name as to_location, u.full_name as created_by_name
+    FROM stock_requisitions sr
+    LEFT JOIN locations fl ON fl.id = sr.from_location_id
+    LEFT JOIN locations tl ON tl.id = sr.to_location_id
+    LEFT JOIN users u ON u.id = sr.created_by
+    ${whereSql} ORDER BY sr.created_at DESC LIMIT ? OFFSET ?`,
+    [...whereParams, limitNum, offset]
+  );
+  return { data: rows, pagination: { total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) || 1 } };
 };
 
 export const getRequisitionById = async (id) => {

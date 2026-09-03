@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Plus,
@@ -19,6 +19,7 @@ import {
   Upload,
 } from "lucide-react";
 import { masterAPI } from "../../services/api";
+import { Pagination } from "../../components/ui";
 import toast from "react-hot-toast";
 
 const getPrimaryColor = () => {
@@ -135,6 +136,8 @@ const RawMaterials = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, pages: 1 });
 
   const outletContext = useOutletContext() || {};
   const { selectedOutletId = "all", isOutletLocked = false } = outletContext;
@@ -161,20 +164,41 @@ const RawMaterials = () => {
     setLoading(true);
 
     try {
-      await Promise.all([fetchMaterials(), fetchCategories(), fetchUnits(), fetchOutlets()]);
+      await Promise.all([fetchMaterials(1, pageSize), fetchCategories(), fetchUnits(), fetchOutlets()]);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMaterials = async () => {
+  const fetchMaterials = async (pageArg = page, limitArg = pageSize) => {
     try {
-      const response = await masterAPI.getRawMaterials();
+      const response = await masterAPI.getRawMaterials({ page: pageArg, limit: limitArg });
       setMaterials(getRows(response));
+      const responsePagination = response?.data?.pagination;
+      if (responsePagination) setPagination(responsePagination);
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch raw materials");
     }
   };
+
+  // fetchInitialData already fetches page 1 on mount - this effect only
+  // needs to react to later page/page-size changes, so its first run (which
+  // fires immediately on mount alongside fetchInitialData) is skipped.
+  const isFirstPageEffect = useRef(true);
+  useEffect(() => {
+    if (isFirstPageEffect.current) {
+      isFirstPageEffect.current = false;
+      return;
+    }
+    (async () => {
+      setLoading(true);
+      try {
+        await fetchMaterials(page, pageSize);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [page, pageSize]);
 
   const handleDownloadTemplate = async () => {
     try {
@@ -361,10 +385,10 @@ const RawMaterials = () => {
     stockFilter,
   ]);
 
-  const visibleMaterials = useMemo(() => {
-    return filteredMaterials.slice(0, Number(pageSize));
-  }, [filteredMaterials, pageSize]);
-
+  // Materials are now fetched one page at a time (see fetchMaterials), so
+  // these are necessarily scoped to the currently-loaded page rather than
+  // the whole raw materials master - "Total Materials" uses the server's
+  // pagination.total instead, since that count is accurate company-wide.
   const summary = useMemo(() => {
     const active = materials.filter(
       (material) => Number(material.is_active) === 1
@@ -383,13 +407,13 @@ const RawMaterials = () => {
     ).size;
 
     return {
-      total: materials.length,
+      total: pagination.total || materials.length,
       active,
       inactive,
       withReorder,
       mappedCategories,
     };
-  }, [materials]);
+  }, [materials, pagination.total]);
 
   const handleEdit = (material) => {
     setEditingId(material.id);
@@ -1679,7 +1703,10 @@ const RawMaterials = () => {
         <div className="flex flex-col justify-between gap-4 border-b border-[#EBE9F1] p-6 md:flex-row md:items-center">
           <select
             value={pageSize}
-            onChange={(event) => setPageSize(Number(event.target.value))}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setPage(1);
+            }}
             className={`h-12 w-[95px] rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
           >
             <option value={10}>10</option>
@@ -1722,7 +1749,7 @@ const RawMaterials = () => {
               </p>
             </div>
           </div>
-        ) : visibleMaterials.length === 0 ? (
+        ) : filteredMaterials.length === 0 ? (
           <div className="flex min-h-[300px] items-center justify-center">
             <div className="text-center">
               <Package size={42} className="mx-auto text-[#A8AAAE]" />
@@ -1767,7 +1794,7 @@ const RawMaterials = () => {
               </thead>
 
               <tbody>
-                {visibleMaterials.map((material) => (
+                {filteredMaterials.map((material) => (
                   <tr
                     key={material.id}
                     className="border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
@@ -1853,11 +1880,14 @@ const RawMaterials = () => {
               </tbody>
             </table>
 
-            {filteredMaterials.length > pageSize && (
-              <div className="border-t border-[#EBE9F1] px-6 py-4 text-[14px] text-[#6F6B7D]">
-                Showing first {pageSize} of {filteredMaterials.length} raw materials.
-              </div>
-            )}
+            <Pagination
+              page={pagination.page || page}
+              pages={pagination.pages || 1}
+              total={pagination.total || 0}
+              limit={pagination.limit || pageSize}
+              onPageChange={setPage}
+              isDark={isDark}
+            />
           </div>
         )}
       </div>

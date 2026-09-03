@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Receipt, FileText, AlertCircle, AlertTriangle, ShieldCheck, Info } from 'lucide-react';
+import { Download, Search, Loader2, Receipt, FileText, AlertCircle, AlertTriangle, ShieldCheck, Info } from 'lucide-react';
 import { reportAPI, masterAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { exportReportPDF } from '../../utils/pdfReport';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -55,11 +57,71 @@ const GSTR1Report = () => {
   const preciseIds = report?.tax_data_quality?.precise_outlet_ids || [];
   const estimatedIds = report?.tax_data_quality?.estimated_outlet_ids || [];
 
+  const handleExport = async () => {
+    const filterOutletName = filters.outlet_id === 'all' ? 'All Outlets' : outletName(filters.outlet_id);
+    const dateRangeLabel = filters.from_date === filters.to_date
+      ? format(new Date(filters.from_date), 'dd MMM yyyy')
+      : `${format(new Date(filters.from_date), 'dd MMM yyyy')} - ${format(new Date(filters.to_date), 'dd MMM yyyy')}`;
+    const summaryLines = [
+      `Total Taxable Value: ${fmtINR(report.total_taxable_value)}`,
+      `Total Tax (CGST + SGST): ${fmtINR(report.total_tax)}`,
+      `Total Invoice Value: ${fmtINR(report.total_invoice_value)}`,
+    ];
+
+    if (report.b2c_others?.length > 0) {
+      const rows = report.b2c_others.map((r) => [
+        `${r.rate.toFixed(2)}%`,
+        fmtINR(r.taxable_value),
+        fmtINR(r.cgst),
+        fmtINR(r.sgst),
+        fmtINR(r.total_tax),
+      ]);
+      await exportReportPDF({
+        title: "GSTR-1 — Table 7 (B2C Others, Rate-wise)",
+        outletName: filterOutletName,
+        dateRangeLabel,
+        columns: ["GST Rate", "Taxable Value", "CGST", "SGST", "Total Tax"],
+        rows,
+        summaryLines,
+        fileName: `gstr1-b2c-others-${filters.from_date}-to-${filters.to_date}.pdf`,
+      });
+    }
+
+    if (report.hsn_summary?.length > 0) {
+      const rows = report.hsn_summary.map((r) => [
+        r.hsn_code,
+        r.description,
+        Number(r.quantity).toFixed(2),
+        `${r.rate.toFixed(2)}%`,
+        fmtINR(r.taxable_value),
+        fmtINR(r.tax_amount),
+      ]);
+      await exportReportPDF({
+        title: "GSTR-1 — Table 12 (HSN-wise Summary)",
+        outletName: filterOutletName,
+        dateRangeLabel,
+        columns: ["HSN", "Description", "Qty", "Rate", "Taxable Value", "Tax Amount"],
+        rows,
+        summaryLines,
+        fileName: `gstr1-hsn-summary-${filters.from_date}-to-${filters.to_date}.pdf`,
+      });
+    }
+
+    toast.success("Report exported");
+  };
+
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
-      <div>
-        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>GSTR-1 — Outward Supplies (Sales)</h1>
-        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Rate-wise and HSN-wise summary of outlet sales from approved PetPooja uploads — a filing aid, not a substitute for your GST portal return</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>GSTR-1 — Outward Supplies (Sales)</h1>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Rate-wise and HSN-wise summary of outlet sales from approved PetPooja uploads — a filing aid, not a substitute for your GST portal return</p>
+        </div>
+        {!loading && report && hasData && (
+          <button onClick={handleExport} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]" style={{ backgroundColor: primaryColor }}>
+            <Download size={16} /> Export
+          </button>
+        )}
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>

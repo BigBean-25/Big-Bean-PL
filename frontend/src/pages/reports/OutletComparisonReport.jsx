@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Search, Loader2, FileText, TrendingUp, TrendingDown } from 'lucide-react';
+import { Download, Search, Loader2, FileText, TrendingUp, TrendingDown } from 'lucide-react';
 import { reportAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { exportReportPDF } from '../../utils/pdfReport';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -50,11 +51,54 @@ const OutletComparisonReport = () => {
   const best = outlets.length ? outlets.reduce((a, b) => (Number(a.profit_loss) >= Number(b.profit_loss) ? a : b)) : null;
   const worst = outlets.length ? outlets.reduce((a, b) => (Number(a.profit_loss) <= Number(b.profit_loss) ? a : b)) : null;
 
+  const handleExport = async () => {
+    const rows = outlets.map((o) => [
+      o.outlet_name,
+      fmtINR(o.adjusted_sales),
+      fmtINR(o.actual_consumption),
+      fmtINR(o.total_operating_expenses),
+      fmtINR(o.profit_loss),
+      `${o.food_cost_percentage}%`,
+      `${o.net_profit_percentage}%`,
+    ]);
+    rows.push([
+      "Company Total",
+      fmtINR(comparison.company_total.adjusted_sales),
+      fmtINR(comparison.company_total.actual_consumption),
+      fmtINR(comparison.company_total.total_operating_expenses),
+      fmtINR(comparison.company_total.profit_loss),
+      `${comparison.company_total.net_profit_percentage}%`,
+      '',
+    ]);
+
+    await exportReportPDF({
+      title: "Outlet Comparison Report",
+      outletName: "All Outlets",
+      dateRangeLabel: `${MONTHS[filters.month - 1]} ${filters.year}`,
+      columns: ["Outlet", "Adjusted Sales", "COGS", "Operating Exp.", "Net Profit", "Food Cost %", "Net Margin %"],
+      rows,
+      summaryLines: [
+        `Company Net Profit: ${fmtINR(comparison.company_total.profit_loss)} (${comparison.company_total.net_profit_percentage}% margin)`,
+        `Best Performing: ${best?.outlet_name} (${fmtINR(best?.profit_loss)})`,
+        `Needs Attention: ${worst?.outlet_name} (${fmtINR(worst?.profit_loss)})`,
+      ],
+      fileName: `outlet-comparison-${filters.month}-${filters.year}.pdf`,
+    });
+    toast.success("Report exported");
+  };
+
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
-      <div>
-        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Outlet Comparison Report</h1>
-        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Side-by-side monthly P&L across every outlet</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Outlet Comparison Report</h1>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Side-by-side monthly P&L across every outlet</p>
+        </div>
+        {!loading && !deniedMessage && outlets.length > 0 && (
+          <button onClick={handleExport} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]" style={{ backgroundColor: primaryColor }}>
+            <Download size={16} /> Export
+          </button>
+        )}
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
