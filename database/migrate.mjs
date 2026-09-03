@@ -67,6 +67,7 @@ const MIGRATIONS = [
   { name: 'add_fixed_costs_migration.mjs', file: 'backend/add_fixed_costs_migration.mjs', why: 'outlet_fixed_costs table, fixedCostsController.js' },
   { name: 'redesign_monthly_pnl_snapshots_migration.mjs', file: 'backend/redesign_monthly_pnl_snapshots_migration.mjs', why: 'rebuilds monthly_pnl_snapshots to match plCalculator.js - has its own row-count safety check, DESTRUCTIVE if forced on a non-empty table' },
   { name: 'add_fixed_costs_to_snapshot_migration.mjs', file: 'backend/add_fixed_costs_to_snapshot_migration.mjs', why: 'adds fixed_costs column to the redesigned snapshot table above - must run after it' },
+  { name: 'add_raw_material_cash_expense_linkage.sql', file: 'database/add_raw_material_cash_expense_linkage.sql', why: 'daily_cash_expenses raw-material linkage + expense_heads.is_raw_material_category, dailyAccountsController.js approveDailyCashExpense' },
 ];
 
 async function ensureTrackingTable(conn) {
