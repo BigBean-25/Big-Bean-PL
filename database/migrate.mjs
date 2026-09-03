@@ -86,12 +86,28 @@ async function getApplied(conn) {
 
 async function runSqlFile(conn, absPath) {
   const raw = await readFile(absPath, 'utf8');
-  // Split on ; at end of line - good enough for these files (no stored
-  // procedures with internal semicolons among the ones listed above).
-  const statements = raw
-    .split(/;\s*(?:\r?\n|$)/)
+  // Strip full-line comments BEFORE splitting on `;`, not after - a chunk
+  // that starts with a `--` comment line but has real SQL further down
+  // (e.g. a file opening with a multi-line comment header before its first
+  // statement) used to get discarded whole by a startsWith('--') filter
+  // applied per-chunk, silently dropping that statement entirely. This bit
+  // in production: add_raw_material_cash_expense_linkage.sql's first ALTER
+  // TABLE never ran because of exactly this.
+  const withoutComments = raw
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+  // Split on every top-level `;`, not just one followed by a newline -
+  // guarded migrations use PREPARE/EXECUTE/DEALLOCATE sequences written as
+  // multiple statements on one line (e.g. `PREPARE stmt FROM @x; EXECUTE
+  // stmt; DEALLOCATE PREPARE stmt;`), and this connection pool doesn't set
+  // multipleStatements, so sending them as one query() call fails. None of
+  // the migration files this runner executes have a literal `;` inside a
+  // string value, so a plain split is safe here (not a general SQL parser).
+  const statements = withoutComments
+    .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => s.length > 0);
   for (const stmt of statements) {
     await conn.query(stmt);
   }
@@ -141,11 +157,21 @@ async function main() {
     console.log(dryRun ? '\nDry run complete - nothing was executed.' : '\nAll listed migrations are applied.');
   } finally {
     conn.release();
-    process.exit(0);
   }
 }
 
-main().catch(e => {
-  console.error('Migration run failed:', e.message || e);
-  process.exit(1);
-});
+// process.exit() called immediately after a console.log/error can race
+// stdout's flush on some Windows terminals and silently swallow the last
+// line(s) - seen for real on this exact script. The connection pool's
+// keep-alive sockets mean the process won't exit naturally on its own, so
+// process.exit() is still needed - just not immediately.
+main()
+  .then(async () => {
+    await new Promise((r) => setTimeout(r, 200));
+    process.exit(0);
+  })
+  .catch(async (e) => {
+    console.error('Migration run failed:', e.message || e);
+    await new Promise((r) => setTimeout(r, 200));
+    process.exit(1);
+  });
