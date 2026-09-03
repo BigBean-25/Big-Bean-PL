@@ -109,7 +109,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
         { header: "Return No", key: "return_no", width: 14 },
         { header: "Return Date", key: "return_date", width: 14 },
         { header: "Supplier", key: "supplier_name", width: 22 },
-        { header: "Source GRN", key: "grn_no", width: 16 },
+        { header: "Source Goods Receipt", key: "grn_no", width: 16 },
         { header: "Supplier Invoice", key: "supplier_invoice_reference", width: 18 },
         { header: "Warehouse", key: "warehouse_name", width: 18 },
         { header: "Material Code", key: "material_code", width: 16 },
@@ -117,7 +117,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
         { header: "Batch No", key: "batch_no", width: 14 },
         { header: "Expiry Date", key: "expiry_date", width: 14 },
         { header: "Return Qty", key: "return_qty", width: 12 },
-        { header: "UOM", key: "uom", width: 10 },
+        { header: "Unit", key: "uom", width: 10 },
         { header: "Supplier Rate", key: "supplier_rate", width: 14 },
         { header: "Supplier Credit Value", key: "supplier_credit_value", width: 18 },
         { header: "Inventory WAC", key: "inventory_unit_cost", width: 14 },
@@ -272,7 +272,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
 
       <FilterBar isDark={isDark} title="Filters">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search return / GRN" className={`w-full rounded-md py-2 pl-9 pr-3 text-sm ${inputClass}`} /></div>
+          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search return / Goods Receipt" className={`w-full rounded-md py-2 pl-9 pr-3 text-sm ${inputClass}`} /></div>
           <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Status</option>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
           <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
           <button onClick={() => setFilters({ search: "", status: "", supplier_id: "" })} className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}><RotateCcw size={16} /> Reset</button>
@@ -285,7 +285,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                 <th className="px-3 py-3">Return No</th><th className="px-3 py-3">Date</th><th className="px-3 py-3">Supplier</th>
-                <th className="px-3 py-3">GRN</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-right">Value</th>
+                <th className="px-3 py-3">Goods Receipt</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-right">Value</th>
                 <th className="px-3 py-3">Credit Note</th><th className="px-3 py-3 text-center">Status</th><th className="px-3 py-3 text-center">Actions</th>
               </tr>
             </thead>
@@ -339,7 +339,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <input type="date" value={form.return_date} onChange={e => setForm({...form, return_date: e.target.value})} className={`rounded-md px-3 py-2 text-sm ${inputClass}`} />
                 <select value={form.supplier_id} onChange={e => setForm({...form, supplier_id: e.target.value, grn_id: "", items: []})} className={`rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
-                <select value={form.grn_id} onChange={e => setForm({...form, grn_id: e.target.value, items: []})} className={`rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select GRN</option>{grns.map(g => <option key={g.id} value={g.id}>{g.grn_no}</option>)}</select>
+                <select value={form.grn_id} onChange={e => setForm({...form, grn_id: e.target.value, items: []})} className={`rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select Goods Receipt</option>{grns.map(g => <option key={g.id} value={g.id}>{g.grn_no}</option>)}</select>
                 <select value={form.return_reason} onChange={e => setForm({...form, return_reason: e.target.value})} className={`rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select Reason</option>{reasons.map(r => <option key={r} value={r}>{r}</option>)}</select>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -349,7 +349,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
               </div>
 
               {grnItems.length > 0 && (
-                <SectionCard isDark={isDark} title="GRN Items">
+                <SectionCard isDark={isDark} title="Goods Receipt Items">
                   <TableWrapper isDark={isDark}>
                     <table className="w-full border-collapse text-[13px]">
                       <thead className={`${isDark ? "bg-[#2F3349]" : "bg-white"}`}><tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}><th className="px-2 py-2">Material</th><th className="px-2 py-2 text-right">Accepted</th><th className="px-2 py-2 text-right">Returnable</th><th className="px-2 py-2">Batch</th><th className="px-2 py-2">Add</th></tr></thead>
@@ -403,7 +403,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
               <h3 className="text-lg font-semibold">{detail.return_no}</h3>
             </div>
             <div className="p-4 space-y-3">
-              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier: <b>{detail.supplier_name}</b> &bull; GRN: <b>{detail.grn_no}</b> &bull; Date: <b>{fmtDate(detail.return_date)}</b></p>
+              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier: <b>{detail.supplier_name}</b> &bull; Goods Receipt: <b>{detail.grn_no}</b> &bull; Date: <b>{fmtDate(detail.return_date)}</b></p>
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Status: <WarehouseStatusBadge status={detail.status} /> &bull; Qty: <b>{fmtQty(detail.total_return_qty)}</b> &bull; Inventory Value: <b>₹{Number(detail.total_return_value).toFixed(2)}</b> &bull; Supplier Credit: <b>₹{Number(detail.credit_amount).toFixed(2)}</b></p>
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Credit Note: <b>{detail.supplier_credit_note_no || "—"}</b></p>
               {detail.status === "Posted" && (

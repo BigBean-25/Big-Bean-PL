@@ -457,7 +457,7 @@ export default function LocationManagement() {
 
               <div>
                 <p className={`mb-2 text-[12px] font-semibold uppercase tracking-wider ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>
-                  Invoice Details (used as the Buyer block when printing Purchase Orders)
+                  Invoice Details (used as the Buyer block when printing Warehouse Purchase Orders)
                 </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
@@ -565,8 +565,8 @@ export default function LocationManagement() {
                     <div className="grid grid-cols-2 gap-2 text-[13px]">
                       <DetailRow label="Current Stock Value" value={`₹${Number(viewSummary.current_stock_value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} isDark={isDark} />
                       <DetailRow label="Material Count" value={viewSummary.material_count ?? "—"} isDark={isDark} />
-                      <DetailRow label="Pending GRNs" value={viewSummary.pending_grns ?? "—"} isDark={isDark} />
-                      <DetailRow label="Pending Requisitions" value={viewSummary.pending_requisitions ?? "—"} isDark={isDark} />
+                      <DetailRow label="Pending Goods Receipts" value={viewSummary.pending_grns ?? "—"} isDark={isDark} />
+                      <DetailRow label="Pending Outlet Purchase Orders" value={viewSummary.pending_requisitions ?? "—"} isDark={isDark} />
                       <DetailRow label="In-Transit Transfers" value={viewSummary.in_transit_transfers ?? "—"} isDark={isDark} />
                     </div>
                   ) : (

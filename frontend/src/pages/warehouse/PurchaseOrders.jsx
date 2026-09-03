@@ -80,7 +80,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
   const fetchPOs = async () => {
     setLoading(true);
     try { const res = await warehouseAPI.getPurchaseOrders({ location_id: locationId }); setPos(res?.data?.data || []); }
-    catch (error) { toast.error("Failed to load purchase orders"); }
+    catch (error) { toast.error("Failed to load warehouse purchase orders"); }
     finally { setLoading(false); }
   };
 
@@ -149,7 +149,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
     try {
       if (form.id) await warehouseAPI.updatePurchaseOrder(form.id, payload);
       else await warehouseAPI.createPurchaseOrder(payload);
-      toast.success("Purchase order saved");
+      toast.success("Warehouse purchase order saved");
       setShow(false);
       resetForm();
       fetchPOs();
@@ -167,7 +167,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
 
   const createGRN = async (po) => {
     try { const res = await warehouseAPI.getGRNPrefillFromPO(po.id); const pre = res?.data?.data; if (!pre || !pre.items.length) { toast.error("No remaining quantity to receive"); return; } }
-    catch (error) { toast.error("GRN prefill failed"); return; }
+    catch (error) { toast.error("Goods Receipt prefill failed"); return; }
     window.open(`/warehouse/grn?po_id=${po.id}`, "_blank");
   };
 
@@ -176,7 +176,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
     setExporting(true);
     try {
       const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet("Purchase Order Register");
+      const ws = wb.addWorksheet("Warehouse Purchase Order Register");
       ws.columns = [
         { header: "PO No", key: "po_no", width: 14 },
         { header: "PO Date", key: "po_date", width: 12 },
@@ -185,7 +185,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
         { header: "Expected Delivery", key: "expected_delivery", width: 16 },
         { header: "Material", key: "material", width: 22 },
         { header: "Ordered Qty", key: "ordered_qty", width: 14 },
-        { header: "UOM", key: "uom", width: 10 },
+        { header: "Unit", key: "uom", width: 10 },
         { header: "Rate", key: "rate", width: 12 },
         { header: "Discount", key: "discount", width: 12 },
         { header: "Tax", key: "tax", width: 12 },
@@ -224,7 +224,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `BigBean_Purchase_Orders_${new Date().toISOString().split("T")[0]}.xlsx`;
+      a.download = `BigBean_Warehouse_Purchase_Orders_${new Date().toISOString().split("T")[0]}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Export complete");
@@ -250,8 +250,8 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden">
       <PageHeader
-        title="Purchase Orders"
-        subtitle="Create, approve and track supplier purchase orders before goods receipt."
+        title="Warehouse Purchase Orders"
+        subtitle="Create, approve and track warehouse purchase orders to suppliers before the goods arrive at the warehouse."
         actions={
           <div className="flex flex-wrap gap-2">
             {permissions?.warehouse_purchase_orders?.can_export && (
@@ -305,7 +305,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
             </thead>
             <tbody>
               {loading ? <LoadingRows rows={5} cols={9} isDark={isDark} /> : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-10"><EmptyState isDark={isDark} message="No purchase orders found" subMessage="Create a purchase order to begin procurement" /></td></tr>
+                <tr><td colSpan={9} className="px-4 py-10"><EmptyState isDark={isDark} message="No warehouse purchase orders found" subMessage="Create a warehouse purchase order to begin procurement" /></td></tr>
               ) : filtered.map(p => (
                 <tr key={p.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                   <td className="px-3 py-3 font-medium">{p.po_no}</td>
@@ -324,7 +324,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                       {p.status === 'Submitted' && permissions?.warehouse_purchase_orders?.can_approve && <button onClick={() => action(warehouseAPI.approvePurchaseOrder, p.id, "Approved")} className={`p-1.5 rounded text-[#28C76F] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><CheckCircle size={16} /></button>}
                       {p.status === 'Submitted' && permissions?.warehouse_purchase_orders?.can_reject && <button onClick={() => { const r = prompt("Rejection reason"); if (r) action(warehouseAPI.rejectPurchaseOrder, p.id, "Rejected", { rejection_reason: r }); }} className={`p-1.5 rounded text-[#EA5455] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><XCircle size={16} /></button>}
                       {p.status === 'Approved' && permissions?.warehouse_purchase_orders?.can_edit && <button onClick={() => action(warehouseAPI.sendPurchaseOrder, p.id, "Sent")} title="Send to Supplier" className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Send size={16} /></button>}
-                      {['Approved','Sent','Partially Received'].includes(p.status) && permissions?.grn?.can_create && <button onClick={() => createGRN(p)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Create GRN"><ClipboardCheck size={16} /></button>}
+                      {['Approved','Sent','Partially Received'].includes(p.status) && permissions?.grn?.can_create && <button onClick={() => createGRN(p)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Create Goods Receipt"><ClipboardCheck size={16} /></button>}
                       {['Approved','Sent','Partially Received'].includes(p.status) && permissions?.warehouse_purchase_orders?.can_lock && <button onClick={() => { const r = prompt("Close reason"); if (r) action(warehouseAPI.closePurchaseOrder, p.id, "Closed", { close_reason: r }); }} title="Close PO" className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Lock size={16} /></button>}
                     </div>
                   </td>
@@ -339,7 +339,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`sticky top-0 z-10 border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <h3 className="text-lg font-semibold">{form.id ? "Edit Purchase Order" : "New Purchase Order"}</h3>
+              <h3 className="text-lg font-semibold">{form.id ? "Edit Warehouse Purchase Order" : "New Warehouse Purchase Order"}</h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -363,7 +363,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                     <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 items-end border-b pb-2 last:border-0">
                       <div className="sm:col-span-3"><select value={it.raw_material_id} onChange={e => updateItem(idx, "raw_material_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">Material</option>{materials.filter(m => m.is_active).map(m => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select></div>
                       <div className="sm:col-span-1"><input type="number" min="0" placeholder="Qty" value={it.ordered_qty} onChange={e => updateItem(idx, "ordered_qty", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
-                      <div className="sm:col-span-2"><select value={it.unit_id} onChange={e => updateItem(idx, "unit_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">UOM</option>{units.map(u => <option key={u.id} value={u.id}>{u.unit_name}</option>)}</select></div>
+                      <div className="sm:col-span-2"><select value={it.unit_id} onChange={e => updateItem(idx, "unit_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">Unit</option>{units.map(u => <option key={u.id} value={u.id}>{u.unit_name}</option>)}</select></div>
                       <div className="sm:col-span-2"><input type="number" min="0" placeholder="Rate" value={it.rate} onChange={e => updateItem(idx, "rate", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
                       <div className="sm:col-span-1"><input type="number" min="0" placeholder="Disc" value={it.discount} onChange={e => updateItem(idx, "discount", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
                       <div className="sm:col-span-1"><input type="number" min="0" placeholder="Tax" value={it.tax} onChange={e => updateItem(idx, "tax", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
@@ -425,7 +425,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
               </div>
               {detail.linked_grns?.length > 0 && (
                 <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-                  <h4 className="font-medium mb-2">Linked GRNs</h4>
+                  <h4 className="font-medium mb-2">Linked Goods Receipts</h4>
                   <div className="space-y-1">
                     {detail.linked_grns.map(g => (
                       <div key={g.id} className="flex justify-between"><span>{g.grn_no}</span><span>{g.status} — ₹{Number(g.total_amount).toFixed(2)}</span></div>

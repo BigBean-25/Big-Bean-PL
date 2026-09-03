@@ -7,7 +7,7 @@ import { Search, RotateCcw, Download, TrendingUp, Eye, Package, FileText, Truck,
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 
-const docTypes = ['All', 'Purchase Order', 'GRN', 'Purchase Return', 'Supplier Credit', 'Supplier Payment'];
+const docTypes = ['All', 'Warehouse Purchase Order', 'Goods Receipt', 'Purchase Return', 'Supplier Credit', 'Supplier Payment'];
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
 
@@ -109,14 +109,14 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
         const res = await warehouseAPI.getSupplierHistoryMaterials(s.id, { location_id: locationId });
         (res?.data?.data || []).forEach(m => matRows.push([s.supplier_code, m.material_code, m.material_name, m.unit_name, fmtDate(m.last_purchase_date), m.last_supplier_rate, m.average_rate, m.lowest_rate, m.highest_rate, m.total_qty_purchased, m.total_purchase_value]));
       }
-      addSheet("Material History", ["Supplier Code", "Material Code", "Material", "UOM", "Last Purchase", "Last Rate", "Avg Rate", "Low", "High", "Qty", "Value"], matRows);
+      addSheet("Material History", ["Supplier Code", "Material Code", "Material", "Unit", "Last Purchase", "Last Rate", "Avg Rate", "Low", "High", "Qty", "Value"], matRows);
 
       const priceRows = [];
       for (const s of data) {
         const res = await warehouseAPI.getSupplierHistoryPriceMovement(s.id, { location_id: locationId });
         (res?.data?.data || []).forEach(p => priceRows.push([s.supplier_code, fmtDate(p.grn_date), p.grn_no, p.invoice_reference, p.material_name, p.unit_name, p.po_rate, p.actual_rate, p.accepted_qty, p.change, p.change_pct]));
       }
-      addSheet("Price Movement", ["Supplier Code", "Date", "GRN", "Invoice", "Material", "UOM", "PO Rate", "Actual Rate", "Qty", "Change", "Change %"], priceRows);
+      addSheet("Price Movement", ["Supplier Code", "Date", "GRN", "Invoice", "Material", "Unit", "PO Rate", "Actual Rate", "Qty", "Change", "Change %"], priceRows);
 
       const buf = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -268,7 +268,7 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
                 <SectionCard isDark={isDark}>
                   <TableWrapper isDark={isDark}>
                     <table className="w-full border-collapse text-[13px]">
-                      <thead><tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}><th className="text-left py-2">Material</th><th>UOM</th><th className="text-right">Last Rate</th><th className="text-right">Avg Rate</th><th className="text-right">Low</th><th className="text-right">High</th><th className="text-right">Total Qty</th><th className="text-right">Value</th></tr></thead>
+                      <thead><tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}><th className="text-left py-2">Material</th><th>Unit</th><th className="text-right">Last Rate</th><th className="text-right">Avg Rate</th><th className="text-right">Low</th><th className="text-right">High</th><th className="text-right">Total Qty</th><th className="text-right">Value</th></tr></thead>
                       <tbody>
                         {(detail.materials || []).map(m => (
                           <tr key={m.material_id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>

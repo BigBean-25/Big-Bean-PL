@@ -47,7 +47,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
     try {
       const res = await warehouseAPI.getRequisitions(filters);
       setRequisitions(res?.data?.data || []);
-    } catch (error) { toast.error("Failed to load requisitions"); }
+    } catch (error) { toast.error("Failed to load outlet purchase orders"); }
     finally { setLoading(false); }
   };
 
@@ -71,7 +71,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
       const payload = { ...form, items: form.items.map((it) => ({ ...it, raw_material_id: Number(it.raw_material_id), requested_qty: Number(it.requested_qty), unit_id: Number(it.unit_id) })) };
       const created = await warehouseAPI.createRequisition(payload);
       if (submit && created?.data?.data?.id) await warehouseAPI.submitRequisition(created.data.data.id);
-      toast.success(submit ? "Requisition submitted" : "Requisition saved");
+      toast.success(submit ? "Outlet Purchase Order submitted" : "Outlet Purchase Order saved");
       setShowCreate(false);
       setForm({ requisition_no: "", from_location_id: warehouses[0]?.id || "", to_location_id: outlets[0]?.id || "", request_date: new Date().toISOString().split("T")[0], required_date: "", remarks: "", items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
       fetchRequisitions();
@@ -85,7 +85,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
       const d = res?.data?.data;
       setDetail(d);
       setApproval({ open: false, items: (d?.items || []).map((it) => ({ ...it, approved_qty: "", rejected_qty: "", approval_remarks: "" })) });
-    } catch (error) { toast.error("Failed to load requisition"); }
+    } catch (error) { toast.error("Failed to load outlet purchase order"); }
   };
 
   const approve = async (reject = false) => {
@@ -143,7 +143,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
         <div className="flex flex-wrap items-end gap-3">
           <div className="relative min-w-[220px] flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search requisition or outlet" />
+            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search outlet purchase order or outlet" />
           </div>
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
             <option value="">All Status</option>
@@ -161,7 +161,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
             <RotateCcw size={14} /> Reset
           </button>
           <button onClick={() => { setShowCreate(true); fetchWarehouseStock(form.from_location_id); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
-            <Plus size={16} /> New Requisition
+            <Plus size={16} /> New Outlet Purchase Order
           </button>
         </div>
       </SectionCard>
@@ -171,7 +171,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
           <table className="w-full border-collapse text-[13px]">
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                <th className="px-3 py-3">Requisition No</th>
+                <th className="px-3 py-3">Outlet PO No</th>
                 <th className="px-3 py-3">Date</th>
                 <th className="px-3 py-3">Outlet</th>
                 <th className="px-3 py-3">Warehouse</th>
@@ -216,13 +216,13 @@ export default function WarehouseRequisitions({ locationId, locations, materials
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <h3 className="text-lg font-semibold">Create Requisition</h3>
+              <h3 className="text-lg font-semibold">Create Outlet Purchase Order</h3>
               <button onClick={() => setShowCreate(false)} className="text-2xl leading-none">&times;</button>
             </div>
             <div className="space-y-4 p-4">
-              <SectionCard title="Requisition Details" isDark={isDark}>
+              <SectionCard title="Outlet Purchase Order Details" isDark={isDark}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <input value={form.requisition_no} onChange={(e) => setForm({ ...form, requisition_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Requisition No" />
+                  <input value={form.requisition_no} onChange={(e) => setForm({ ...form, requisition_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Outlet PO No" />
                   <select value={form.from_location_id} onChange={(e) => { const v = e.target.value; setForm({ ...form, from_location_id: v }); fetchWarehouseStock(v); }} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
                     <option value="">Requested Warehouse</option>
                     {warehouses.map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
@@ -256,7 +256,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                           </select>
                           <input type="number" value={it.requested_qty} onChange={(e) => updateItem(idx, "requested_qty", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass} ${overRequested ? "border-rose-400" : ""}`} placeholder={`Qty (${uom})`} />
                           <input value={it.remarks} onChange={(e) => updateItem(idx, "remarks", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Item Remarks" />
-                          <div className={`flex h-10 items-center rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>{uom || "UOM"}</div>
+                          <div className={`flex h-10 items-center rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>{uom || "Unit"}</div>
                           <button onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} className="h-10 rounded-lg border border-rose-300 text-rose-500" disabled={form.items.length === 1}>Remove</button>
                         </div>
                         {it.raw_material_id && (
@@ -277,7 +277,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowCreate(false)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
                 <button onClick={() => create(false)} disabled={saving} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{saving ? "Saving…" : "Save Draft"}</button>
-                <button onClick={() => create(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Submitting…" : "Submit Requisition"}</button>
+                <button onClick={() => create(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Submitting…" : "Submit Outlet Purchase Order"}</button>
               </div>
             </div>
           </div>
@@ -311,7 +311,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                         <th className="px-2 py-2 text-right">Requested</th>
                         <th className="px-2 py-2 text-right">Approved</th>
                         <th className="px-2 py-2 text-right">Dispatched</th>
-                        <th className="px-2 py-2 text-right">UOM</th>
+                        <th className="px-2 py-2 text-right">Unit</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -345,7 +345,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-4xl rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <h3 className="text-lg font-semibold">{approval.mode === "dispatch" ? "Dispatch Requisition" : "Approve / Reject Items"}</h3>
+              <h3 className="text-lg font-semibold">{approval.mode === "dispatch" ? "Dispatch Outlet Purchase Order" : "Approve / Reject Items"}</h3>
             </div>
             <div className="p-4">
               <TableWrapper isDark={isDark}>

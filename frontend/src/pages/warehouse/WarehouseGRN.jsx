@@ -30,7 +30,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     try {
       const res = await warehouseAPI.getGRN(id);
       setPrint(res?.data?.data || null);
-    } catch { toast.error("Failed to load GRN"); }
+    } catch { toast.error("Failed to load Goods Receipt"); }
   };
 
   const invoiceCalc = useMemo(() => {
@@ -86,7 +86,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     try {
       const res = await warehouseAPI.getGRNs({ location_id: locationId });
       setGrns(res?.data?.data || []);
-    } catch (error) { toast.error("Failed to load GRNs"); }
+    } catch (error) { toast.error("Failed to load Goods Receipts"); }
     finally { setLoading(false); }
   };
 
@@ -129,11 +129,11 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
       };
       const created = await warehouseAPI.createGRN(payload);
       if (post && created?.data?.data?.id) await warehouseAPI.postGRN(created.data.data.id);
-      toast.success(post ? "GRN posted" : "GRN saved");
+      toast.success(post ? "Goods Receipt posted" : "Goods Receipt saved");
       setShowCreate(false);
       setForm({ grn_no: "", grn_date: new Date().toISOString().split("T")[0], supplier_id: "", purchase_reference: "", invoice_reference: "", remarks: "", items: [{ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }] });
       fetchGRNs();
-    } catch (error) { toast.error(error.response?.data?.message || "GRN failed"); }
+    } catch (error) { toast.error(error.response?.data?.message || "Goods Receipt failed"); }
     finally { setSaving(false); }
   };
 
@@ -146,13 +146,13 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
 
   const reset = () => setFilters({ search: "", status: "", supplier: "" });
 
-  if (!locationId) return <EmptyState icon={Truck} title="Select a warehouse" subtitle="Choose a warehouse to view GRNs." isDark={isDark} />;
+  if (!locationId) return <EmptyState icon={Truck} title="Select a warehouse" subtitle="Choose a warehouse to view Goods Receipts." isDark={isDark} />;
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard icon={ClipboardCheck} label="Draft GRNs" value={grns.filter((g) => g.status === "Draft").length} isDark={isDark} />
-        <KpiCard icon={ClipboardCheck} label="Posted GRNs" value={grns.filter((g) => g.status === "Posted").length} isDark={isDark} />
+        <KpiCard icon={ClipboardCheck} label="Draft Goods Receipts" value={grns.filter((g) => g.status === "Draft").length} isDark={isDark} />
+        <KpiCard icon={ClipboardCheck} label="Posted Goods Receipts" value={grns.filter((g) => g.status === "Posted").length} isDark={isDark} />
         <KpiCard icon={Truck} label="Today" value={grns.filter((g) => g.grn_date === new Date().toISOString().split("T")[0]).length} isDark={isDark} />
         <KpiCard icon={ClipboardCheck} label="Receipt Value" value={fmtCurrency(grns.reduce((s, g) => s + num(g.total_amount), 0))} isDark={isDark} />
       </div>
@@ -161,7 +161,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
         <div className="flex flex-wrap items-end gap-3">
           <div className="relative min-w-[220px] flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search GRN" />
+            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search Goods Receipt" />
           </div>
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
             <option value="">All Status</option>
@@ -176,7 +176,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
             <RotateCcw size={14} /> Reset
           </button>
           <button onClick={() => setShowCreate(true)} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
-            <Plus size={16} /> New GRN
+            <Plus size={16} /> New Goods Receipt
           </button>
         </div>
       </SectionCard>
@@ -186,7 +186,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
           <table className="w-full border-collapse text-[13px]">
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                <th className="px-3 py-3">GRN No</th>
+                <th className="px-3 py-3">Goods Receipt No</th>
                 <th className="px-3 py-3">Date</th>
                 <th className="px-3 py-3">Supplier</th>
                 <th className="px-3 py-3">Warehouse</th>
@@ -214,7 +214,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         <td className="px-3 py-2.5 text-right">{fmtCurrency(g.total_amount)}</td>
                         <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={g.status} /></td>
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
-                          {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(fetchGRNs), { loading: "Posting...", success: "GRN posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
+                          {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(fetchGRNs), { loading: "Posting...", success: "Goods Receipt posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
                           <button onClick={() => openPrint(g.id)} title="View / Print" className={`ml-1 rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                         </td>
                       </tr>
@@ -232,13 +232,13 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <h3 className="text-lg font-semibold">Create GRN</h3>
+              <h3 className="text-lg font-semibold">Create Goods Receipt</h3>
               <button onClick={() => setShowCreate(false)} className="text-2xl leading-none">&times;</button>
             </div>
             <div className="space-y-5 p-4">
-              <SectionCard title="GRN Information" isDark={isDark}>
+              <SectionCard title="Goods Receipt Information" isDark={isDark}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <input value={form.grn_no} onChange={(e) => setForm({ ...form, grn_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="GRN Number" />
+                  <input value={form.grn_no} onChange={(e) => setForm({ ...form, grn_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Goods Receipt Number" />
                   <input type="date" value={form.grn_date} onChange={(e) => setForm({ ...form, grn_date: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
                   <select value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}><option value="">Supplier</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
                   <div className={`flex h-10 items-center rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
@@ -305,7 +305,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                 </button>
               </SectionCard>
 
-              <SectionCard title="GRN Summary" isDark={isDark}>
+              <SectionCard title="Goods Receipt Summary" isDark={isDark}>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <MiniSummary label="Subtotal" value={fmtCurrency(form.items.reduce((s, it) => s + (num(it.received_qty) - num(it.rejected_qty)) * num(it.rate), 0))} isDark={isDark} />
                   <MiniSummary label="Tax" value={fmtCurrency(form.items.reduce((s, it) => s + getItemTax(it), 0))} isDark={isDark} />
@@ -317,7 +317,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowCreate(false)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
                 <button onClick={() => save(false)} disabled={saving} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{saving ? "Saving…" : "Save Draft"}</button>
-                <button onClick={() => save(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Posting…" : "Post GRN"}</button>
+                <button onClick={() => save(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Posting…" : "Post Goods Receipt"}</button>
               </div>
             </div>
           </div>

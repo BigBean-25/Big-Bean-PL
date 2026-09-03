@@ -106,7 +106,7 @@ export default function LowStockReorder({ locationId, materials, suppliers, cate
     try {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Low Stock Reorder");
-      const headers = ["Material Code", "Material", "Category", "Current Qty", "UOM", "Minimum", "Reorder", "Maximum", "Pending PO", "Projected", "Suggested", "Preferred Supplier", "Last Rate", "Estimated Value", "Lead Time", "Status"];
+      const headers = ["Material Code", "Material", "Category", "Current Qty", "Unit", "Minimum", "Reorder", "Maximum", "Pending PO", "Projected", "Suggested", "Preferred Supplier", "Last Rate", "Estimated Value", "Lead Time", "Status"];
       ws.addRow(headers);
       ws.getRow(1).font = { bold: true };
       ws.getRow(1).freeze = true;

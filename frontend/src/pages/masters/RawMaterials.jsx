@@ -524,11 +524,6 @@ const RawMaterials = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (!formData.material_code.trim()) {
-      toast.error("Please enter material code");
-      return;
-    }
-
     if (!formData.material_name.trim()) {
       toast.error("Please enter material name");
       return;
@@ -866,7 +861,7 @@ const RawMaterials = () => {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Material Code *
+                  Material Code
                 </label>
                 <input
                   type="text"
@@ -875,8 +870,7 @@ const RawMaterials = () => {
                     setFormData({ ...formData, material_code: event.target.value })
                   }
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                  placeholder="Example: RM-MILK-001"
-                  required
+                  placeholder={editingId ? "Example: RM-MILK-001" : "Leave blank to auto-generate (RM0001, RM0002, ...)"}
                 />
               </div>
 
@@ -1359,11 +1353,7 @@ const RawMaterials = () => {
                   <div className="mt-6 rounded-md border border-[#EBE9F1] p-5">
                     <DetailItem label="Category:" value={getMaterialCategory(selectedMaterial)} />
                     <DetailItem
-                      label="Category ID:"
-                      value={selectedMaterial.category_id || "-"}
-                    />
-                    <DetailItem
-                      label="Category Type:"
+                      label="Applies To:"
                       value={getCategoryById(selectedMaterial.category_id)?.category_type || "-"}
                     />
                   </div>

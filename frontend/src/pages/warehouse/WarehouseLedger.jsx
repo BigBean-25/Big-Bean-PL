@@ -87,7 +87,7 @@ export default function WarehouseLedger({ locationId, locations, isDark }) {
                 <th className="px-3 py-3 text-right">Qty In</th>
                 <th className="px-3 py-3 text-right">Qty Out</th>
                 <th className="px-3 py-3 text-right">Balance</th>
-                <th className="px-3 py-3">UOM</th>
+                <th className="px-3 py-3">Unit</th>
                 <th className="px-3 py-3 text-right">Unit Cost</th>
                 <th className="px-3 py-3 text-right">Value</th>
                 <th className="px-3 py-3">Batch</th>

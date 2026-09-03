@@ -644,7 +644,7 @@ export const getDailyCashExpenses = async (req, res) => {
 
 export const createDailyCashExpense = async (req, res) => {
   try {
-    const { date, outlet_id, expense_head_id, amount, payment_mode_id, paid_to, description } = req.body;
+    const { date, outlet_id, expense_head_id, amount, payment_mode_id, paid_to, description, raw_material_id, material_qty } = req.body;
 
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ success: false, message: 'Valid date is required (YYYY-MM-DD)' });
@@ -668,7 +668,7 @@ export const createDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Outlet not found or inactive' });
     }
 
-    const [head] = await query('SELECT id FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+    const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
     if (!head) {
       return res.status(400).json({ success: false, message: 'Expense head not found or inactive' });
     }
@@ -678,13 +678,35 @@ export const createDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Payment mode not found or inactive' });
     }
 
+    // Raw-material-flagged heads (e.g. "Raw Material") require picking a real
+    // raw material + quantity so approval can create a proper purchase record
+    // (see approveDailyCashExpense). Any other head ignores/clears these -
+    // switching categories shouldn't leave stale linkage fields behind.
+    let finalRawMaterialId = null;
+    let finalMaterialQty = null;
+    if (Number(head.is_raw_material_category) === 1) {
+      if (!raw_material_id) {
+        return res.status(400).json({ success: false, message: 'Please select a raw material' });
+      }
+      const parsedQty = Number(material_qty);
+      if (material_qty === undefined || material_qty === null || material_qty === '' || !Number.isFinite(parsedQty) || parsedQty <= 0) {
+        return res.status(400).json({ success: false, message: 'Quantity must be greater than 0' });
+      }
+      const [material] = await query('SELECT id, unit_id FROM raw_materials WHERE id = ? AND is_active = 1', [raw_material_id]);
+      if (!material) {
+        return res.status(400).json({ success: false, message: 'Raw material not found or inactive' });
+      }
+      finalRawMaterialId = raw_material_id;
+      finalMaterialQty = parsedQty;
+    }
+
     const proofAttachment = req.file ? normalizeUploadPath(req.file.path) : null;
 
     const result = await query(
       `INSERT INTO daily_cash_expenses
-       (date, outlet_id, expense_head_id, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [date, outlet_id, expense_head_id, parsedAmount, payment_mode_id, paid_to || null, description || null, proofAttachment, req.user.id, 'Draft']
+       (date, outlet_id, expense_head_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [date, outlet_id, expense_head_id, finalRawMaterialId, finalMaterialQty, parsedAmount, payment_mode_id, paid_to || null, description || null, proofAttachment, req.user.id, 'Draft']
     );
 
     const [created] = await query(
@@ -756,7 +778,7 @@ export const updateDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Draft or Rejected expenses can be edited' });
     }
 
-    const { date, expense_head_id, amount, payment_mode_id, paid_to, description } = req.body;
+    const { date, expense_head_id, amount, payment_mode_id, paid_to, description, raw_material_id, material_qty } = req.body;
 
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ success: false, message: 'Invalid date format' });
@@ -766,9 +788,15 @@ export const updateDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
     }
 
+    const effectiveHeadId = expense_head_id || existing.expense_head_id;
+    let effectiveHead = null;
     if (expense_head_id) {
-      const [head] = await query('SELECT id FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
       if (!head) return res.status(400).json({ success: false, message: 'Expense head not found or inactive' });
+      effectiveHead = head;
+    } else {
+      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ?', [effectiveHeadId]);
+      effectiveHead = head || null;
     }
 
     if (payment_mode_id) {
@@ -776,9 +804,35 @@ export const updateDailyCashExpense = async (req, res) => {
       if (!mode) return res.status(400).json({ success: false, message: 'Payment mode not found or inactive' });
     }
 
+    // Same raw-material requirement as create, evaluated against the
+    // effective (possibly just-changed) expense head. Switching to a
+    // non-raw-material head clears any previously-set linkage fields.
+    let finalRawMaterialId = null;
+    let finalMaterialQty = null;
+    if (effectiveHead && Number(effectiveHead.is_raw_material_category) === 1) {
+      const effectiveRawMaterialId = raw_material_id !== undefined ? raw_material_id : existing.raw_material_id;
+      const effectiveMaterialQty = material_qty !== undefined ? material_qty : existing.material_qty;
+
+      if (!effectiveRawMaterialId) {
+        return res.status(400).json({ success: false, message: 'Please select a raw material' });
+      }
+      const parsedQty = Number(effectiveMaterialQty);
+      if (effectiveMaterialQty === undefined || effectiveMaterialQty === null || effectiveMaterialQty === '' || !Number.isFinite(parsedQty) || parsedQty <= 0) {
+        return res.status(400).json({ success: false, message: 'Quantity must be greater than 0' });
+      }
+      const [material] = await query('SELECT id, unit_id FROM raw_materials WHERE id = ? AND is_active = 1', [effectiveRawMaterialId]);
+      if (!material) {
+        return res.status(400).json({ success: false, message: 'Raw material not found or inactive' });
+      }
+      finalRawMaterialId = effectiveRawMaterialId;
+      finalMaterialQty = parsedQty;
+    }
+
     const updateData = {
       date: date || existing.date,
-      expense_head_id: expense_head_id || existing.expense_head_id,
+      expense_head_id: effectiveHeadId,
+      raw_material_id: finalRawMaterialId,
+      material_qty: finalMaterialQty,
       amount: parsedAmount,
       payment_mode_id: payment_mode_id || existing.payment_mode_id,
       paid_to: paid_to !== undefined ? (paid_to || null) : existing.paid_to,
@@ -878,6 +932,86 @@ export const approveDailyCashExpense = async (req, res) => {
       ['Approved', req.user.id, admin_remarks || null, existing.id]
     );
 
+    // Raw-material-tagged cash expenses get a real material_purchase_items row
+    // created only now, at approval time, so they feed consumption tracking /
+    // P&L raw-material cost the same way any other purchase does. See
+    // database/add_raw_material_cash_expense_linkage.sql for the design note.
+    // The approval update above has already committed, so a failure in this
+    // block must not fail the request - it's logged for manual reconciliation
+    // instead of surfacing as a 500 on an approval that actually succeeded.
+    let linkedPurchaseItemId = null;
+    let linkedMaterial = null;
+    if (existing.raw_material_id && existing.material_qty) {
+      try {
+        const [head] = await query('SELECT is_raw_material_category FROM expense_heads WHERE id = ?', [existing.expense_head_id]);
+        if (head && Number(head.is_raw_material_category) === 1) {
+          const [material] = await query(
+            'SELECT material_code, material_name, category_id, unit_id FROM raw_materials WHERE id = ?',
+            [existing.raw_material_id]
+          );
+          if (!material) {
+            console.error(`Approve daily cash expense #${existing.id}: raw material ${existing.raw_material_id} no longer exists, skipping purchase-record linkage.`);
+          } else {
+            const conn = await getConnection();
+            try {
+              await conn.beginTransaction();
+
+              const batchId = `CASHEXP-${existing.id}`;
+              const qty = Number(existing.material_qty);
+              const rate = Math.round((Number(existing.amount) / qty) * 100) / 100;
+
+              const [uploadResult] = await conn.execute(
+                `INSERT INTO material_purchase_uploads
+                 (batch_id, outlet_id, file_name, file_path, total_rows, success_rows, failed_rows, status, uploaded_by, created_at)
+                 VALUES (?, ?, NULL, NULL, 1, 1, 0, 'Completed', ?, NOW())`,
+                [batchId, existing.outlet_id, req.user.id]
+              );
+              const uploadId = uploadResult.insertId;
+
+              const [itemResult] = await conn.execute(
+                `INSERT INTO material_purchase_items
+                 (upload_id, date, outlet_id, supplier_id, supplier_name, raw_material_id, raw_material_code, raw_material_name, category_id, qty, unit_id, rate, tax, total_amount, invoice_no, paid_by, payment_mode, remarks, created_at)
+                 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 'Management', 'Cash', ?, NOW())`,
+                [
+                  uploadId,
+                  existing.date,
+                  existing.outlet_id,
+                  existing.paid_to || null,
+                  existing.raw_material_id,
+                  material.material_code || null,
+                  material.material_name,
+                  material.category_id,
+                  qty,
+                  material.unit_id,
+                  rate,
+                  existing.amount,
+                  `Auto-created from Daily Cash Expense #${existing.id}`
+                ]
+              );
+              linkedPurchaseItemId = itemResult.insertId;
+
+              await conn.execute(
+                'UPDATE daily_cash_expenses SET linked_purchase_item_id = ? WHERE id = ?',
+                [linkedPurchaseItemId, existing.id]
+              );
+
+              await conn.commit();
+              linkedMaterial = material;
+            } catch (linkTxError) {
+              await conn.rollback();
+              throw linkTxError;
+            } finally {
+              conn.release();
+            }
+          }
+        }
+      } catch (linkError) {
+        linkedPurchaseItemId = null;
+        linkedMaterial = null;
+        console.error(`Approve daily cash expense #${existing.id}: failed to create linked material_purchase_items record (approval itself already committed):`, linkError);
+      }
+    }
+
     const [updated] = await query(
       `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
               u1.full_name as entered_by_name, u2.full_name as verified_by_name
@@ -908,7 +1042,13 @@ export const approveDailyCashExpense = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Expense approved successfully',
-      data: normalizeExpenseDate(updated)
+      data: {
+        ...normalizeExpenseDate(updated),
+        ...(linkedMaterial ? {
+          raw_material_code: linkedMaterial.material_code,
+          raw_material_name: linkedMaterial.material_name
+        } : {})
+      }
     });
   } catch (error) {
     console.error('Approve daily cash expense error:', error);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
 import { getThemeMode, getInputClass, PageHeader, LoadingSpinner } from "../../components/ui";
+import { displayLabel } from "../../utils/displayLabels";
 import { 
   LayoutDashboard, Package, ClipboardCheck, BookOpen, ClipboardList, ArrowRightLeft,
   RefreshCw, MapPin, Building2, Warehouse as WarehouseIcon, ChefHat, Store,
@@ -29,16 +30,16 @@ import WarehouseSettings from "./WarehouseSettings";
 const tabs = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, moduleKey: "warehouse_dashboard" },
   { key: "current-stock", label: "Current Stock", icon: Package, moduleKey: "warehouse_stock" },
-  { key: "grn", label: "GRN", icon: ClipboardCheck, moduleKey: "grn" },
+  { key: "grn", label: "Goods Receipt", icon: ClipboardCheck, moduleKey: "grn" },
   { key: "ledger", label: "Stock Ledger", icon: BookOpen, moduleKey: "warehouse_ledger" },
-  { key: "requisitions", label: "Requisitions", icon: ClipboardList, moduleKey: "warehouse_requisitions" },
+  { key: "requisitions", label: "Outlet Purchase Orders", icon: ClipboardList, moduleKey: "warehouse_requisitions" },
   { key: "transfers", label: "Transfers", icon: ArrowRightLeft, moduleKey: "warehouse_transfers" },
-  { key: "physical-stock-counts", label: "Physical Count", icon: Scale, moduleKey: "physical_stock_counts" },
-  { key: "stock-adjustments", label: "Adjustments", icon: SlidersHorizontal, moduleKey: "stock_adjustments" },
+  { key: "physical-stock-counts", label: "Physical Stock Count", icon: Scale, moduleKey: "physical_stock_counts" },
+  { key: "stock-adjustments", label: "Stock Adjustments", icon: SlidersHorizontal, moduleKey: "stock_adjustments" },
   { key: "warehouse-wastage", label: "Wastage", icon: Trash2, moduleKey: "warehouse_wastage" },
   { key: "batch-expiry", label: "Batch & Expiry", icon: Scale, moduleKey: "warehouse_batch_expiry" },
   { key: "purchase-returns", label: "Purchase Returns", icon: Truck, moduleKey: "warehouse_purchase_returns" },
-  { key: "purchase-orders", label: "Purchase Orders", icon: FileText, moduleKey: "warehouse_purchase_orders" },
+  { key: "purchase-orders", label: "Warehouse Purchase Orders", icon: FileText, moduleKey: "warehouse_purchase_orders" },
   { key: "supplier-history", label: "Supplier History", icon: TrendingUp, moduleKey: "warehouse_supplier_history" },
   { key: "low-stock-reorder", label: "Low Stock / Reorder", icon: AlertTriangle, moduleKey: "warehouse_reorder" },
   { key: "reports", label: "Reports", icon: BookOpen, moduleKey: "warehouse_reports" },
@@ -128,7 +129,7 @@ export default function Warehouse() {
           <option value="">{warehouseLocations.length ? "Select Warehouse" : "No authorized warehouse"}</option>
           {warehouseLocations.map((loc) => (
             <option key={loc.id} value={loc.id}>
-              {loc.location_name} — {loc.location_type}
+              {loc.location_name} — {displayLabel(loc.location_type)}
             </option>
           ))}
         </select>
@@ -153,7 +154,7 @@ export default function Warehouse() {
         </div>
         <select value={locationId} onChange={(e) => { const v = e.target.value; setLocationId(v); if (typeof window !== "undefined" && v) localStorage.setItem(WAREHOUSE_LOCATION_KEY, v); }} className={`h-10 min-w-[220px] rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
           <option value="">{warehouseLocations.length ? "Select Warehouse" : "No authorized warehouse"}</option>
-          {warehouseLocations.map((loc) => <option key={loc.id} value={loc.id}>{loc.location_name} — {loc.location_type}</option>)}
+          {warehouseLocations.map((loc) => <option key={loc.id} value={loc.id}>{loc.location_name} — {displayLabel(loc.location_type)}</option>)}
         </select>
       </div>
       {warehouseLocations.length === 0 && (
@@ -174,7 +175,7 @@ export default function Warehouse() {
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden p-1">
       <PageHeader
         title="Warehouse"
-        subtitle="Inventory & Stock Control — Manage receipts, stock movements, outlet requisitions, transfers and inventory reconciliation."
+        subtitle="Inventory & Stock Control — Manage receipts, stock movements, outlet purchase orders, transfers and inventory reconciliation."
         actions={headerActions}
         isDark={isDark}
       />

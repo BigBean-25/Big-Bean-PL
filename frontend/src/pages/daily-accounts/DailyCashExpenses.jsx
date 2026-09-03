@@ -119,6 +119,8 @@ const initialForm = () => ({
   paid_to: "",
   description: "",
   proof_file: null,
+  raw_material_id: "",
+  material_qty: "",
 });
 
 const DailyCashExpenses = () => {
@@ -127,6 +129,8 @@ const DailyCashExpenses = () => {
   const [outlets, setOutlets] = useState([]);
   const [expenseHeads, setExpenseHeads] = useState([]);
   const [paymentModes, setPaymentModes] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
+  const [units, setUnits] = useState([]);
 
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(initialForm);
@@ -155,6 +159,18 @@ const DailyCashExpenses = () => {
     () => (isAdmin ? outlets : outlets.filter((o) => userOutletIds.includes(String(o.id)))),
     [outlets, userOutletIds, isAdmin]
   );
+
+  const selectedHeadIsRawMaterial = useMemo(
+    () => Boolean(expenseHeads.find((h) => Number(h.id) === Number(formData.expense_head_id))?.is_raw_material_category),
+    [expenseHeads, formData.expense_head_id]
+  );
+
+  const selectedRawMaterialUnitName = useMemo(() => {
+    const material = rawMaterials.find((m) => Number(m.id) === Number(formData.raw_material_id));
+    if (!material) return "-";
+    const unit = units.find((u) => Number(u.id) === Number(material.unit_id));
+    return unit?.unit_name || "-";
+  }, [rawMaterials, units, formData.raw_material_id]);
 
   const { selectedOutletId, selectedOutletLabel } = useSelectedOutlet((nextId) => {
     if (editingId || !showForm) return;
@@ -201,10 +217,12 @@ const DailyCashExpenses = () => {
 
   const fetchMasters = async () => {
     try {
-      const [outletsRes, headsRes, modesRes] = await Promise.all([
+      const [outletsRes, headsRes, modesRes, materialsRes, unitsRes] = await Promise.all([
         masterAPI.getOutlets(),
         masterAPI.getExpenseHeads({ is_active: 1 }),
         masterAPI.getPaymentModes({ is_active: 1 }),
+        masterAPI.getRawMaterials({ limit: 1000 }),
+        masterAPI.getUnits(),
       ]);
       const o = Array.isArray(outletsRes?.data?.data) ? outletsRes.data.data : (outletsRes?.data || []);
       setOutlets(o);
@@ -220,12 +238,26 @@ const DailyCashExpenses = () => {
 
       setExpenseHeads(Array.isArray(headsRes?.data?.data) ? headsRes.data.data : (headsRes?.data || []));
       setPaymentModes(Array.isArray(modesRes?.data?.data) ? modesRes.data.data : (modesRes?.data || []));
+      setRawMaterials(Array.isArray(materialsRes?.data?.data) ? materialsRes.data.data : (materialsRes?.data || []));
+      setUnits(Array.isArray(unitsRes?.data?.data) ? unitsRes.data.data : (unitsRes?.data || []));
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to fetch master data");
     }
   };
 
   const updateField = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+
+  const handleHeadChange = (value) => {
+    const nextHeadIsRawMaterial = Boolean(expenseHeads.find((h) => Number(h.id) === Number(value))?.is_raw_material_category);
+    setFormData((prev) => ({
+      ...prev,
+      expense_head_id: value,
+      // Switching away from a raw-material head shouldn't leave stale
+      // material/qty selections around to be submitted with an unrelated category.
+      raw_material_id: nextHeadIsRawMaterial ? prev.raw_material_id : "",
+      material_qty: nextHeadIsRawMaterial ? prev.material_qty : "",
+    }));
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -251,6 +283,10 @@ const DailyCashExpenses = () => {
     if (!formData.expense_head_id) { toast.error("Please select expense head"); return false; }
     if (!formData.amount || num(formData.amount) <= 0) { toast.error("Amount must be greater than zero"); return false; }
     if (!formData.payment_mode_id) { toast.error("Please select payment mode"); return false; }
+    if (selectedHeadIsRawMaterial) {
+      if (!formData.raw_material_id) { toast.error("Please select a raw material"); return false; }
+      if (!formData.material_qty || num(formData.material_qty) <= 0) { toast.error("Quantity must be greater than 0"); return false; }
+    }
     return true;
   };
 
@@ -267,6 +303,10 @@ const DailyCashExpenses = () => {
       submitData.append("payment_mode_id", formData.payment_mode_id);
       submitData.append("paid_to", formData.paid_to || "");
       submitData.append("description", formData.description || "");
+      if (selectedHeadIsRawMaterial) {
+        submitData.append("raw_material_id", formData.raw_material_id);
+        submitData.append("material_qty", num(formData.material_qty));
+      }
       if (formData.proof_file) submitData.append("proof", formData.proof_file);
 
       if (editingId) {
@@ -298,6 +338,8 @@ const DailyCashExpenses = () => {
       description: expense.description || "",
       proof_attachment: expense.proof_attachment || null,
       proof_file: null,
+      raw_material_id: expense.raw_material_id ? String(expense.raw_material_id) : "",
+      material_qty: expense.material_qty !== undefined && expense.material_qty !== null ? String(expense.material_qty) : "",
     });
     setProofPreview(null);
     setShowForm(true);
@@ -367,7 +409,7 @@ const DailyCashExpenses = () => {
     const columns = [
       { label: "Date", type: "date", width: 14 },
       { label: "Outlet", type: "text", width: 25 },
-      { label: "Expense Head", type: "text", width: 22 },
+      { label: "Expense Category", type: "text", width: 22 },
       { label: "Paid To", type: "text", width: 22 },
       { label: "Amount", type: "currency", width: 14 },
       { label: "Payment Mode", type: "text", width: 16 },
@@ -586,14 +628,34 @@ const DailyCashExpenses = () => {
                   </div>
                 </div>
                 <div>
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Expense Head *</label>
-                  <select value={formData.expense_head_id} onChange={(e) => updateField("expense_head_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
-                    <option value="">Select Expense Head</option>
+                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Expense Category *</label>
+                  <select value={formData.expense_head_id} onChange={(e) => handleHeadChange(e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                    <option value="">Select Expense Category</option>
                     {expenseHeads.map((h) => (
                       <option key={h.id} value={h.id}>{h.expense_name}</option>
                     ))}
                   </select>
                 </div>
+                {selectedHeadIsRawMaterial && (
+                  <>
+                    <div>
+                      <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Raw Material *</label>
+                      <select value={formData.raw_material_id} onChange={(e) => updateField("raw_material_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                        <option value="">Select Raw Material</option>
+                        {rawMaterials.map((m) => (
+                          <option key={m.id} value={m.id}>{m.material_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Quantity *</label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" step="0.001" min="0.001" value={formData.material_qty} onChange={(e) => updateField("material_qty", e.target.value)} placeholder="0.000" className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required />
+                        <span className={`whitespace-nowrap text-[13px] ${mutedClass}`}>{selectedRawMaterialUnitName}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Amount *</label>
                   <div className="relative">
@@ -682,7 +744,7 @@ const DailyCashExpenses = () => {
             </select>
           )}
           <select value={headFilter} onChange={(e) => setHeadFilter(e.target.value)} className={`h-10 rounded-md border px-3 text-[14px] outline-none ${inputClass}`}>
-            <option value="all">All Heads</option>
+            <option value="all">All Categories</option>
             {expenseHeads.map((h) => (
               <option key={h.id} value={h.id}>{h.expense_name}</option>
             ))}
@@ -708,7 +770,7 @@ const DailyCashExpenses = () => {
               <table className="w-full min-w-[1100px] border-collapse">
                 <thead>
                   <tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-                    {["Date", "Outlet", "Expense Head", "Paid To", "Payment Mode", "Amount", "Proof", "Status", "Entered By", "Reviewer", "Actions"].map((h) => (
+                    {["Date", "Outlet", "Expense Category", "Paid To", "Payment Mode", "Amount", "Proof", "Status", "Entered By", "Reviewer", "Actions"].map((h) => (
                       <th key={h} className={`px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide ${mutedClass}`}>{h}</th>
                     ))}
                   </tr>
@@ -736,7 +798,7 @@ const DailyCashExpenses = () => {
             <table className="w-full min-w-[1100px] border-collapse">
               <thead>
                 <tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-                  {["Date", "Outlet", "Expense Head", "Paid To", "Payment Mode", "Amount", "Proof", "Status", "Entered By", "Reviewer", "Actions"].map((h) => (
+                  {["Date", "Outlet", "Expense Category", "Paid To", "Payment Mode", "Amount", "Proof", "Status", "Entered By", "Reviewer", "Actions"].map((h) => (
                     <th key={h} className={`px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide ${mutedClass}`}>{h}</th>
                   ))}
                 </tr>

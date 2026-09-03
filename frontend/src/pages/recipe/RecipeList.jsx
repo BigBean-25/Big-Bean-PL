@@ -151,12 +151,12 @@ export default function RecipeList() {
     const date = new Date().toISOString().split("T")[0];
     try {
       await exportRecipeBOMToExcel({
-        filename: `Big_Bean_Cafe_Recipe_SOP_Report_${date}.xlsx`,
+        filename: `Big_Bean_Cafe_Recipe_Report_${date}.xlsx`,
         recipes: enriched,
         outletLabel: outletFilter === "all" ? "All Outlets" : outletName(outletFilter),
         filters: activeFilters || "None",
       });
-      toast.success("Recipe / SOP report exported");
+      toast.success("Recipe report exported");
     } catch (error) {
       toast.error("Export failed: " + (error.message || "Unknown"));
     }
@@ -167,8 +167,8 @@ export default function RecipeList() {
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
-          <h1 className={`text-2xl font-semibold ${mainTextClass}`}>Recipe / SOP Management</h1>
-          <p className={`mt-1 text-[15px] ${mutedClass}`}>Manage standardized recipes, production SOPs, costing and version control across outlets.</p>
+          <h1 className={`text-2xl font-semibold ${mainTextClass}`}>Recipe Management</h1>
+          <p className={`mt-1 text-[15px] ${mutedClass}`}>Manage standardized recipes, production steps, costing and version control across outlets.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button onClick={fetchData} disabled={loading} className={`flex items-center gap-2 rounded-md border px-3.5 py-2 text-[14px] font-medium transition hover:opacity-90 disabled:opacity-60 ${cardClass}`}>

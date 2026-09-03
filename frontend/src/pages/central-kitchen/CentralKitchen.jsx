@@ -643,7 +643,7 @@ export default function CentralKitchen() {
                 </TableWrapper>
                 {newDispatchForm.items.map((it) => it.is_batch_tracked && (availableBatches[it.production_request_item_id] || []).length > 0 && (
                   <div key={it.production_request_item_id} className="rounded-lg border p-3" style={{ borderColor: isDark ? "#3B405A" : "#EBE9F1" }}>
-                    <div className={`font-medium mb-2 ${isDark ? "text-white" : "text-[#2F2B3D]"}`}>FEFO Allocation: {it.material_name}</div>
+                    <div className={`font-medium mb-2 ${isDark ? "text-white" : "text-[#2F2B3D]"}`}>FEFO (First-Expired-First-Out) Allocation: {it.material_name}</div>
                     <div className="grid grid-cols-3 gap-2 text-[12px]" style={{ color: isDark ? "#D0D2D6" : "#2F2B3D" }}>
                       <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Batch</span>
                       <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Expiry</span>

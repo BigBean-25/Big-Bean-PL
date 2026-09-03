@@ -125,7 +125,7 @@ export default function OutletVendors() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "bigbean-outlet-vendors.csv";
+    link.download = "bigbean-third-party-vendors.csv";
     link.click();
     URL.revokeObjectURL(url);
     toast.success("Vendors exported");
@@ -172,8 +172,8 @@ export default function OutletVendors() {
     <div className="page-enter space-y-4 sm:space-y-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Outlet Vendors</h1>
-          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Direct outlet vendors for milk, vegetables, chicken, eggs — separate from Warehouse Suppliers</p>
+          <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Third Party Vendors</h1>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Direct third-party vendors for milk, vegetables, chicken, eggs — separate from Warehouse Suppliers</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={fetchVendors} className={`flex h-[42px] items-center justify-center gap-2 rounded-md border px-4 text-[14px] font-medium ${inputCls}`}>
@@ -189,7 +189,7 @@ export default function OutletVendors() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard title="Total Vendors" value={summary.total} subtitle="All outlet vendors" icon={Store} color={primaryColor} bg={`${primaryColor}18`} />
+        <StatCard title="Total Vendors" value={summary.total} subtitle="All third-party vendors" icon={Store} color={primaryColor} bg={`${primaryColor}18`} />
         <StatCard title="Active" value={summary.active} subtitle="Currently usable" icon={CheckCircle2} color="#28C76F" bg="#E9F9EF" />
         <StatCard title="On Credit Terms" value={summary.withCredit} subtitle="Have credit days set" icon={Clock} color="#FF9F43" bg="#FFF4E5" />
         <StatCard title="GST Registered" value={summary.withGstin} subtitle="GSTIN available" icon={CreditCard} color="#00CFE8" bg="#E6FAFD" />

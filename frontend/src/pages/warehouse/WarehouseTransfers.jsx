@@ -109,7 +109,7 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                 <th className="px-3 py-3">Transfer No</th>
-                <th className="px-3 py-3">Requisition</th>
+                <th className="px-3 py-3">Outlet PO</th>
                 <th className="px-3 py-3">From</th>
                 <th className="px-3 py-3">To</th>
                 <th className="px-3 py-3">Dispatch Date</th>
@@ -153,7 +153,7 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <div>
                 <h3 className="text-lg font-semibold">{detail.transfer_no}</h3>
-                <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{detail.requisition_no ? `Requisition: ${detail.requisition_no}` : "Stock Transfer"}</p>
+                <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{detail.requisition_no ? `Outlet PO: ${detail.requisition_no}` : "Stock Transfer"}</p>
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={() => setPrintOpen(true)} className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]" : "border-[#EBE9F1] hover:bg-[#F3F2F7]"}`}><Printer size={14} /> Delivery Challan</button>
@@ -180,7 +180,7 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
                         <th className="px-2 py-2 text-right">Received</th>
                         <th className="px-2 py-2 text-right">Damaged</th>
                         <th className="px-2 py-2 text-right">Short</th>
-                        <th className="px-2 py-2 text-right">UOM</th>
+                        <th className="px-2 py-2 text-right">Unit</th>
                         {detail.status !== "Received" && <th className="px-2 py-2 text-center">Receive</th>}
                       </tr>
                     </thead>

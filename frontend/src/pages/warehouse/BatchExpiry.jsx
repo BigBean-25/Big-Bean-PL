@@ -62,7 +62,7 @@ const BatchExpiry = () => {
 
   const handleExport = () => {
     const csv = [
-      ["Material Code", "Material Name", "Batch No", "Expiry Date", "Days Remaining", "Available Qty", "UOM", "Unit Cost", "Batch Value", "Status", "Location"].join(","),
+      ["Material Code", "Material Name", "Batch No", "Expiry Date", "Days Remaining", "Available Qty", "Unit", "Unit Cost", "Batch Value", "Status", "Location"].join(","),
       ...rows.map(r => [
         r.material_code, r.material_name, r.batch_no, r.expiry_date || "", r.days_remaining ?? "",
         r.available_qty, r.unit_name, r.average_cost, r.batch_value, r.status, r.location_name,
@@ -84,7 +84,7 @@ const BatchExpiry = () => {
     <div className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <PageHeader
         title="Batch & Expiry Management"
-        subtitle="Track inventory batches, expiry dates and FEFO stock movement."
+        subtitle="Track inventory batches, expiry dates and FEFO (First-Expired-First-Out) stock movement."
         actions={
           <button onClick={handleExport} className="inline-flex items-center gap-2 rounded-md bg-[#7367F0] px-4 py-2 text-sm font-medium text-white hover:bg-[#5E50EE]">
             <Download size={16} /> Export
@@ -160,7 +160,7 @@ const BatchExpiry = () => {
               <th className="px-4 py-3 font-semibold">Expiry Date</th>
               <th className="px-4 py-3 font-semibold">Days</th>
               <th className="px-4 py-3 font-semibold">Available Qty</th>
-              <th className="px-4 py-3 font-semibold">UOM</th>
+              <th className="px-4 py-3 font-semibold">Unit</th>
               <th className="px-4 py-3 font-semibold">Unit Cost</th>
               <th className="px-4 py-3 font-semibold">Value</th>
               <th className="px-4 py-3 font-semibold">Status</th>

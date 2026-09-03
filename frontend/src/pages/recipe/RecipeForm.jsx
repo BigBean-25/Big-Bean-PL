@@ -388,7 +388,7 @@ export default function RecipeForm() {
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
           <h1 className={`text-2xl font-semibold ${mainTextClass}`}>{id ? "Edit Recipe" : "Add Recipe"}</h1>
-          <p className={`mt-1 text-[15px] ${mutedClass}`}>Create or modify recipe / SOP for café menu items.</p>
+          <p className={`mt-1 text-[15px] ${mutedClass}`}>Create or modify recipe for café menu items.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button onClick={fetchInitialData} className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}>
@@ -603,7 +603,7 @@ export default function RecipeForm() {
             </>
           ) : (
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <StatCard label="Total SOP Cost" value={Number.isFinite(totals.totalCost) ? `₹${totals.totalCost.toFixed(4)}` : "-"} icon={Package} color={primaryColor} />
+              <StatCard label="Total Recipe Cost" value={Number.isFinite(totals.totalCost) ? `₹${totals.totalCost.toFixed(4)}` : "-"} icon={Package} color={primaryColor} />
               <StatCard label="Expected Yield" value={totals.yieldQty ? `${totals.yieldQty} ${totals.yieldUnitName}` : "-"} icon={CheckCircle2} color="#28C76F" />
               <StatCard label="Cost per Output Unit" value={Number.isFinite(totals.costPerOutputUnit) ? `₹${totals.costPerOutputUnit.toFixed(4)}` : "-"} icon={Clock} color="#EA5455" />
               <StatCard label="Standard Wastage" value={Number.isFinite(totals.totalWaste) && totals.totalWaste !== 0 ? totals.totalWaste.toFixed(4) : "-"} icon={AlertCircle} color="#FF9F43" />

@@ -14,7 +14,7 @@ const ITEMS = [
   { title: "Raw Materials", path: "/masters/raw-materials", group: "catalog" },
   { title: "Menu Items", path: "/masters/menu-items", group: "catalog" },
   { title: "Suppliers", path: "/masters/suppliers", group: "vendors" },
-  { title: "Outlet Vendors", path: "/masters/outlet-vendors", group: "vendors" },
+  { title: "Third Party Vendors", path: "/masters/outlet-vendors", group: "vendors" },
 ];
 
 const GROUPS = [

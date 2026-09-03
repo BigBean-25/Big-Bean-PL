@@ -30,7 +30,7 @@ const groups = [
     label: "Procurement",
     icon: Truck,
     reports: [
-      { key: "grn", label: "GRN" },
+      { key: "grn", label: "Goods Receipt" },
       { key: "supplier-receipt", label: "Supplier Receipt" },
       { key: "purchase-return", label: "Purchase Return" },
     ],
@@ -39,8 +39,8 @@ const groups = [
     label: "Transfers",
     icon: ArrowRightLeft,
     reports: [
-      { key: "requisition", label: "Requisition" },
-      { key: "pending-requisition", label: "Pending Requisition" },
+      { key: "requisition", label: "Outlet Purchase Order" },
+      { key: "pending-requisition", label: "Pending Outlet Purchase Order" },
       { key: "dispatch", label: "Dispatch" },
       { key: "transit", label: "Transit" },
       { key: "receipt", label: "Receipt" },
@@ -52,9 +52,9 @@ const groups = [
     label: "Controls",
     icon: SlidersHorizontal,
     reports: [
-      { key: "physical-count", label: "Physical Count" },
+      { key: "physical-count", label: "Physical Stock Count" },
       { key: "variance", label: "Stock Variance" },
-      { key: "adjustment", label: "Adjustments" },
+      { key: "adjustment", label: "Stock Adjustments" },
     ],
   },
   {
@@ -206,7 +206,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
           <KpiCard icon={AlertTriangle} label="Low Stock" value={summary.low_stock} isDark={isDark} />
           <KpiCard icon={BookOpen} label="Out of Stock" value={summary.out_of_stock} isDark={isDark} />
           <KpiCard icon={SlidersHorizontal} label="Near Expiry" value={summary.near_expiry} isDark={isDark} />
-          <KpiCard icon={Truck} label="Pending Requisitions" value={summary.pending_requisitions} isDark={isDark} />
+          <KpiCard icon={Truck} label="Pending Outlet Purchase Orders" value={summary.pending_requisitions} isDark={isDark} />
           <KpiCard icon={ArrowRightLeft} label="In Transit" value={summary.in_transit} isDark={isDark} />
           <KpiCard icon={Trash2} label="Wastage Value" value={fmtCurrency(summary.wastage_value)} isDark={isDark} />
           <KpiCard icon={SlidersHorizontal} label="Adjustment Value" value={fmtCurrency(summary.adjustment_value)} isDark={isDark} />

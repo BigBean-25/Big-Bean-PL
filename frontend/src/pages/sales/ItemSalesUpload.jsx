@@ -395,7 +395,7 @@ const ItemSalesUpload = () => {
     >
       <PageHeader
         title="Item Sales"
-        subtitle="Upload item-wise sales quantities for SOP and consumption analysis."
+        subtitle="Upload item-wise sales quantities for recipe and consumption analysis."
         isDark={isDark}
         actions={
           <div className="flex items-center gap-2">
@@ -439,7 +439,7 @@ const ItemSalesUpload = () => {
         <div className="min-w-0 text-[13px]">
           <p className={`font-semibold ${main}`}>About Item Sales</p>
           <p className={`mt-1 leading-5 ${muted}`}>
-            Item Sales is used for quantity, recipe/SOP and theoretical consumption.
+            Item Sales is used for quantity, recipe and theoretical consumption.
             Accounting revenue continues to come from approved Daily/Monthly Sales.
           </p>
         </div>
@@ -690,7 +690,7 @@ const ItemSalesUpload = () => {
           <EmptyState
             icon={FileSpreadsheet}
             title="No Item Sales uploads yet"
-            subtitle="Upload an item-wise sales file to start quantity and SOP analysis."
+            subtitle="Upload an item-wise sales file to start quantity and recipe analysis."
             isDark={isDark}
             action={
               canUpload ? (
@@ -878,7 +878,7 @@ const ItemSalesUpload = () => {
                                 {item.is_mapped === true || item.menu_item_id ? (
                                   <span className="font-medium text-[#28C76F]">Mapped</span>
                                 ) : item.unknown_item || item.unmapped ? (
-                                  <span className="font-medium text-[#FF9F43]">Unmapped — add/map this item before SOP calculation.</span>
+                                  <span className="font-medium text-[#FF9F43]">Unmapped — add/map this item before recipe calculation.</span>
                                 ) : (
                                   <span className={muted}>-</span>
                                 )}
@@ -928,7 +928,7 @@ const ItemSalesUpload = () => {
             {detail && (
               <div className={`flex flex-col justify-between gap-3 border-t px-6 py-4 sm:flex-row sm:items-center ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
                 <div className="text-[13px] text-[#6F6B7D]">
-                  This is a quantity/SOP upload — not accounting revenue.
+                  This is a quantity/recipe upload — not accounting revenue.
                 </div>
                 {canDelete && !["Completed"].includes(detail.upload?.status) && (
                   <button

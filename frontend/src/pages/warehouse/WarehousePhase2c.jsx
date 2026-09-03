@@ -33,7 +33,7 @@ const MODULE_CONFIG = {
     reason: "",
   },
   stock_adjustments: {
-    title: "Stock Adjustment",
+    title: "Stock Adjustments",
     noLabel: "Adjustment No",
     noKey: "adjustment_no",
     dateKey: "adjustment_date",

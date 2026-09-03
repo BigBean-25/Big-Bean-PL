@@ -179,8 +179,8 @@ export default function VendorPurchases() {
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
       <div>
-        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Vendor Purchases</h1>
-        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Quick entry for direct outlet purchases from vendors (milk, vegetables, chicken, eggs) and emergency top-up buys (Zepto, Hyperpure) when warehouse stock runs low — paid by the outlet or by management.</p>
+        <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Third Party Purchases</h1>
+        <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Quick entry for direct third-party purchases (milk, vegetables, chicken, eggs) and emergency top-up buys (Zepto, Hyperpure) when warehouse stock runs low — paid by the outlet or by management.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

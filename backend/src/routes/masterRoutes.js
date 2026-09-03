@@ -7,6 +7,7 @@ import {
   categoryController,
   supplierController,
   rawMaterialController,
+  createRawMaterial,
   menuItemController,
   unitController,
   expenseHeadController,
@@ -34,7 +35,11 @@ createRoutes('categories', categoryController, 'categories');
 createRoutes('suppliers', supplierController, 'suppliers');
 router.get('/raw-materials/bulk-upload/template', protect, checkPermission('raw_materials', 'can_upload'), downloadRawMaterialsTemplate);
 router.post('/raw-materials/bulk-upload', protect, upload.single('file'), checkPermission('raw_materials', 'can_upload'), bulkUploadRawMaterials);
-createRoutes('raw-materials', rawMaterialController, 'raw_materials');
+router.get('/raw-materials', protect, rawMaterialController.getAll);
+router.get('/raw-materials/:id', protect, rawMaterialController.getById);
+router.post('/raw-materials', protect, checkPermission('raw_materials', 'can_create'), createRawMaterial);
+router.put('/raw-materials/:id', protect, checkPermission('raw_materials', 'can_edit'), rawMaterialController.update);
+router.delete('/raw-materials/:id', protect, checkPermission('raw_materials', 'can_delete'), rawMaterialController.delete);
 
 router.get('/menu-items/bulk-upload/template', protect, checkPermission('menu_items', 'can_upload'), downloadMenuItemsTemplate);
 router.post('/menu-items/bulk-upload', protect, upload.single('file'), checkPermission('menu_items', 'can_upload'), bulkUploadMenuItems);

@@ -409,6 +409,55 @@ export const outletController = {
 export const categoryController = createMasterController('categories', 'Category');
 export const supplierController = createMasterController('suppliers', 'Supplier');
 export const rawMaterialController = createMasterController('raw_materials', 'Raw Material');
+
+// Raw materials get an auto-generated code (RM0001, RM0002, ...) so nobody
+// has to invent one by hand - manual entry still works if the client sends
+// material_code explicitly (e.g. the bulk-upload path already assigns its
+// own codes), this only fills the gap for the single-item create form.
+const generateNextMaterialCode = async () => {
+  const rows = await query(
+    `SELECT material_code FROM raw_materials WHERE material_code REGEXP '^RM[0-9]+$' ORDER BY CAST(SUBSTRING(material_code, 3) AS UNSIGNED) DESC LIMIT 1`
+  );
+  const lastNumber = rows.length > 0 ? parseInt(rows[0].material_code.slice(2), 10) : 0;
+  return `RM${String(lastNumber + 1).padStart(4, '0')}`;
+};
+
+export const createRawMaterial = async (req, res) => {
+  try {
+    const contactError = validateContactFields(req.body);
+    if (contactError) {
+      return res.status(400).json({ success: false, message: contactError });
+    }
+
+    const body = { ...req.body };
+    if (!body.material_code || !String(body.material_code).trim()) {
+      body.material_code = await generateNextMaterialCode();
+    }
+
+    const fields = Object.keys(body);
+    const values = Object.values(body);
+    const placeholders = fields.map(() => '?').join(', ');
+
+    const result = await query(
+      `INSERT INTO raw_materials (${fields.join(', ')}, created_at) VALUES (${placeholders}, NOW())`,
+      values
+    );
+
+    await logAudit(req.user.id, 'CREATE', 'raw_materials', result.insertId, null, body, 'Created Raw Material');
+
+    res.status(201).json({
+      success: true,
+      message: 'Raw Material created successfully',
+      data: { id: result.insertId, ...body }
+    });
+  } catch (error) {
+    console.error('Create Raw Material error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.code === 'ER_DUP_ENTRY' ? 'Raw Material already exists' : 'Error creating Raw Material'
+    });
+  }
+};
 export const menuItemController = createMasterController('menu_items', 'Menu Item');
 export const unitController = createMasterController('units', 'Unit');
 export const expenseHeadController = createMasterController('expense_heads', 'Expense Head');

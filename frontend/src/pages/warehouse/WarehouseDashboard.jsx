@@ -15,9 +15,9 @@ const firstOfMonth = () => { const d = new Date(); d.setDate(1); return d.toISOS
 const today = () => new Date().toISOString().slice(0, 10);
 
 const ActivityIcon = (type) => {
-  if (type?.includes("GRN")) return ClipboardCheck;
+  if (type?.includes("Goods Receipt")) return ClipboardCheck;
   if (type?.includes("Transfer")) return ArrowRightLeft;
-  if (type?.includes("Requisition")) return ClipboardList;
+  if (type?.includes("Outlet PO")) return ClipboardList;
   return Truck;
 };
 
@@ -53,8 +53,8 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
       const d = dash?.data?.data || {};
       setDashboard(d);
       const merged = [
-        ...(grns?.data?.data || []).map((x) => ({ ...x, _type: "GRN", _ref: x.grn_no, _date: x.grn_date, _qty: x.total_qty || 1, _status: x.status })),
-        ...(reqs?.data?.data || []).map((x) => ({ ...x, _type: "Requisition", _ref: x.requisition_no, _date: x.request_date, _qty: x.items, _status: x.status })),
+        ...(grns?.data?.data || []).map((x) => ({ ...x, _type: "Goods Receipt", _ref: x.grn_no, _date: x.grn_date, _qty: x.total_qty || 1, _status: x.status })),
+        ...(reqs?.data?.data || []).map((x) => ({ ...x, _type: "Outlet PO", _ref: x.requisition_no, _date: x.request_date, _qty: x.items, _status: x.status })),
         ...(trans?.data?.data || []).map((x) => ({ ...x, _type: "Transfer", _ref: x.transfer_no, _date: x.dispatch_date, _qty: x.items, _status: x.status })),
       ].sort((a, b) => new Date(b._date || b.created_at) - new Date(a._date || a.created_at)).slice(0, 10);
       setRecent(merged);
@@ -96,7 +96,7 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
           <KpiCard icon={AlertTriangle} label="Low Stock" value={kpi.low_stock ?? 0} sub="Items below reorder" isDark={isDark} />
           <KpiCard icon={AlertCircle} label="Out of Stock" value={kpi.out_of_stock ?? 0} isDark={isDark} />
           <KpiCard icon={Clock} label="Near Expiry" value={kpi.near_expiry ?? 0} isDark={isDark} />
-          <KpiCard icon={ClipboardCheck} label="Pending GRNs" value={kpi.pending_grns ?? 0} isDark={isDark} />
+          <KpiCard icon={ClipboardCheck} label="Pending Goods Receipts" value={kpi.pending_grns ?? 0} isDark={isDark} />
         </div>
         <button onClick={() => selectTab("current-stock")} className="mt-3 text-[13px] font-medium text-[#7367F0] hover:underline">View full stock list →</button>
       </SectionCard>
@@ -111,14 +111,14 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
         </div>
       </SectionCard>
 
-      <SectionCard title="Intend — Requisitions from Outlets" subtitle="Outlets asking this warehouse for stock" isDark={isDark}>
+      <SectionCard title="Outlet Purchase Orders" subtitle="Outlets asking this warehouse for stock" isDark={isDark}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MiniKpi label="Pending Requisitions" value={kpi.pending_requisitions ?? 0} isDark={isDark} />
+          <MiniKpi label="Pending Outlet Purchase Orders" value={kpi.pending_requisitions ?? 0} isDark={isDark} />
           <MiniKpi label="In Transit to Outlets" value={kpi.in_transit_transfers ?? 0} isDark={isDark} />
           <MiniKpi label="Pending Receipts" value={kpi.pending_receipts ?? 0} isDark={isDark} />
           <MiniKpi label="Completed Today" value={kpi.completed_today_transfers ?? 0} isDark={isDark} />
         </div>
-        <button onClick={() => selectTab("requisitions")} className="mt-3 text-[13px] font-medium text-[#7367F0] hover:underline">View all requisitions →</button>
+        <button onClick={() => selectTab("requisitions")} className="mt-3 text-[13px] font-medium text-[#7367F0] hover:underline">View all outlet purchase orders →</button>
       </SectionCard>
 
       {canViewReports && (
@@ -234,7 +234,7 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
                         <td className="px-3 py-2.5 font-medium">{r._ref}</td>
                         <td className="px-3 py-2.5">{r._qty || "-"}</td>
                         <td className="px-3 py-2.5">{loc?.location_name || "-"}</td>
-                        <td className="px-3 py-2.5">{r._type === "GRN" ? fmtQty(r.total_qty, "") : (r.items || "-")}</td>
+                        <td className="px-3 py-2.5">{r._type === "Goods Receipt" ? fmtQty(r.total_qty, "") : (r.items || "-")}</td>
                         <td className="px-3 py-2.5"><WarehouseStatusBadge status={r._status} /></td>
                       </tr>
                     );
@@ -249,7 +249,7 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
       <SectionCard title="Attention Required" isDark={isDark}>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <MiniKpi label="Low Stock Items" value={kpi.low_stock ?? 0} isDark={isDark} />
-          <MiniKpi label="Pending Requisitions" value={kpi.pending_requisitions ?? 0} isDark={isDark} />
+          <MiniKpi label="Pending Outlet Purchase Orders" value={kpi.pending_requisitions ?? 0} isDark={isDark} />
           <MiniKpi label="Pending Receipts" value={kpi.pending_receipts ?? 0} isDark={isDark} />
           <MiniKpi label="Near Expiry Items" value={kpi.near_expiry ?? 0} isDark={isDark} />
         </div>

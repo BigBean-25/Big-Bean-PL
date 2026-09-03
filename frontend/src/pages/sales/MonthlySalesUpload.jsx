@@ -751,7 +751,7 @@ const MonthlySalesUpload = () => {
             <table className="w-full min-w-[900px] border-collapse">
               <thead>
                 <tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-                  {["Month", "Outlet", "Net Sales", "Cashbook", "Difference", "Tolerance", "Reconciliation", "Upload Status", "Uploaded On", "Actions"].map((h) => (
+                  {["Month", "Outlet", "Net Sales", "Cashbook", "Difference", "Allowed Difference", "Reconciliation", "Upload Status", "Uploaded On", "Actions"].map((h) => (
                     <th key={h} className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>
                       {h}
                     </th>
@@ -792,7 +792,7 @@ const MonthlySalesUpload = () => {
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Net Sales</th>
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Cashbook</th>
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Difference</th>
-                  <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Tolerance</th>
+                  <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Allowed Difference</th>
                   <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>Reconciliation</th>
                   <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>Upload Status</th>
                   <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>Uploaded On</th>
