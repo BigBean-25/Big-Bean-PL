@@ -18,7 +18,6 @@ import {
   User,
   Lock,
   Clock,
-  MoreVertical,
 } from "lucide-react";
 import { userAPI, roleAPI, masterAPI } from "../../services/api";
 import { displayLabel } from "../../utils/displayLabels";
@@ -998,6 +997,7 @@ const UserManagement = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -1195,6 +1195,7 @@ const UserManagement = () => {
                 type="button"
                 onClick={() => setSelectedUser(null)}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                aria-label="Close user details"
               >
                 <X size={18} />
               </button>
@@ -1906,9 +1907,6 @@ const UserManagement = () => {
                           <Edit2 size={20} />
                         </button>
 
-                        <button type="button" className="transition hover:text-[#2F2B3D]">
-                          <MoreVertical size={20} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1929,6 +1927,7 @@ const UserManagement = () => {
                 type="button"
                 onClick={() => setHistoryUser(null)}
                 className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                aria-label="Close"
               >
                 <X size={18} />
               </button>

@@ -745,6 +745,7 @@ const DineInPayouts = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -836,6 +837,7 @@ const DineInPayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.customer_paid}
                   onChange={(event) =>
                     updateMoneyField("customer_paid", event.target.value)
@@ -867,6 +869,7 @@ const DineInPayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.commission_amount}
                   onChange={(event) =>
                     updateMoneyField("commission_amount", event.target.value)
@@ -882,6 +885,7 @@ const DineInPayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.net_received}
                   onChange={(event) =>
                     updateMoneyField("net_received", event.target.value)
@@ -963,6 +967,7 @@ const DineInPayouts = () => {
               type="button"
               onClick={() => setSelectedPayout(null)}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close payout details"
             >
               <X size={20} />
             </button>

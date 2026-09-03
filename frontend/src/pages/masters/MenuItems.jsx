@@ -659,6 +659,7 @@ const MenuItems = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -847,6 +848,7 @@ const MenuItems = () => {
                 type="button"
                 onClick={() => setSelectedItem(null)}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                aria-label="Close item details"
               >
                 <X size={18} />
               </button>
@@ -1426,6 +1428,7 @@ const MenuItems = () => {
                 type="button"
                 onClick={closeBulkUpload}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                aria-label="Close bulk upload"
               >
                 <X size={18} />
               </button>

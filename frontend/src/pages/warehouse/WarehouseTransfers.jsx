@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, ArrowRightLeft, Eye, Package, CheckCircle, Printer } from "lucide-react";
 import toast from "react-hot-toast";
@@ -132,7 +132,7 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
                       <td className="px-3 py-2.5">{fmtDate(t.dispatch_date)}</td>
                       <td className="px-3 py-2.5 text-right">{t.items || 0}</td>
                       <td className="px-3 py-2.5 text-right">{fmtCurrency(t.total_value)}</td>
-                      <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={t.status} /></td>
+                      <td className="px-3 py-2.5 text-center"><StatusBadge status={t.status} /></td>
                       <td className="px-3 py-2.5">{fmtDate(t.received_at)}</td>
                       <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                         <button onClick={() => openDetail(t)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
@@ -166,7 +166,7 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>To:</span> {detail.to_location}</div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Vehicle:</span> {detail.vehicle_no || "-"}</div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Driver:</span> {detail.driver_name || "-"}</div>
-                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <WarehouseStatusBadge status={detail.status} /></div>
+                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <StatusBadge status={detail.status} /></div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Dispatch Date:</span> {fmtDate(detail.dispatch_date)}</div>
               </div>
 

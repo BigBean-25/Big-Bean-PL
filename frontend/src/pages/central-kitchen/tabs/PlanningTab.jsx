@@ -1,14 +1,8 @@
 import { useState } from "react";
 import { productionAPI } from "../../../services/api";
-import { SectionCard, TableWrapper, EmptyState, getInputClass } from "../../../components/ui";
+import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, CheckCircle, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
-
-const STATUS_BADGE = {
-  Draft: "bg-gray-200 text-gray-700",
-  Approved: "bg-[#DDF6E8] text-[#28C76F]",
-  Rejected: "bg-[#FCE7E7] text-[#EA5455]",
-};
 
 export default function PlanningTab({ plans, kitchenId, materials, units, recipes, isDark, canCreate, canEdit, onRefresh }) {
   const inputClass = getInputClass(isDark);
@@ -86,7 +80,7 @@ export default function PlanningTab({ plans, kitchenId, materials, units, recipe
                     <td className="px-3 py-3">{p.material_name}</td>
                     <td className="px-3 py-3">{p.recipe_name || "-"}</td>
                     <td className="px-3 py-3">{p.planned_production_qty} {p.unit_name}</td>
-                    <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[p.status] || "bg-gray-200 text-gray-700"}`}>{p.status}</span></td>
+                    <td className="px-3 py-3"><StatusBadge status={p.status} /></td>
                     <td className="px-3 py-3">
                       {canEdit && p.status === "Draft" && (
                         <div className="flex items-center gap-1">

@@ -529,6 +529,16 @@ const RawMaterials = () => {
       return;
     }
 
+    if (!formData.category_id) {
+      toast.error("Please select a category");
+      return;
+    }
+
+    if (!formData.unit_id) {
+      toast.error("Please select a unit");
+      return;
+    }
+
     if (formData.reorder_level !== "" && Number(formData.reorder_level) < 0) {
       toast.error("Reorder level cannot be negative");
       return;
@@ -852,6 +862,7 @@ const RawMaterials = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -892,7 +903,7 @@ const RawMaterials = () => {
 
               <div>
                 <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Category
+                  Category *
                 </label>
                 <select
                   value={formData.category_id}
@@ -900,6 +911,7 @@ const RawMaterials = () => {
                     setFormData({ ...formData, category_id: event.target.value })
                   }
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  required
                 >
                   <option value="">Select Category</option>
                   {categories.map((cat) => (
@@ -912,7 +924,7 @@ const RawMaterials = () => {
 
               <div>
                 <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Base / Inventory UOM
+                  Base / Inventory UOM *
                 </label>
                 <select
                   value={formData.unit_id}
@@ -925,6 +937,7 @@ const RawMaterials = () => {
                     }
                   }}
                   className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  required
                 >
                   <option value="">Select Unit</option>
                   {units.map((unit) => (
@@ -1114,6 +1127,7 @@ const RawMaterials = () => {
                 type="button"
                 onClick={() => setSelectedMaterial(null)}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                aria-label="Close material details"
               >
                 <X size={18} />
               </button>
@@ -1859,6 +1873,7 @@ const RawMaterials = () => {
                 type="button"
                 onClick={closeBulkUpload}
                 className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                aria-label="Close bulk upload"
               >
                 <X size={18} />
               </button>

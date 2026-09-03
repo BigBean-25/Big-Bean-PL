@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
 import {
-  KpiCard, MiniKpi, WarehouseStatusBadge, fmtCurrency, fmtDate, fmtQty, EmptyRow, InlineSpinner,
+  KpiCard, MiniKpi, fmtCurrency, fmtDate, fmtQty, EmptyRow, InlineSpinner,
 } from "./WarehouseShared";
 import {
   TrendingUp, Package, AlertTriangle, AlertCircle, Clock, ClipboardCheck,
@@ -235,7 +235,7 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
                         <td className="px-3 py-2.5">{r._qty || "-"}</td>
                         <td className="px-3 py-2.5">{loc?.location_name || "-"}</td>
                         <td className="px-3 py-2.5">{r._type === "Goods Receipt" ? fmtQty(r.total_qty, "") : (r.items || "-")}</td>
-                        <td className="px-3 py-2.5"><WarehouseStatusBadge status={r._status} /></td>
+                        <td className="px-3 py-2.5"><StatusBadge status={r._status} /></td>
                       </tr>
                     );
                   })}

@@ -1,19 +1,8 @@
 import { useState } from "react";
 import { productionAPI } from "../../../services/api";
-import { SectionCard, TableWrapper, EmptyState, getInputClass } from "../../../components/ui";
+import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, Send, CheckCircle, XCircle, Eye } from "lucide-react";
 import toast from "react-hot-toast";
-
-const STATUS_BADGE = {
-  Draft: "bg-gray-200 text-gray-700",
-  Submitted: "bg-[#FFEAC2] text-[#FF9F43]",
-  Reviewed: "bg-[#E0E7FF] text-[#5B6FE0]",
-  Approved: "bg-[#DDF6E8] text-[#28C76F]",
-  Rejected: "bg-[#FCE7E7] text-[#EA5455]",
-  "Partially Fulfilled": "bg-[#ECE8FD] text-[#7367F0]",
-  Fulfilled: "bg-[#DDF6E8] text-[#28C76F]",
-  "In Transit": "bg-[#FFEAC2] text-[#FF9F43]",
-};
 
 const emptyItem = () => ({ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" });
 
@@ -58,6 +47,9 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
     if (saving) return;
     if (!form.request_no || !form.from_outlet_id || !form.items.some((it) => it.raw_material_id && Number(it.requested_qty) > 0)) {
       return toast.error("Request number, outlet and at least one item are required");
+    }
+    if (form.items.some((it) => Number(it.requested_qty) < 0)) {
+      return toast.error("Quantities cannot be negative");
     }
     setSaving(true);
     try {
@@ -117,7 +109,7 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
                     <td className="px-3 py-3">{r.request_date}</td>
                     <td className="px-3 py-3">{r.outlet_name}</td>
                     <td className="px-3 py-3">{r.priority}</td>
-                    <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[r.status] || "bg-gray-200 text-gray-700"}`}>{r.status}</span></td>
+                    <td className="px-3 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openView(r)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} className="text-[#7367F0]" /></button>
@@ -174,7 +166,7 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
                         <option value="">Select Material</option>
                         {(materials || []).map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
                       </select>
-                      <input type="number" placeholder="Qty" value={it.requested_qty} onChange={(e) => updateItem(idx, "requested_qty", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
+                      <input type="number" min="0" placeholder="Qty" value={it.requested_qty} onChange={(e) => updateItem(idx, "requested_qty", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
                       <select value={it.unit_id} onChange={(e) => updateItem(idx, "unit_id", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
                         <option value="">Unit</option>
                         {(units || []).map((u) => <option key={u.id} value={u.id}>{u.unit_name}</option>)}

@@ -381,7 +381,7 @@ export default function LocationManagement() {
           <div className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">{editingLocation ? "Edit Location" : "Add Location"}</h3>
-              <button onClick={closeForm} className="text-2xl leading-none"><X size={20} /></button>
+              <button onClick={closeForm} className="text-2xl leading-none" aria-label="Close"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4 p-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -545,7 +545,7 @@ export default function LocationManagement() {
           <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">{viewLocation.location_name}</h3>
-              <button onClick={() => setViewLocation(null)} className="text-2xl leading-none"><X size={20} /></button>
+              <button onClick={() => setViewLocation(null)} className="text-2xl leading-none" aria-label="Close"><X size={20} /></button>
             </div>
             <div className="space-y-3 p-4 text-[14px]">
               <DetailRow label="Location Code" value={viewLocation.location_code} isDark={isDark} />

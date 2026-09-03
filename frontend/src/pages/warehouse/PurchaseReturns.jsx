@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
 import ExcelJS from "exceljs";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, getThemeMode, getInputClass, FilterBar } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtQty, fmtDate } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, getThemeMode, getInputClass, FilterBar, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtQty, fmtDate } from "./WarehouseShared";
 import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardCheck, Lock, DollarSign, Download, FileSpreadsheet, PackageX, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -317,7 +317,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
                     <td className="px-3 py-2.5 text-right">{fmtQty(r.total_return_qty)}</td>
                     <td className="px-3 py-2.5 text-right">₹{Number(r.total_return_value).toFixed(2)}</td>
                     <td className="px-3 py-2.5">{r.supplier_credit_note_no || "—"}</td>
-                    <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={r.status} /></td>
+                    <td className="px-3 py-2.5 text-center"><StatusBadge status={r.status} /></td>
                     <td className="px-3 py-2.5 text-center">
                       <button onClick={() => openDetail(r)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                     </td>
@@ -404,7 +404,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
             </div>
             <div className="p-4 space-y-3">
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier: <b>{detail.supplier_name}</b> &bull; Goods Receipt: <b>{detail.grn_no}</b> &bull; Date: <b>{fmtDate(detail.return_date)}</b></p>
-              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Status: <WarehouseStatusBadge status={detail.status} /> &bull; Qty: <b>{fmtQty(detail.total_return_qty)}</b> &bull; Inventory Value: <b>₹{Number(detail.total_return_value).toFixed(2)}</b> &bull; Supplier Credit: <b>₹{Number(detail.credit_amount).toFixed(2)}</b></p>
+              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Status: <StatusBadge status={detail.status} /> &bull; Qty: <b>{fmtQty(detail.total_return_qty)}</b> &bull; Inventory Value: <b>₹{Number(detail.total_return_value).toFixed(2)}</b> &bull; Supplier Credit: <b>₹{Number(detail.credit_amount).toFixed(2)}</b></p>
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Credit Note: <b>{detail.supplier_credit_note_no || "—"}</b></p>
               {detail.status === "Posted" && (
                 <div className={`flex items-center gap-2 text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>

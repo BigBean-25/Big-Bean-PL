@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, FilterBar } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, FilterBar, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import {
   Search, RotateCcw, Plus, FileText, Eye, Edit, Send, CheckCircle, XCircle, Lock,
@@ -315,7 +315,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                   <td className="px-3 py-3">{fmtDate(p.expected_delivery_date)}</td>
                   <td className="px-3 py-3 text-right">{p.items_count || p.items?.length || '-'}</td>
                   <td className="px-3 py-3 text-right">₹{Number(p.total_amount).toFixed(2)}</td>
-                  <td className="px-3 py-3 text-center"><WarehouseStatusBadge status={p.status} /></td>
+                  <td className="px-3 py-3 text-center"><StatusBadge status={p.status} /></td>
                   <td className="px-3 py-3 text-center">
                     <div className="flex justify-center gap-1">
                       <button onClick={() => openDetail(p.id)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
@@ -406,7 +406,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
             <div className="p-4 space-y-3 text-[13px]">
               <p className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>
                 Supplier: <b>{detail.supplier_name}</b> &bull; Warehouse: <b>{detail.location_name}</b> &bull; PO Date: <b>{fmtDate(detail.po_date)}</b><br/>
-                Expected: <b>{fmtDate(detail.expected_delivery_date)}</b> &bull; Status: <WarehouseStatusBadge status={detail.status} /> &bull; Total: <b>₹{Number(detail.total_amount).toFixed(2)}</b>
+                Expected: <b>{fmtDate(detail.expected_delivery_date)}</b> &bull; Status: <StatusBadge status={detail.status} /> &bull; Total: <b>₹{Number(detail.total_amount).toFixed(2)}</b>
               </p>
               <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
                 <table className="w-full border-collapse text-[13px]">

@@ -816,6 +816,7 @@ const OnlinePayouts = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -907,6 +908,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.gross_sales}
                   onChange={(event) =>
                     updateMoneyField("gross_sales", event.target.value)
@@ -938,6 +940,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.commission_amount}
                   onChange={(event) =>
                     updateMoneyField("commission_amount", event.target.value)
@@ -968,6 +971,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.tcs_amount}
                   onChange={(event) =>
                     updateMoneyField("tcs_amount", event.target.value)
@@ -998,6 +1002,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.tds_amount}
                   onChange={(event) =>
                     updateMoneyField("tds_amount", event.target.value)
@@ -1013,6 +1018,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.other_deductions}
                   onChange={(event) =>
                     updateMoneyField("other_deductions", event.target.value)
@@ -1028,6 +1034,7 @@ const OnlinePayouts = () => {
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.net_payout}
                   onChange={(event) =>
                     updateMoneyField("net_payout", event.target.value)
@@ -1120,6 +1127,7 @@ const OnlinePayouts = () => {
               type="button"
               onClick={() => setSelectedPayout(null)}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close payout details"
             >
               <X size={20} />
             </button>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, num, EmptyRow } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow } from "./WarehouseShared";
 import { Search, Filter, RotateCcw, Package, Eye, ArrowUpDown } from "lucide-react";
 import { getInputClass } from "../../components/ui";
 import toast from "react-hot-toast";
@@ -108,7 +108,7 @@ export default function WarehouseCurrentStock({ locationId, locations, categorie
                       <td className="px-3 py-2.5 text-right">{fmtCurrency(s.average_cost)}/{s.unit_name}</td>
                       <td className="px-3 py-2.5 text-right">{fmtCurrency(s.total_value)}</td>
                       <td className="px-3 py-2.5 text-center text-[11px]">{num(s.min_stock_qty).toFixed(0)} / {num(s.reorder_level).toFixed(0)}</td>
-                      <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={s.status} /></td>
+                      <td className="px-3 py-2.5 text-center"><StatusBadge status={s.status} /></td>
                       <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                         <button onClick={() => openDetail(s)} className={`rounded-md p-1.5 transition ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                       </td>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList } from "lucide-react";
 import toast from "react-hot-toast";
@@ -195,7 +195,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                       <td className="px-3 py-2.5 text-center">{r.item_count || r.items || 0}</td>
                       <td className="px-3 py-2.5 text-right">{fmtQty(r.total_requested)}</td>
                       <td className="px-3 py-2.5 text-right">{fmtQty(r.total_approved)}</td>
-                      <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={r.status} /></td>
+                      <td className="px-3 py-2.5 text-center"><StatusBadge status={r.status} /></td>
                       <td className="px-3 py-2.5">{r.created_by_name}</td>
                       <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                         <div className="flex items-center justify-center gap-1">
@@ -298,7 +298,7 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Warehouse:</span> {detail.from_location}</div>
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Requested Date:</span> {fmtDate(detail.request_date)}</div>
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Required Date:</span> {fmtDate(detail.required_date)}</div>
-                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <WarehouseStatusBadge status={detail.status} /></div>
+                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <StatusBadge status={detail.status} /></div>
                 </div>
               </SectionCard>
 

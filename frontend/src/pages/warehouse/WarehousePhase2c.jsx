@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, getInputClass } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, getInputClass, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { Search, RotateCcw, Plus, X, Eye, Send, CheckCircle, ShieldCheck, Lock, Trash2, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -361,7 +361,7 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
                         <td className="px-3 py-2.5 text-right">{d.items?.length || 0}</td>
                         <td className="px-3 py-2.5 text-right">{fmtQty(totalQty)}</td>
                         <td className="px-3 py-2.5 text-right">{fmtCurrency(totalValue)}</td>
-                        <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={d.status} /></td>
+                        <td className="px-3 py-2.5 text-center"><StatusBadge status={d.status} /></td>
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={() => setViewing(d)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} /></button>
@@ -390,7 +390,7 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
           <div className={`w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">{editingId ? `Edit ${config.title}` : `Create ${config.title}`}</h3>
-              <button onClick={closeCreate} className="text-2xl leading-none">&times;</button>
+              <button onClick={closeCreate} className="text-2xl leading-none" aria-label="Close"><X size={20} /></button>
             </div>
             <div className="space-y-5 p-4">
               <SectionCard title={`${config.title} Information`} isDark={isDark}>
@@ -437,12 +437,12 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
           <div className={`w-full max-w-3xl max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">{viewing[config.noKey]}</h3>
-              <button onClick={() => setViewing(null)} className="text-2xl leading-none">&times;</button>
+              <button onClick={() => setViewing(null)} className="text-2xl leading-none" aria-label="Close"><X size={20} /></button>
             </div>
             <div className="space-y-4 p-4">
               <div className="grid grid-cols-2 gap-3 text-[13px]">
                 <p><strong>Date:</strong> {fmtDate(viewing[config.dateKey])}</p>
-                <p><strong>Status:</strong> <WarehouseStatusBadge status={viewing.status} /></p>
+                <p><strong>Status:</strong> <StatusBadge status={viewing.status} /></p>
                 <p><strong>Total Qty:</strong> {fmtQty(viewing.total_counted_qty || viewing.total_qty)}</p>
                 <p><strong>Total Value:</strong> {fmtCurrency(viewing.total_variance_value || viewing.total_value)}</p>
                 <p className="col-span-2"><strong>Remarks:</strong> {viewing.remarks || "-"}</p>

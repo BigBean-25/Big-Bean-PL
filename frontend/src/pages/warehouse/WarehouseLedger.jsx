@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
-import { KpiCard, TransactionLabel, WarehouseStatusBadge, fmtQty, fmtCurrency, fmtDate, num, EmptyRow } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { KpiCard, TransactionLabel, fmtQty, fmtCurrency, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, BookOpen } from "lucide-react";
 import toast from "react-hot-toast";
@@ -105,7 +105,7 @@ export default function WarehouseLedger({ locationId, locations, isDark }) {
                         <div className="font-medium">{r.material_name}</div>
                         <div className={`text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{r.material_code || "-"}</div>
                       </td>
-                      <td className="px-3 py-2.5"><WarehouseStatusBadge status={TransactionLabel(r.transaction_type)} /></td>
+                      <td className="px-3 py-2.5"><StatusBadge status={TransactionLabel(r.transaction_type)} /></td>
                       <td className="px-3 py-2.5">{r.reference_type} #{r.reference_id}</td>
                       <td className="px-3 py-2.5 text-right">{fmtQty(r.qty_in)}</td>
                       <td className="px-3 py-2.5 text-right">{fmtQty(r.qty_out)}</td>

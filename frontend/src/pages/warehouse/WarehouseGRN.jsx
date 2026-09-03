@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { warehouseAPI } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState } from "../../components/ui";
-import { KpiCard, WarehouseStatusBadge, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Truck, Eye, X, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
@@ -212,7 +212,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         <td className="px-3 py-2.5 text-right">{g.item_count || g.items || 0}</td>
                         <td className="px-3 py-2.5">{g.purchase_reference || "-"}</td>
                         <td className="px-3 py-2.5 text-right">{fmtCurrency(g.total_amount)}</td>
-                        <td className="px-3 py-2.5 text-center"><WarehouseStatusBadge status={g.status} /></td>
+                        <td className="px-3 py-2.5 text-center"><StatusBadge status={g.status} /></td>
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                           {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(fetchGRNs), { loading: "Posting...", success: "Goods Receipt posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
                           <button onClick={() => openPrint(g.id)} title="View / Print" className={`ml-1 rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>

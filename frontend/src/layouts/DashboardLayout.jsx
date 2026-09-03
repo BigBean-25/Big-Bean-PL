@@ -213,6 +213,7 @@ const LANGUAGES = {
     consumptionVariance: "Consumption Variance Report",
     purchaseGST: "Purchase GST Report",
     salesGST: "Sales GST Report",
+    gstr1: "GSTR-1 Report",
     outletComparison: "Outlet Comparison Report",
     monthlyPL: "Monthly Outlet P&L",
     warehouse: "Warehouse",
@@ -735,6 +736,7 @@ const DashboardLayout = () => {
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.supplierPending, path: "/reports/supplier-pending" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.purchaseGST, path: "/reports/purchase-gst" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.salesGST, path: "/reports/sales-gst" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.gstr1, path: "/reports/gstr1" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.consumptionVariance, path: "/reports/consumption-variance" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.outletComparison, path: "/reports/outlet-comparison" }] : []),
@@ -873,6 +875,7 @@ const DashboardLayout = () => {
     "/reports/supplier-pending": "reports",
     "/reports/purchase-gst": "reports",
     "/reports/sales-gst": "reports",
+    "/reports/gstr1": "reports",
     "/reports/consumption-variance": "reports",
     "/reports/monthly-pl": "monthly_pl",
     "/reports/outlet-comparison": "monthly_pl",
@@ -2140,6 +2143,8 @@ const DashboardLayout = () => {
                     type="button"
                     onClick={() => setMobileOpen(true)}
                     className="flex h-10 w-10 items-center justify-center lg:hidden"
+                    aria-label="Toggle sidebar menu"
+                    title="Toggle sidebar menu"
                   >
                     <Menu size={24} />
                   </button>
@@ -2169,6 +2174,8 @@ const DashboardLayout = () => {
                         setNotificationOpen(false);
                       }}
                       className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      aria-label="Change language"
+                      title="Change language"
                     >
                       <Languages size={22} />
                     </button>
@@ -2213,6 +2220,8 @@ const DashboardLayout = () => {
                         setNotificationOpen(false);
                       }}
                       className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      aria-label="Toggle dark mode"
+                      title="Toggle dark mode"
                     >
                       {isDark ? <Moon size={23} /> : <Sun size={23} />}
                     </button>
@@ -2262,6 +2271,8 @@ const DashboardLayout = () => {
                       setCustomizerOpen(true);
                     }}
                     className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                    aria-label="Open theme settings"
+                    title="Open theme settings"
                   >
                     <Settings size={23} />
                   </button>
@@ -2278,6 +2289,8 @@ const DashboardLayout = () => {
                         if (opening) fetchNotifications();
                       }}
                       className="relative flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      aria-label="View notifications"
+                      title="View notifications"
                     >
                       <Bell size={23} />
 
@@ -2300,6 +2313,8 @@ const DashboardLayout = () => {
                         setThemeOpen(false);
                         setNotificationOpen(false);
                       }}
+                      aria-label="Open account menu"
+                      title="Open account menu"
                     >
                       <div
                         className="relative flex h-11 w-11 items-center justify-center rounded-full text-[17px] font-bold text-white"

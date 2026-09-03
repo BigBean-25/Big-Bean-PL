@@ -570,6 +570,7 @@ const SupplierPayments = () => {
               type="button"
               onClick={closeForm}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close form"
             >
               <X size={20} />
             </button>
@@ -837,6 +838,7 @@ const SupplierPayments = () => {
               type="button"
               onClick={() => setSelectedPayment(null)}
               className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              aria-label="Close payment details"
             >
               <X size={20} />
             </button>

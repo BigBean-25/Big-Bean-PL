@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { uploadAPI, masterAPI } from "../../services/api";
 import DownloadMenu from "../../components/DownloadMenu";
+import { StatusBadge } from "../../components/ui";
 import toast from "react-hot-toast";
 
 const getPrimaryColor = () => {
@@ -36,13 +37,6 @@ const formatDate = (value) => {
   try {
     return new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch { return "-"; }
-};
-
-const getStatusClass = (status) => {
-  if (status === "Completed") return "bg-[#E9F9EF] text-[#28C76F]";
-  if (status === "Failed") return "bg-[#FCEAEA] text-[#EA5455]";
-  if (status === "Processing") return "bg-[#FFF4E5] text-[#FF9F43]";
-  return "bg-[#F3F2F7] text-[#6F6B7D]";
 };
 
 const OpeningStockUpload = () => {
@@ -722,9 +716,7 @@ const OpeningStockUpload = () => {
                       <span className={mainTextClass}>{upload.total_rows ?? 0}</span>
                     </td>
                     <td className="px-5 py-4">
-                      <span className={`rounded-full px-3 py-1 text-[12px] font-semibold ${getStatusClass(upload.status)}`}>
-                        {upload.status || "Pending"}
-                      </span>
+                      <StatusBadge status={upload.status || "Pending"} />
                     </td>
                     <td
                       className={`sticky right-0 z-10 overflow-visible px-5 py-4 group-hover:z-50 ${

@@ -313,13 +313,12 @@ const Dashboard = () => {
           </div>
 
           <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-3">
-            <button
-              type="button"
+            <div
               className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
             >
               <Calendar size={18} className="shrink-0" />
               <span className="truncate">{currentMonthLabel}</span>
-            </button>
+            </div>
 
             <button
               type="button"

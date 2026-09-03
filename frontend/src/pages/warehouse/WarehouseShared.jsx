@@ -55,18 +55,6 @@ const statusMap = {
   "purchase_return": { bg: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400", label: "Purchase Return" },
 };
 
-export const WarehouseStatusBadge = ({ status = "" }) => {
-  const key = String(status).toLowerCase().replace(/\s+/g, "_");
-  const style = statusMap[key];
-  const cls = style?.bg || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-  const label = style?.label || status;
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide ${cls}`}>
-      {label}
-    </span>
-  );
-};
-
 export const KpiCard = ({ icon: Icon, label, value, sub, isDark }) => (
   <div className={`rounded-xl border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] transition hover:shadow-md ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
     <div className="flex items-start justify-between gap-3">

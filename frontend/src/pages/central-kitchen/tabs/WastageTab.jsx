@@ -1,18 +1,8 @@
 import { useState } from "react";
 import { productionAPI } from "../../../services/api";
-import { SectionCard, TableWrapper, EmptyState, getInputClass } from "../../../components/ui";
+import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, Send, CheckCircle, XCircle, ShieldCheck, Lock, Eye, Download } from "lucide-react";
 import toast from "react-hot-toast";
-
-const STATUS_BADGE = {
-  Draft: "bg-gray-200 text-gray-700",
-  Submitted: "bg-[#FFEAC2] text-[#FF9F43]",
-  Verified: "bg-[#E0E7FF] text-[#5B6FE0]",
-  Approved: "bg-[#DDF6E8] text-[#28C76F]",
-  Rejected: "bg-[#FCE7E7] text-[#EA5455]",
-  Posted: "bg-[#DDF6E8] text-[#28C76F]",
-  Locked: "bg-[#F0EFF3] text-[#6F6B7D]",
-};
 
 const emptyItem = () => ({ raw_material_id: "", wastage_scope: "RAW_MATERIAL", qty: "", unit_id: "", batch_no: "", expiry_date: "", remarks: "" });
 
@@ -45,6 +35,9 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
   const create = async () => {
     if (!form.wastage_no || !form.items.some((it) => it.wastage_scope === "PROCESS_LOSS" || (it.raw_material_id && Number(it.qty) > 0))) {
       return toast.error("Wastage number and at least one item are required");
+    }
+    if (form.items.some((it) => Number(it.qty) < 0)) {
+      return toast.error("Quantities cannot be negative");
     }
     try {
       await productionAPI.createProductionWastage({
@@ -116,7 +109,7 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
                     <td className="px-3 py-3">{w.wastage_date}</td>
                     <td className="px-3 py-3">{w.wastage_type}</td>
                     <td className="px-3 py-3">₹{Number(w.total_value || 0).toFixed(2)}</td>
-                    <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[w.status] || "bg-gray-200 text-gray-700"}`}>{w.status}</span></td>
+                    <td className="px-3 py-3"><StatusBadge status={w.status} /></td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openView(w)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} className="text-[#7367F0]" /></button>
@@ -141,7 +134,7 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
           <div className={`w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`} onClick={(e) => e.stopPropagation()}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">New Production Wastage</h3>
-              <button onClick={() => setShowCreate(false)}><X size={20} /></button>
+              <button onClick={() => setShowCreate(false)} aria-label="Close"><X size={20} /></button>
             </div>
             <div className="space-y-4 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -174,7 +167,7 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
                         <option value="">Select Material</option>
                         {(materials || []).map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
                       </select>
-                      <input type="number" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
+                      <input type="number" min="0" placeholder="Qty" value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
                       <select value={it.unit_id} onChange={(e) => updateItem(idx, "unit_id", e.target.value)} className={`col-span-2 h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
                         <option value="">Unit</option>
                         {(units || []).map((u) => <option key={u.id} value={u.id}>{u.unit_name}</option>)}
@@ -200,7 +193,7 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
           <div className={`w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`} onClick={(e) => e.stopPropagation()}>
             <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               <h3 className="text-lg font-semibold">{viewing.wastage_no}</h3>
-              <button onClick={() => setViewing(null)}><X size={20} /></button>
+              <button onClick={() => setViewing(null)} aria-label="Close"><X size={20} /></button>
             </div>
             <div className="space-y-3 p-4 text-[13px]">
               <div className="grid grid-cols-2 gap-2">
