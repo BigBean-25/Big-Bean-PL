@@ -28,8 +28,10 @@
 // to run unattended. Add them here explicitly, one at a time, once each has
 // been read and confirmed safe to re-run.
 
-import dotenv from 'dotenv';
-dotenv.config();
+// No dotenv here deliberately: database/ has no node_modules of its own
+// (only backend/ does), and this script is meant to be invoked with
+// DB_HOST/DB_USER/etc. already set on the command line, same as the
+// individual backend/*.mjs migrations it runs as child processes.
 import { getConnection } from '../backend/src/config/database.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
