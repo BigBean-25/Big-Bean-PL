@@ -16,8 +16,9 @@ ALTER TABLE expense_heads
 ALTER TABLE daily_cash_expenses
   ADD COLUMN IF NOT EXISTS raw_material_id INT NULL AFTER expense_head_id,
   ADD COLUMN IF NOT EXISTS material_qty DECIMAL(12,3) NULL AFTER raw_material_id,
-  ADD COLUMN IF NOT EXISTS linked_purchase_item_id INT NULL AFTER material_qty
-  COMMENT 'material_purchase_items.id created on approval, if this expense was raw-material-tagged';
+  ADD COLUMN IF NOT EXISTS linked_purchase_item_id INT NULL
+    COMMENT 'material_purchase_items.id created on approval, if this expense was raw-material-tagged'
+    AFTER material_qty;
 
 -- Add the FKs separately, guarded, since ADD CONSTRAINT has no IF NOT EXISTS
 -- form - re-running this file must not fail on a constraint that's already there.
