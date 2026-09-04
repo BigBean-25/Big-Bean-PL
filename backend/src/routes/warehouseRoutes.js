@@ -3,6 +3,7 @@ import { protect } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { applyLocationScope, checkLocationAccess, isLocationAccessible, resolveScopedLocationId, resolveScopedLocationIds } from '../middleware/warehouseMiddleware.js';
 import { query } from '../config/database.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
@@ -237,8 +238,11 @@ router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_crea
   try {
     // Outlet-scoped users (Outlet Admin/Staff) can only raise a requisition
     // for their own outlet's location, not any outlet in the picker.
+    // canAccessAllOutlets checked first - outlet_ids can be non-empty even for
+    // an all-outlet role (e.g. a Warehouse Admin account tagged to a couple of
+    // outlets for convenience), which would otherwise wrongly restrict them.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (outletIds.length > 0) {
+    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [req.body.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
         return res.status(403).json({ success: false, message: 'You can only raise a requisition for your own outlet' });
@@ -254,8 +258,9 @@ router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions'
   try {
     const requisition = await getRequisitionById(req.params.id);
     if (!requisition) return res.status(404).json({ success: false, message: 'Requisition not found' });
+    // canAccessAllOutlets checked first, same reasoning as POST /requisitions above.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (outletIds.length > 0) {
+    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [requisition.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
         return res.status(403).json({ success: false, message: 'You can only submit a requisition for your own outlet' });

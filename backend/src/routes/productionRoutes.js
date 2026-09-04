@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from '../config/database.js';
 import { protect } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import {
   getCentralKitchenLocations, getProductionDashboard, getProductionRequests, getProductionRequestById,
   createProductionRequest, updateProductionRequestStatus, getProductionPlans, getProductionPlanById,
@@ -46,7 +47,7 @@ const canTransitionProductionRequest = async (req, res, next) => {
       }
 
       const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-      if (outletIds.length > 0) {
+      if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
         const [request] = await query('SELECT from_outlet_id FROM production_requests WHERE id = ?', [req.params.id]);
         if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
         if (!outletIds.includes(Number(request.from_outlet_id))) {
@@ -122,8 +123,12 @@ router.get('/requests', checkPermission('production_requests', 'can_view'), asyn
     // caller (Outlet Admin has production_requests.can_view by default) could
     // see every outlet's requests to this kitchen, not just their own. Same
     // req.user.outlet_ids check the POST /requests handler below already uses.
+    // canAccessAllOutlets is checked first because outlet_ids can be non-empty
+    // even for an all-outlet role (e.g. a Warehouse Admin account tagged to a
+    // couple of outlets for convenience) - without it, that account would be
+    // wrongly restricted to only those outlets' requests instead of seeing all.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    const scoped = outletIds.length > 0
+    const scoped = !canAccessAllOutlets(req.user.role_name) && outletIds.length > 0
       ? data.filter((r) => outletIds.includes(Number(r.from_outlet_id)))
       : data;
     res.json({ success: true, data: scoped });
@@ -137,9 +142,10 @@ router.get('/requests/:id', checkPermission('production_requests', 'can_view'), 
     if (!data) return res.status(404).json({ success: false, message: 'Request not found' });
     // Same gap as the list endpoint above - getProductionRequestById had no
     // outlet check at all, so any outlet-locked caller could read any other
-    // outlet's request by id.
+    // outlet's request by id. canAccessAllOutlets checked first for the same
+    // reason as the list endpoint above.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (outletIds.length > 0 && !outletIds.includes(Number(data.from_outlet_id))) {
+    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0 && !outletIds.includes(Number(data.from_outlet_id))) {
       return res.status(403).json({ success: false, message: 'You can only view requests for your own outlet' });
     }
     res.json({ success: true, data });
@@ -151,9 +157,10 @@ router.post('/requests', checkPermission('production_requests', 'can_create'), a
   try {
     // Outlet-scoped users (Outlet Admin/Staff) can only raise a request for
     // their own outlet, not any outlet in the picker - company-wide roles
-    // (Central Kitchen Admin etc.) aren't restricted this way.
+    // (Central Kitchen Admin etc.) aren't restricted this way. canAccessAllOutlets
+    // checked first since outlet_ids can be non-empty even for those roles.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (outletIds.length > 0 && !outletIds.includes(Number(req.body.from_outlet_id))) {
+    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0 && !outletIds.includes(Number(req.body.from_outlet_id))) {
       return res.status(403).json({ success: false, message: 'You can only raise a request for your own outlet' });
     }
     const data = await createProductionRequest(req.body, req.user.id);
