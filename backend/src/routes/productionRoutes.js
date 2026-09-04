@@ -58,7 +58,12 @@ const canTransitionProductionRequest = async (req, res, next) => {
 
     if (status === 'Approved' && (p.can_approve || p.can_edit)) return next();
     if (status === 'Rejected' && (p.can_reject || p.can_edit)) return next();
-    if (p.can_edit) return next();
+    // 'Reviewed' is the one other status RequestsTab.jsx actually sends
+    // (shown as an intermediate step before Approve/Reject); the old
+    // `if (p.can_edit) return next();` fallback accepted ANY string here,
+    // with neither this middleware nor updateProductionRequestStatus
+    // validating it against the request's real status enum.
+    if (status === 'Reviewed' && p.can_edit) return next();
 
     return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
   } catch (error) {

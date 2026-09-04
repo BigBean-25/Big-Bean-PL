@@ -136,6 +136,23 @@ export async function getProductionPlanById(id) {
 }
 
 export async function updateProductionPlanStatus(id, status, userId) {
+  // The UI only ever offers Approve/Reject on a Draft plan (PlanningTab.jsx)
+  // - this had no validation at all: any status string was accepted, from
+  // any current status, by the plan's own creator. Enforcing the same
+  // maker-checker + status-transition rules every other approval workflow
+  // in this codebase already has (production requests, wastage, GRN, etc.).
+  if (!['Approved', 'Rejected'].includes(status)) {
+    throw new Error('Invalid status. Only Approved or Rejected are allowed.');
+  }
+  const [plan] = await query('SELECT status, created_by FROM production_plans WHERE id = ?', [id]);
+  if (!plan) throw new Error('Production plan not found');
+  if (plan.status !== 'Draft') {
+    throw new Error(`Cannot ${status.toLowerCase()} a plan with status "${plan.status}". Only Draft plans can be approved or rejected.`);
+  }
+  if (Number(plan.created_by) === Number(userId)) {
+    throw new Error('You cannot approve or reject your own production plan');
+  }
+
   const setFields = ['status = ?'];
   const values = [status];
   if (status === 'Approved') { setFields.push('approved_by = ?'); values.push(userId); }
