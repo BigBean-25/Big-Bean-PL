@@ -208,7 +208,22 @@ export const verifyUtilityBill = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Utility bill record not found' });
     }
-    if (Number(existing[0].created_by) === Number(req.user.id)) {
+
+    // Same two bugs already found and fixed in payrollController.js's
+    // verifyEmployeeSalary: (1) no status-transition guard at all - this
+    // used to let either action fire from any current status, including an
+    // already-Verified or otherwise-final record; (2) the self-check applied
+    // to both Submitted and Verified, blocking a lone Accountant (the only
+    // role with utility_bills.can_verify, gating this single combined
+    // endpoint) from ever submitting their own draft.
+    const requiredFromStatus = action === 'Submitted' ? 'Draft' : 'Submitted';
+    if (existing[0].status !== requiredFromStatus) {
+      return res.status(400).json({
+        success: false,
+        message: `Utility bill record must be ${requiredFromStatus} before it can be marked ${action}`
+      });
+    }
+    if (action === 'Verified' && Number(existing[0].created_by) === Number(req.user.id)) {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own utility bill record' });
     }
 
