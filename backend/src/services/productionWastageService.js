@@ -97,8 +97,18 @@ async function transitionStatus(id, userId, fromStatuses, toStatus, field) {
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
-    const [w] = await conn.execute('SELECT status FROM production_wastage WHERE id = ? FOR UPDATE', [id]);
+    const [w] = await conn.execute('SELECT status, created_by FROM production_wastage WHERE id = ? FOR UPDATE', [id]);
     if (!w.length || !fromStatuses.includes(w[0].status)) { await conn.rollback(); throw new Error(`Wastage cannot be ${toStatus.toLowerCase()} in current status`); }
+    // Production wastage is entirely managed by one role (Central Kitchen
+    // Admin has create/submit/verify/approve all at once, unlike Production
+    // Requests' cross-role outlet-vs-kitchen split), so unlike there, nothing
+    // here naturally prevents the creator from also verifying/approving their
+    // own wastage record - same gap already found and fixed for Physical
+    // Stock Count/Stock Adjustments/Warehouse Wastage.
+    if ((field === 'verified_by' || field === 'approved_by') && Number(w[0].created_by) === Number(userId)) {
+      await conn.rollback();
+      throw new Error(`Creator cannot ${toStatus.toLowerCase()} their own wastage record`);
+    }
     await conn.execute(`UPDATE production_wastage SET status = ?, ${field} = ?, ${field.replace('_by', '_at')} = NOW() WHERE id = ?`, [toStatus, userId, id]);
     await conn.commit();
     return getProductionWastageById(id);
