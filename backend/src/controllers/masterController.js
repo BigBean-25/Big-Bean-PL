@@ -478,7 +478,31 @@ export const createRawMaterial = async (req, res) => {
   }
 };
 export const menuItemController = createMasterController('menu_items', 'Menu Item');
-export const unitController = createMasterController('units', 'Unit');
+
+// raw_materials.unit_id is ON DELETE SET NULL (unlike recipe_items.unit_id,
+// which has no ON DELETE clause and so already correctly blocks deletion via
+// the default RESTRICT) - the generic factory's delete would silently
+// succeed and null out every raw material's live base unit, breaking
+// getMaterialBaseUnit() and every stock/costing calculation that depends on
+// it. Checked at the application layer instead of a schema migration, since
+// this only needs to stop the delete before it reaches the DB, not change
+// what's already safely enforced elsewhere.
+const genericUnitController = createMasterController('units', 'Unit');
+export const unitController = {
+  ...genericUnitController,
+  delete: async (req, res) => {
+    try {
+      const inUse = await query('SELECT id FROM raw_materials WHERE unit_id = ? LIMIT 1', [req.params.id]);
+      if (inUse.length > 0) {
+        return res.status(400).json({ success: false, message: 'Cannot delete Unit - it is the base unit of one or more raw materials' });
+      }
+    } catch (error) {
+      console.error('Check unit usage error:', error);
+      return res.status(500).json({ success: false, message: 'Error checking unit usage' });
+    }
+    return genericUnitController.delete(req, res);
+  },
+};
 export const expenseHeadController = createMasterController('expense_heads', 'Expense Head');
 export const paymentModeController = createMasterController('payment_modes', 'Payment Mode');
 export const onlinePlatformController = createMasterController('online_platforms', 'Online Platform');
