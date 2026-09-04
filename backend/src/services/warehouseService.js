@@ -845,12 +845,18 @@ export const getTransferById = async (id) => {
   return { ...t, items };
 };
 
+// baseQty here is always just the INCREMENT for this specific receiveTransfer
+// call (transit damage/short discovered on top of whatever was already
+// recorded), not the cumulative total - stock_transfer_items.received_qty
+// accumulates across multiple partial-receipt calls for the same transfer.
+// A "does a ledger row already exist for this reference_item_id" guard is
+// correct for a single-shot action (like GRN posting, gated by its own
+// record-level status) but wrong here: it silently drops every increment
+// after the first one, since a row from an earlier partial receipt already
+// satisfies the check. Insert unconditionally instead - each call's
+// increment is a distinct, real stock movement and belongs in the ledger.
 const postLedgerVariance = async (connection, txDate, locationId, materialId, unitId, unitCost, baseQty, value, transactionType, referenceId, referenceItemId, batchNo, expiryDate, userId) => {
-  const existing = await connection.execute(
-    'SELECT id FROM stock_ledger WHERE transaction_type = ? AND reference_type = "TRANSFER" AND reference_id = ? AND reference_item_id = ? LIMIT 1',
-    [transactionType, referenceId, referenceItemId]
-  );
-  if (existing[0].length === 0 && baseQty > 0) {
+  if (baseQty > 0) {
     await connection.execute(
       `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
        VALUES (?, ?, ?, ?, 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
@@ -897,18 +903,18 @@ export const receiveTransfer = async (id, data, userId) => {
         [newReceived, newShort, newDamaged, it.remarks || ti.remarks, it.id]
       );
 
+      // Same fix as postLedgerVariance above: baseReceived is only this
+      // call's increment, not the transfer item's cumulative received_qty,
+      // so an existence check here silently dropped every partial receipt
+      // after the first one from the stock ledger while received_qty kept
+      // climbing correctly - a real, permanent stock undercount at the
+      // destination location.
       if (baseReceived > 0) {
-        const existing = await connection.execute(
-          'SELECT id FROM stock_ledger WHERE transaction_type = "TRANSFER_IN" AND reference_type = "TRANSFER" AND reference_id = ? AND reference_item_id = ? LIMIT 1',
-          [id, ti.id]
+        await connection.execute(
+          `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
+           VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
+          [transfer.to_location_id, ti.raw_material_id, txDate, id, ti.id, baseReceived, baseUnit.id, ti.unit_cost, valueIn, ti.batch_no || null, ti.expiry_date || null, userId]
         );
-        if (existing[0].length === 0) {
-          await connection.execute(
-            `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
-             VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
-            [transfer.to_location_id, ti.raw_material_id, txDate, id, ti.id, baseReceived, baseUnit.id, ti.unit_cost, valueIn, ti.batch_no || null, ti.expiry_date || null, userId]
-          );
-        }
       }
 
       if (baseDamaged > 0) await postLedgerVariance(connection, txDate, transfer.to_location_id, ti.raw_material_id, baseUnit.id, ti.unit_cost, baseDamaged, damageValue, 'TRANSIT_DAMAGE', id, ti.id, ti.batch_no, ti.expiry_date, userId);
