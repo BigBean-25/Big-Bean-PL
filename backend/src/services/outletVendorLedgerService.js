@@ -8,12 +8,18 @@ const num = (value) => Number(value || 0);
  * pure cumulative-to-date sum, not a delta since the last payment, so it's
  * immune to same-date ordering issues and never depends on a stale stored
  * balance from an earlier row.
+ *
+ * paid_by = 'Outlet' purchases are excluded: the outlet already settled
+ * those in cash at the time of purchase, so nothing is owed to the vendor
+ * for them. Counting them here would create a payable that no
+ * outlet_vendor_payments row will ever offset (nobody pays what's already
+ * paid), permanently inflating outstanding/ageing for every such purchase.
  */
 const getCumulativePurchases = async (outletId, vendorId, asOfDate) => {
   const rows = await query(
     `SELECT COALESCE(SUM(amount), 0) AS total
      FROM outlet_vendor_purchases
-     WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ?`,
+     WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ? AND paid_by != 'Outlet'`,
     [outletId, vendorId, asOfDate]
   );
   return num(rows[0]?.total);
@@ -72,7 +78,7 @@ export const getVendorAgeing = async ({ outletId, vendorId, date }) => {
     query('SELECT credit_days FROM outlet_vendors WHERE id = ?', [vendorId]),
     query(
       `SELECT id, purchase_date, amount FROM outlet_vendor_purchases
-       WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ?
+       WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ? AND paid_by != 'Outlet'
        ORDER BY purchase_date ASC, id ASC`,
       [outletId, vendorId, date]
     ),

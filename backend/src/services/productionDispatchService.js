@@ -286,35 +286,46 @@ export async function receiveProductionDispatch(id, data, userId) {
     await conn.beginTransaction();
     const [transfer] = await conn.execute('SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE', [id]);
     if (!transfer.length) { await conn.rollback(); throw new Error('Dispatch not found'); }
-    if (transfer[0].status !== 'In Transit') { await conn.rollback(); throw new Error('Dispatch not in transit'); }
+    if (transfer[0].status === 'Received') { await conn.rollback(); throw new Error('Dispatch already fully received'); }
 
     for (const it of items) {
       const [ti] = await conn.execute('SELECT * FROM stock_transfer_items WHERE id = ? AND transfer_id = ?', [it.id, id]);
       if (!ti.length) { await conn.rollback(); throw new Error('Invalid transfer item'); }
-      const received = num(it.received_qty);
-      const short = num(it.short_qty);
-      const damaged = num(it.damaged_qty);
-      const total = received + short + damaged;
-      if (total > num(ti[0].dispatched_qty)) { await conn.rollback(); throw new Error('Received + short + damaged cannot exceed dispatched qty'); }
+      // it.received_qty/short_qty/damaged_qty are this call's INCREMENT, not
+      // the item's cumulative total - a "Partially Received" dispatch (this
+      // session's frontend sends dispatched_qty - received_qty as the
+      // pre-filled remaining amount, see ReceiveDispatch.jsx) must be able to
+      // receive again. Same fix as warehouseService.js's receiveTransfer.
+      const additionalReceived = num(it.received_qty);
+      const additionalShort = num(it.short_qty);
+      const additionalDamaged = num(it.damaged_qty);
+      const newReceived = num(ti[0].received_qty) + additionalReceived;
+      const newShort = num(ti[0].short_qty) + additionalShort;
+      const newDamaged = num(ti[0].damaged_qty) + additionalDamaged;
+      if ((newReceived + newShort + newDamaged) > num(ti[0].dispatched_qty)) { await conn.rollback(); throw new Error('Cumulative received + short + damaged cannot exceed dispatched qty'); }
 
       const baseUnit = await getMaterialBaseUnit(ti[0].raw_material_id);
-      const receivedBase = await convertToBase(received, ti[0].unit_id, baseUnit.id);
+      const receivedBase = await convertToBase(additionalReceived, ti[0].unit_id, baseUnit.id);
       const valueIn = receivedBase * num(ti[0].unit_cost);
-      await conn.execute(
-        `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
-         VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
-        [transfer[0].to_location_id, ti[0].raw_material_id, received_at || new Date().toISOString().split('T')[0], id, ti[0].id, receivedBase, baseUnit.id, ti[0].unit_cost, valueIn, ti[0].batch_no || null, ti[0].expiry_date || null, userId]
-      );
+      if (receivedBase > 0) {
+        await conn.execute(
+          `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
+           VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
+          [transfer[0].to_location_id, ti[0].raw_material_id, received_at || new Date().toISOString().split('T')[0], id, ti[0].id, receivedBase, baseUnit.id, ti[0].unit_cost, valueIn, ti[0].batch_no || null, ti[0].expiry_date || null, userId]
+        );
+      }
       await conn.execute(
         `UPDATE stock_transfer_items SET received_qty = ?, short_qty = ?, damaged_qty = ? WHERE id = ?`,
-        [received, short, damaged, it.id]
+        [newReceived, newShort, newDamaged, it.id]
       );
     }
 
     const allItems = await conn.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', [id]);
     const totalReceived = allItems[0].reduce((s, x) => s + num(x.received_qty), 0);
+    const totalShort = allItems[0].reduce((s, x) => s + num(x.short_qty), 0);
+    const totalDamaged = allItems[0].reduce((s, x) => s + num(x.damaged_qty), 0);
     const totalDispatched = allItems[0].reduce((s, x) => s + num(x.dispatched_qty), 0);
-    const newStatus = totalReceived >= totalDispatched ? 'Received' : 'Partially Received';
+    const newStatus = (totalReceived + totalShort + totalDamaged) >= totalDispatched ? 'Received' : 'Partially Received';
     await conn.execute("UPDATE stock_transfers SET status = ?, received_at = NOW(), received_by = ? WHERE id = ?", [newStatus, userId, id]);
     await recalculateRequestFulfilment(transfer[0].production_request_id, conn);
     await conn.commit();

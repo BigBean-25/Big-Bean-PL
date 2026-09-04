@@ -7,7 +7,7 @@ import { ROLE_PERMISSION_MODULES, PERMISSION_ACTIONS, buildDefaultPermissionMatr
 const router = express.Router();
 
 // Get all roles
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, checkPermission('roles', 'can_view'), async (req, res) => {
   try {
     const roles = await query('SELECT id, role_name, permissions, description, is_active FROM roles ORDER BY id');
 

@@ -28,12 +28,30 @@ import {
 
 const router = express.Router();
 
+const UPLOAD_TYPES = ['opening_stock', 'closing_stock', 'material_purchase', 'item_sales'];
+
 const checkDeleteUploadPermission = async (req, res, next) => {
   const { type } = req.params;
-  if (!['opening_stock', 'closing_stock', 'material_purchase', 'item_sales'].includes(type)) {
+  if (!UPLOAD_TYPES.includes(type)) {
     return res.status(400).json({ success: false, message: 'Invalid upload type' });
   }
   const middleware = checkPermission(type, 'can_delete');
+  await middleware(req, res, next);
+};
+
+// getUploadHistory requires `type` from either the :type param or the
+// ?type= query (its no-param /history route), and always operates on
+// exactly one upload type per call - every other data-exposing route in
+// this file gates on that type's own can_view (e.g. GET /item-sales/:id,
+// the download-* routes below), but this pair only checked outlet scope,
+// letting a user list history (including item-sales financial aggregates)
+// for a type they have no view permission for.
+const checkHistoryViewPermission = async (req, res, next) => {
+  const type = req.params.type || req.query.type;
+  if (!UPLOAD_TYPES.includes(type)) {
+    return res.status(400).json({ success: false, message: 'Invalid upload type' });
+  }
+  const middleware = checkPermission(type, 'can_view');
   await middleware(req, res, next);
 };
 
@@ -50,8 +68,8 @@ router.post('/closing-stock', protect, checkPermission('closing_stock', 'can_upl
 router.post('/material-purchase', protect, checkPermission('material_purchase', 'can_upload'), upload.single('file'), applyOutletScope, uploadMaterialPurchase);
 router.post('/item-sales', protect, checkPermission('item_sales', 'can_upload'), upload.single('file'), applyOutletScope, uploadItemSales);
 
-router.get('/history/:type', protect, applyOutletScope, getUploadHistory);
-router.get('/history', protect, applyOutletScope, getUploadHistory);
+router.get('/history/:type', protect, applyOutletScope, checkHistoryViewPermission, getUploadHistory);
+router.get('/history', protect, applyOutletScope, checkHistoryViewPermission, getUploadHistory);
 router.get('/errors/:upload_id', protect, applyOutletScope, getUploadErrors);
 
 router.get('/item-sales/template', protect, checkPermission('item_sales', 'can_upload'), downloadItemSalesTemplate);

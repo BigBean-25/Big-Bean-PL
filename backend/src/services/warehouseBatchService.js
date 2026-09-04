@@ -16,6 +16,12 @@ const daysDiff = (expiry, today) => {
   return Math.ceil((e - today) / (1000 * 60 * 60 * 24));
 };
 
+// mysql2 (no dateStrings option set on this pool) returns DATE columns as JS
+// Date objects, while a manual-allocation payload's expiry_date is whatever
+// the client's JSON sent (a string) - normalize both to YYYY-MM-DD before
+// comparing, or `Date === string` is always false.
+const normDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+
 export const getExpiryStatus = (expiryDate, thresholdDays, asOf) => {
   const today = businessDate(asOf);
   if (!expiryDate) return 'No Expiry';
@@ -97,7 +103,7 @@ export const allocateFEFO = async (locationId, materialId, requiredBaseQty, opti
     const allocations = [];
     let remaining = num(requiredBaseQty);
     for (const m of manual) {
-      const batch = batches.find(b => b.batch_no === m.batch_no && (b.expiry_date ? b.expiry_date === m.expiry_date : !m.expiry_date));
+      const batch = batches.find(b => b.batch_no === m.batch_no && normDate(b.expiry_date) === normDate(m.expiry_date));
       if (!batch) throw new Error(`Invalid or expired batch ${m.batch_no}`);
       if (batch.status === 'Expired') throw new Error(`Expired batch ${m.batch_no} cannot be allocated`);
       const alloc = Math.min(remaining, num(batch.available_qty), num(m.qty || remaining));

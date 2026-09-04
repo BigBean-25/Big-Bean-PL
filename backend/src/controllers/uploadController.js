@@ -1219,16 +1219,17 @@ export const getUploadHistory = async (req, res) => {
   }
 };
 
-const resolveUploadOutletId = async (uploadId) => {
-  const masterTables = [
-    'item_sales_uploads',
-    'opening_stock_uploads',
-    'closing_stock_uploads',
-    'material_purchase_uploads'
-  ];
-  for (const table of masterTables) {
+const UPLOAD_TABLE_TYPE = {
+  item_sales_uploads: 'item_sales',
+  opening_stock_uploads: 'opening_stock',
+  closing_stock_uploads: 'closing_stock',
+  material_purchase_uploads: 'material_purchase',
+};
+
+const resolveUpload = async (uploadId) => {
+  for (const [table, type] of Object.entries(UPLOAD_TABLE_TYPE)) {
     const rows = await query(`SELECT outlet_id FROM ${table} WHERE id = ?`, [uploadId]);
-    if (rows.length > 0) return rows[0].outlet_id;
+    if (rows.length > 0) return { outletId: rows[0].outlet_id, type };
   }
   return null;
 };
@@ -1237,14 +1238,27 @@ export const getUploadErrors = async (req, res) => {
   try {
     const { upload_id } = req.params;
 
-    const uploadOutletId = await resolveUploadOutletId(upload_id);
-    if (uploadOutletId === null) {
+    const resolved = await resolveUpload(upload_id);
+    if (!resolved) {
       return res.status(404).json({ success: false, message: 'Upload record not found' });
     }
 
     const scope = req.outletScope || { all: false, outletIds: [] };
-    if (!scope.all && !scope.outletIds.includes(Number(uploadOutletId))) {
+    if (!scope.all && !scope.outletIds.includes(Number(resolved.outletId))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
+    }
+
+    // Every other data-exposing route in uploadRoutes.js gates on the
+    // upload type's own can_view (e.g. GET /item-sales/:id, the download-*
+    // routes) - this route only checked outlet scope, so a user could view
+    // row-level error logs for an upload type they have no view permission
+    // for at all, once they know/guess a valid upload_id.
+    const permRows = await query(
+      'SELECT can_view FROM role_permissions WHERE role_id = ? AND module_key = ? LIMIT 1',
+      [req.user.role_id, resolved.type]
+    );
+    if (!permRows[0]?.can_view) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to view this upload type' });
     }
 
     const { upload_type } = req.query;

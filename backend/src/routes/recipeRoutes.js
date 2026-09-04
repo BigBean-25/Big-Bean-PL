@@ -117,29 +117,6 @@ const getNextVersion = async (menuItemId, outputRawMaterialId, forOutletId) => {
   return row ? row.next_version : 1;
 };
 
-const findConflictingActive = async (menuItemId, forOutletId, effectiveFrom, excludeId = null) => {
-  const o = forOutletId ? Number(forOutletId) : null;
-  const params = [menuItemId, o, o, effectiveFrom, effectiveFrom];
-  let idFilter = '';
-  if (excludeId) {
-    idFilter = ' AND r.id != ?';
-    params.push(excludeId);
-  }
-  const rows = await query(
-    `SELECT r.id, r.version_no FROM recipes r
-     WHERE r.menu_item_id = ?
-       AND (r.for_outlet_id = ? OR (r.for_outlet_id IS NULL AND ? IS NULL))
-       AND r.status = 'Active'
-       AND r.is_deleted = 0
-       AND r.effective_from <= ?
-       AND (r.effective_to IS NULL OR r.effective_to >= ?)
-       ${idFilter}
-     LIMIT 1`,
-    params
-  );
-  return rows[0] || null;
-};
-
 const assertScope = (record, scope) => {
   if (!scope || scope.all) return true;
   if (!record.for_outlet_id) return true;
@@ -388,6 +365,7 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
     }
 
     const activeFrom = effective_from || existing.effective_from;
+    const activeTo = effective_to !== undefined ? effective_to : existing.effective_to;
     const activeStatus = status || existing.status;
 
     if (activeStatus === 'Active' && !menuItem.is_active) {
@@ -395,9 +373,23 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
     }
 
     if (activeStatus === 'Active') {
-      const conflict = await findConflictingActive(menu_item_id, for_outlet_id, activeFrom, recipeId);
+      // findConflictingActive only checked whether the new effective_from fell
+      // inside an existing Active recipe's range - it never compared the new
+      // recipe's effective_to against ranges that start later, so editing a
+      // recipe to Active could create two simultaneously Active, overlapping
+      // recipes (resolveActiveRecipe silently picks one via LIMIT 1, hiding
+      // the other). Use the same true interval-overlap check POST / and
+      // /:id/activate already use below, for consistency.
+      const conflict = await findOverlappingEffective({
+        menu_item_id,
+        output_raw_material_id: null,
+        for_outlet_id: for_outlet_id || null,
+        effective_from: activeFrom,
+        effective_to: activeTo,
+        exclude_id: recipeId,
+      });
       if (conflict) {
-        return res.status(409).json({ success: false, message: 'An active recipe already exists for this menu item and location. Deactivate it first.' });
+        return res.status(409).json({ success: false, message: 'Another recipe version is already effective for this menu item, outlet and date range. Deactivate it first.' });
       }
     }
 
