@@ -251,7 +251,13 @@ export const verifyEmployeeSalary = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Salary record not found' });
     }
-    if (Number(existing[0].created_by) === Number(req.user.id)) {
+    // Maker-checker only applies to Verified (the actual approval step) - a
+    // creator submitting their own Draft is normal, same as every other
+    // submit/verify workflow in this codebase (online/dine-in payouts,
+    // daily checklist, day closing all check this only on verify/reject,
+    // against the submitter, never on submit). Applying it to Submitted too
+    // meant a lone Accountant could never move their own draft past Draft.
+    if (action === 'Verified' && Number(existing[0].created_by) === Number(req.user.id)) {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own salary record' });
     }
     const requiredFromStatus = action === 'Submitted' ? 'Draft' : 'Submitted';

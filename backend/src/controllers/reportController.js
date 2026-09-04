@@ -354,6 +354,19 @@ export const getSupplierPendingReport = async (req, res) => {
 // not a CGST/SGST/IGST or HSN-wise breakup ready for direct GSTR filing.
 export const getPurchaseGSTReport = async (req, res) => {
   try {
+    // GRN/grn_items are warehouse-level (no outlet_id column at all - see
+    // getOutletComparisonReport above for the same situation), so this can't
+    // go through applyOutletScope's usual restriction either. Without this
+    // check, any authenticated account - including Outlet Staff - could pull
+    // the full company's supplier purchase/GST breakdown with no route-level
+    // permission check at all (this route has only `protect`, no checkPermission).
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view the purchase GST report'
+      });
+    }
+
     const { from_date, to_date, supplier_id } = req.query;
     if (!from_date || !to_date) {
       return res.status(400).json({ success: false, message: 'from_date and to_date are required' });
