@@ -425,7 +425,47 @@ export const outletController = {
 };
 
 export const categoryController = createMasterController('categories', 'Category');
-export const supplierController = createMasterController('suppliers', 'Supplier');
+
+// raw_materials.preferred_supplier_id has no FK constraint at all (just an
+// indexed INT column - see database/warehouse_phase2h_migration.mjs), unlike
+// purchase_orders.supplier_id, which is ON DELETE RESTRICT. So a supplier
+// with no PO history yet (the only thing the generic delete's
+// ER_ROW_IS_REFERENCED_2 handler would catch) can be deleted while still
+// set as a raw material's preferred supplier - leaving a dangling id that
+// warehouseReorderService.js's createDraftPOFromReorder later inserts
+// straight into purchase_orders.supplier_id with no existence check,
+// throwing a raw, uncaught FK error mid-loop the next time someone
+// auto-generates a reorder PO for that material.
+// purchase_returns.supplier_id and supplier_credits.supplier_id are both
+// NOT NULL with no FK at all either (unlike grn/material_purchase_items,
+// which are ON DELETE SET NULL for the same "just degrades to blank in a
+// report" reason) - so a supplier with real return/credit-note history
+// could otherwise be deleted with zero protection, leaving supplier_credits
+// (real money - credit notes owed back to the outlet) untraceable to who
+// issued them.
+const genericSupplierController = createMasterController('suppliers', 'Supplier');
+export const supplierController = {
+  ...genericSupplierController,
+  delete: async (req, res) => {
+    try {
+      const [inRawMaterials, inReturns, inCredits] = await Promise.all([
+        query('SELECT id FROM raw_materials WHERE preferred_supplier_id = ? LIMIT 1', [req.params.id]),
+        query('SELECT id FROM purchase_returns WHERE supplier_id = ? LIMIT 1', [req.params.id]),
+        query('SELECT id FROM supplier_credits WHERE supplier_id = ? LIMIT 1', [req.params.id]),
+      ]);
+      if (inRawMaterials.length > 0) {
+        return res.status(400).json({ success: false, message: 'Cannot delete Supplier - it is set as the preferred supplier for one or more raw materials' });
+      }
+      if (inReturns.length > 0 || inCredits.length > 0) {
+        return res.status(400).json({ success: false, message: 'Cannot delete Supplier - it has purchase return or credit note history' });
+      }
+    } catch (error) {
+      console.error('Check supplier usage error:', error);
+      return res.status(500).json({ success: false, message: 'Error checking supplier usage' });
+    }
+    return genericSupplierController.delete(req, res);
+  },
+};
 export const rawMaterialController = createMasterController('raw_materials', 'Raw Material');
 
 // Raw materials get an auto-generated code (RM0001, RM0002, ...) so nobody
