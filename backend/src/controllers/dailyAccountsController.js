@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { query, getConnection } from '../config/database.js';
 import { assertSafeColumnNames } from '../utils/validators.js';
+import { assertDateEditable } from '../utils/periodLock.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
@@ -120,6 +121,8 @@ export const createDailyCashbook = async (req, res) => {
       });
     }
 
+    await assertDateEditable(cashbookData.outlet_id, cashbookData.date, 'A cashbook');
+
     const existing = await query(
       'SELECT id FROM daily_cashbooks WHERE date = ? AND outlet_id = ?',
       [cashbookData.date, cashbookData.outlet_id]
@@ -177,6 +180,9 @@ export const createDailyCashbook = async (req, res) => {
         message: 'Daily Cashbook already exists for this outlet and date'
       });
     }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error creating daily cashbook'
@@ -209,6 +215,8 @@ export const updateDailyCashbook = async (req, res) => {
         message: 'Only Draft or Rejected cashbooks can be edited'
       });
     }
+
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cashbook');
 
     const {
       total_sales,
@@ -275,6 +283,9 @@ export const updateDailyCashbook = async (req, res) => {
     });
   } catch (error) {
     console.error('Update daily cashbook error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error updating daily cashbook'
@@ -671,6 +682,8 @@ export const createDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Outlet not found or inactive' });
     }
 
+    await assertDateEditable(outlet_id, date, 'A cash expense');
+
     const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
     if (!head) {
       return res.status(400).json({ success: false, message: 'Expense head not found or inactive' });
@@ -745,6 +758,9 @@ export const createDailyCashExpense = async (req, res) => {
     });
   } catch (error) {
     console.error('Create daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error creating daily cash expense'
@@ -786,6 +802,15 @@ export const updateDailyCashExpense = async (req, res) => {
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ success: false, message: 'Invalid date format' });
     }
+
+    // Check both the record's current date and, if it's changing, the new
+    // one - covers editing a field on an already-finalized-period expense,
+    // and moving a date into (or out of) a finalized month.
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cash expense');
+    if (date && date !== existing.date) {
+      await assertDateEditable(existing.outlet_id, date, 'A cash expense');
+    }
+
     const parsedAmount = amount !== undefined ? Number(amount) : existing.amount;
     if (amount !== undefined && (!Number.isFinite(parsedAmount) || parsedAmount <= 0)) {
       return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
@@ -878,6 +903,9 @@ export const updateDailyCashExpense = async (req, res) => {
     });
   } catch (error) {
     console.error('Update daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error updating daily cash expense' });
   }
 };
@@ -1311,6 +1339,11 @@ export const updateBankDeposit = async (req, res) => {
       return res.status(400).json({ success: false, message: validation.join('. ') });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].date, 'A bank deposit');
+    if (updateData.date && updateData.date !== existing[0].date) {
+      await assertDateEditable(existing[0].outlet_id, updateData.date, 'A bank deposit');
+    }
+
     if (req.file?.path) {
       updateData.proof_attachment = normalizeUploadPath(req.file.path);
     }
@@ -1337,6 +1370,9 @@ export const updateBankDeposit = async (req, res) => {
     });
   } catch (error) {
     console.error('Update bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error updating bank deposit' });
   }
 };
@@ -1354,6 +1390,8 @@ export const createBankDeposit = async (req, res) => {
     if (validation.length) {
       return res.status(400).json({ success: false, message: validation.join('. ') });
     }
+
+    await assertDateEditable(depositData.outlet_id, depositData.date, 'A bank deposit');
 
     depositData.deposit_amount = Number(depositData.deposit_amount);
     depositData.entered_by = req.user.id;
@@ -1390,6 +1428,9 @@ export const createBankDeposit = async (req, res) => {
     });
   } catch (error) {
     console.error('Create bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error creating bank deposit' });
   }
 };
@@ -1765,6 +1806,8 @@ export const createDayClosing = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Date and outlet are required' });
     }
 
+    await assertDateEditable(outlet_id, date, 'A day closing');
+
     const whitelist = ['date', 'outlet_id', 'sales_confirmed', 'expenses_confirmed', 'purchases_confirmed', 'proofs_uploaded', 'manager_remarks'];
     const closingData = {};
     for (const key of whitelist) {
@@ -1804,6 +1847,9 @@ export const createDayClosing = async (req, res) => {
     if (error.code === 'ER_DUP_ENTRY' || String(error.message || '').includes('Duplicate')) {
       return res.status(409).json({ success: false, message: 'Day closing already exists for this date and outlet' });
     }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     console.error('Create day closing error:', error);
     res.status(500).json({ success: false, message: 'Error creating day closing' });
   }
@@ -1837,6 +1883,12 @@ export const updateDayClosing = async (req, res) => {
       }
     }
 
+    const effectiveOutletId = updateData.outlet_id || existing.outlet_id;
+    await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
+    if ((updateData.date && updateData.date !== existing.date) || (updateData.outlet_id && Number(updateData.outlet_id) !== Number(existing.outlet_id))) {
+      await assertDateEditable(effectiveOutletId, updateData.date || existing.date, 'A day closing');
+    }
+
     const [cashbook] = await query(
       'SELECT * FROM daily_cashbooks WHERE outlet_id = ? AND date = ?',
       [updateData.outlet_id || existing.outlet_id, updateData.date || toISOLocal(existing.date)]
@@ -1866,6 +1918,9 @@ export const updateDayClosing = async (req, res) => {
 
     res.status(200).json({ success: true, message: 'Day closing updated successfully' });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     console.error('Update day closing error:', error);
     res.status(500).json({ success: false, message: 'Error updating day closing' });
   }

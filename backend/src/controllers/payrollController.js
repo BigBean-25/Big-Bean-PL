@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
+import { assertMonthEditable } from '../utils/periodLock.js';
 
 export const getEmployeeSalaries = async (req, res) => {
   try {
@@ -91,6 +92,8 @@ export const createEmployeeSalary = async (req, res) => {
       status: 'Draft'
     };
 
+    await assertMonthEditable(salaryData.outlet_id, salaryData.month, salaryData.year, 'A salary record');
+
     // Check if record already exists for this month/year/outlet
     const existing = await query(
       'SELECT id FROM employee_salary_monthly WHERE month = ? AND year = ? AND outlet_id = ?',
@@ -133,6 +136,9 @@ export const createEmployeeSalary = async (req, res) => {
     });
   } catch (error) {
     console.error('Create employee salary error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error creating employee salary record'
@@ -165,6 +171,14 @@ export const updateEmployeeSalary = async (req, res) => {
       return res.status(400).json({ success: false, message: validationError });
     }
 
+    const effectiveOutletId = req.body.outlet_id !== undefined ? req.body.outlet_id : existing[0].outlet_id;
+    const effectiveMonth = req.body.month !== undefined ? Number(req.body.month) : existing[0].month;
+    const effectiveYear = req.body.year !== undefined ? Number(req.body.year) : existing[0].year;
+    await assertMonthEditable(existing[0].outlet_id, existing[0].month, existing[0].year, 'A salary record');
+    if (effectiveMonth !== existing[0].month || effectiveYear !== existing[0].year || Number(effectiveOutletId) !== Number(existing[0].outlet_id)) {
+      await assertMonthEditable(effectiveOutletId, effectiveMonth, effectiveYear, 'A salary record');
+    }
+
     const editableData = {
       month: req.body.month !== undefined ? Number(req.body.month) : undefined,
       year: req.body.year !== undefined ? Number(req.body.year) : undefined,
@@ -192,6 +206,9 @@ export const updateEmployeeSalary = async (req, res) => {
     });
   } catch (error) {
     console.error('Update employee salary error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error updating employee salary record'

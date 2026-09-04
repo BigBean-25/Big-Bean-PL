@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { getSupplierLedgerSummary, computePaymentRowValues } from '../services/supplierLedgerService.js';
+import { assertDateEditable } from '../utils/periodLock.js';
 
 const num = (value) => Number(value || 0);
 
@@ -157,6 +158,8 @@ export const createSupplierPayment = async (req, res) => {
       outletScope: req.outletScope,
     });
 
+    await assertDateEditable(outlet_id, date, 'A supplier payment');
+
     const { opening_pending, purchase_value, current_outstanding } = await computePaymentRowValues({
       outletId: outlet_id,
       supplierId: supplier_id,
@@ -202,7 +205,7 @@ export const createSupplierPayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Create supplier payment error:', error);
-    const status = error.message && error.message.includes('required') || error.message.includes('not found') || error.message.includes('active') || error.message.includes('exceeds') ? 400 : 500;
+    const status = error.statusCode || ((error.message && error.message.includes('required') || error.message.includes('not found') || error.message.includes('active') || error.message.includes('exceeds')) ? 400 : 500);
     res.status(status).json({
       success: false,
       message: error.message || 'Error creating supplier payment'
@@ -242,6 +245,11 @@ export const updateSupplierPayment = async (req, res) => {
       user: req.user,
       outletScope: req.outletScope,
     });
+
+    await assertDateEditable(existing.outlet_id, existing.date, 'A supplier payment');
+    if (date !== existing.date || Number(outlet_id) !== Number(existing.outlet_id)) {
+      await assertDateEditable(outlet_id, date, 'A supplier payment');
+    }
 
     const { opening_pending, purchase_value, current_outstanding } = await computePaymentRowValues({
       outletId: outlet_id,
@@ -286,7 +294,7 @@ export const updateSupplierPayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Update supplier payment error:', error);
-    const status = error.message && (error.message.includes('required') || error.message.includes('not found') || error.message.includes('active') || error.message.includes('exceeds')) ? 400 : 500;
+    const status = error.statusCode || ((error.message && (error.message.includes('required') || error.message.includes('not found') || error.message.includes('active') || error.message.includes('exceeds'))) ? 400 : 500);
     res.status(status).json({
       success: false,
       message: error.message || 'Error updating supplier payment'

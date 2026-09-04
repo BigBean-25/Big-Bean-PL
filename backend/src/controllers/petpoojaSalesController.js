@@ -1,6 +1,7 @@
 import { query, getConnection } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { notifyUser, notifyAdmins } from '../utils/notificationService.js';
+import { assertDateRangeEditable } from '../utils/periodLock.js';
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
@@ -397,6 +398,8 @@ const handlePetPoojaUpload = async (req, res, mode) => {
       }
     }
 
+    await assertDateRangeEditable(outlet_id, dateRange.from, dateRange.to, 'A sales upload');
+
     // Row 6: grand total (Taxable | Restaurant | Category | Item | Qty | My Amount | Discount | Tax | Gross Sales | Sap Code)
     const totalRow = worksheet.getRow(6);
     const totals = {
@@ -652,6 +655,9 @@ const handlePetPoojaUpload = async (req, res, mode) => {
       try { connection.release(); } catch {}
     }
     console.error('Upload PetPooja sales error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error uploading sales data',

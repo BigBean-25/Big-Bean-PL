@@ -6,6 +6,7 @@ import { query, getConnection } from '../config/database.js';
 import { generateUploadBatchId, parseExcelDate, sanitizeString, parseNumber } from '../utils/helpers.js';
 import { logUploadError } from '../utils/logger.js';
 import { notifyAdmins } from '../utils/notificationService.js';
+import { assertMonthEditable, assertDateRangeEditable } from '../utils/periodLock.js';
 
 const MAX_UPLOAD_ROWS = 5000;
 
@@ -269,6 +270,8 @@ export const uploadOpeningStock = async (req, res) => {
       });
     }
 
+    await assertMonthEditable(outlet_id, month, year, 'Opening stock');
+
     await connection.beginTransaction();
 
     const batchId = generateUploadBatchId();
@@ -379,9 +382,9 @@ export const uploadOpeningStock = async (req, res) => {
       }
     });
   } catch (error) {
-    await connection.rollback();
+    await connection.rollback().catch(() => {});
     console.error('Upload opening stock error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Error uploading opening stock'
     });
@@ -426,6 +429,8 @@ export const uploadClosingStock = async (req, res) => {
         message: `Closing stock already uploaded for this outlet/month in batch ${existingBatch[0].batch_id}. Delete it first if you need to re-upload.`
       });
     }
+
+    await assertMonthEditable(outlet_id, month, year, 'Closing stock');
 
     await connection.beginTransaction();
 
@@ -537,9 +542,9 @@ export const uploadClosingStock = async (req, res) => {
       }
     });
   } catch (error) {
-    await connection.rollback();
+    await connection.rollback().catch(() => {});
     console.error('Upload closing stock error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Error uploading closing stock'
     });
@@ -731,6 +736,12 @@ export const uploadMaterialPurchase = async (req, res) => {
             message: `Material purchase already uploaded for this outlet in batch ${overlap[0].batch_id} covering an overlapping date range. Delete it first if you need to re-upload.`
           });
         }
+        try {
+          await assertDateRangeEditable(outlet_id, dateRange.min_date, dateRange.max_date, 'A material purchase upload');
+        } catch (lockError) {
+          await connection.rollback();
+          return res.status(lockError.statusCode || 400).json({ success: false, message: lockError.message });
+        }
       }
     }
 
@@ -763,9 +774,9 @@ export const uploadMaterialPurchase = async (req, res) => {
       }
     });
   } catch (error) {
-    await connection.rollback();
+    await connection.rollback().catch(() => {});
     console.error('Upload material purchase error:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Error uploading material purchase'
     });
