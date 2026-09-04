@@ -7,6 +7,20 @@ const router = express.Router();
 
 const num = (v) => Number(v || 0);
 
+// is_approved feeds directly into BOM/recipe costing (raw_material_rates
+// WHERE is_approved = 1) but create/update used to take it straight from the
+// client with no separate check - anyone with raw_materials.can_create/
+// can_edit (e.g. Warehouse Admin, which has neither can_approve nor a
+// finance-facing role) could self-approve a cost rate outright. No role
+// currently has an explicit can_approve grant on raw_materials except the
+// full-access sweep (Super Admin/Admin/Developer), so this only actually
+// restricts non-full-access roles - the same set that shouldn't be able to
+// approve their own rate today anyway.
+const canApproveRate = async (req) => {
+  const rows = await query('SELECT can_approve FROM role_permissions WHERE role_id = ? AND module_key = ?', [req.user.role_id, 'raw_materials']);
+  return Boolean(rows[0]?.can_approve);
+};
+
 // List rates for a material (and optionally outlet)
 router.get('/', protect, applyOutletScope, async (req, res) => {
   try {
@@ -65,7 +79,8 @@ router.post('/', protect, applyOutletScope, checkPermission('raw_materials', 'ca
     if (!raw_material_id) return res.status(400).json({ success: false, message: 'Material is required' });
     if (rate === undefined || rate === null || rate === '') return res.status(400).json({ success: false, message: 'Rate is required' });
     if (!effective_from) return res.status(400).json({ success: false, message: 'Effective from is required' });
-    const approved = is_approved === 1 || is_approved === true ? 1 : 0;
+    const wantsApproved = is_approved === 1 || is_approved === true;
+    const approved = wantsApproved && (await canApproveRate(req)) ? 1 : 0;
     const result = await query(
       'INSERT INTO raw_material_rates (raw_material_id, outlet_id, rate, effective_from, is_approved, approved_by, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [raw_material_id, outlet_id || null, num(rate), effective_from, approved, approved ? req.user.id : null, req.user.id]
@@ -84,10 +99,18 @@ router.put('/:id', protect, applyOutletScope, loadScopedRecord('raw_material_rat
     if (!raw_material_id) return res.status(400).json({ success: false, message: 'Material is required' });
     if (rate === undefined || rate === null || rate === '') return res.status(400).json({ success: false, message: 'Rate is required' });
     if (!effective_from) return res.status(400).json({ success: false, message: 'Effective from is required' });
-    const approved = is_approved === 1 || is_approved === true ? 1 : 0;
+    // A caller without can_approve can't grant OR revoke approval - preserve
+    // both the record's current status and its original approver untouched,
+    // rather than forcing it to false (which would silently un-approve a
+    // rate on an unrelated edit, e.g. fixing a typo) or crediting the
+    // approval to whoever happens to edit the record next.
+    const wantsApproved = is_approved === 1 || is_approved === true;
+    const mayApprove = await canApproveRate(req);
+    const approved = mayApprove ? (wantsApproved ? 1 : 0) : Number(req.record.is_approved) || 0;
+    const approvedBy = mayApprove ? (approved ? req.user.id : null) : (req.record.approved_by || null);
     await query(
       'UPDATE raw_material_rates SET raw_material_id = ?, outlet_id = ?, rate = ?, effective_from = ?, is_approved = ?, approved_by = ? WHERE id = ?',
-      [raw_material_id, outlet_id || null, num(rate), effective_from, approved, approved ? req.user.id : null, req.params.id]
+      [raw_material_id, outlet_id || null, num(rate), effective_from, approved, approvedBy, req.params.id]
     );
     res.status(200).json({ success: true, message: 'Rate updated successfully' });
   } catch (error) {
