@@ -272,6 +272,12 @@ const transition = async (id, action, userId, extra = {}) => {
     const row = rows[0];
     if (Array.isArray(cfg.from) ? !cfg.from.includes(row.status) : row.status !== cfg.from) { await conn.rollback(); throw new Error(`Invalid status transition from ${row.status}`); }
     if (action === 'verify' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot verify own return'); }
+    // Verify already blocks the creator; approve is a separate, later gate in
+    // this workflow (Draft -> Submitted -> Verified -> Approved, unlike
+    // GRN/PO's single-approval-step design) and had no equivalent check - the
+    // creator could submit, have someone else verify, then circle back and
+    // approve their own return, defeating the point of a distinct approval step.
+    if (action === 'approve' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot approve own return'); }
     const sets = { status: cfg.to };
     if (action === 'submit') { sets.submitted_by = userId; sets.submitted_at = new Date(); }
     if (action === 'verify') { sets.verified_by = userId; sets.verified_at = new Date(); }

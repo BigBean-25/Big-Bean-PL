@@ -49,9 +49,21 @@ const transitionDocument = async (table, id, userId, action) => {
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
-    const [rows] = await conn.execute(`SELECT status FROM ${table} WHERE id = ? LIMIT 1 FOR UPDATE`, [id]);
+    const [rows] = await conn.execute(`SELECT status, created_by FROM ${table} WHERE id = ? LIMIT 1 FOR UPDATE`, [id]);
     if (!rows.length) { await conn.rollback(); throw new Error('Document not found'); }
     if (rows[0].status !== next.from) { await conn.rollback(); throw new Error(`Cannot ${action} from ${rows[0].status}`); }
+    // Submit is the creator's own natural first step, so it's exempt - but
+    // verify/approve are the actual review gates (this is why the workflow
+    // has separate Submitted/Verified/Approved stages instead of one flat
+    // "approved" flag), and this shared helper had no check preventing the
+    // creator from being the one who verifies or approves their own document,
+    // for either physical_stock_counts or stock_adjustments (both call
+    // through here) - unlike the rest of this codebase's approval workflows,
+    // which all block self-approval on the review step.
+    if ((action === 'verify' || action === 'approve') && Number(rows[0].created_by) === Number(userId)) {
+      await conn.rollback();
+      throw new Error(`Creator cannot ${action} their own document`);
+    }
     const actionCols = {
       submit: ['submitted_by', 'submitted_at'],
       verify: ['verified_by', 'verified_at'],
