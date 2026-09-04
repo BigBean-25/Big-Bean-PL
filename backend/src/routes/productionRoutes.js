@@ -110,12 +110,35 @@ router.get('/finished-stock/:centralKitchenId', checkPermission('production_dash
 });
 
 router.get('/requests', checkPermission('production_requests', 'can_view'), async (req, res) => {
-  try { const data = await getProductionRequests(Number(req.query.central_kitchen_id)); res.json({ success: true, data }); }
+  try {
+    const data = await getProductionRequests(Number(req.query.central_kitchen_id));
+    // getProductionRequests only ever filtered by central_kitchen_id (a
+    // client-supplied query param), never by from_outlet_id - an outlet-locked
+    // caller (Outlet Admin has production_requests.can_view by default) could
+    // see every outlet's requests to this kitchen, not just their own. Same
+    // req.user.outlet_ids check the POST /requests handler below already uses.
+    const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
+    const scoped = outletIds.length > 0
+      ? data.filter((r) => outletIds.includes(Number(r.from_outlet_id)))
+      : data;
+    res.json({ success: true, data: scoped });
+  }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
 router.get('/requests/:id', checkPermission('production_requests', 'can_view'), async (req, res) => {
-  try { const data = await getProductionRequestById(Number(req.params.id)); res.json({ success: true, data }); }
+  try {
+    const data = await getProductionRequestById(Number(req.params.id));
+    if (!data) return res.status(404).json({ success: false, message: 'Request not found' });
+    // Same gap as the list endpoint above - getProductionRequestById had no
+    // outlet check at all, so any outlet-locked caller could read any other
+    // outlet's request by id.
+    const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
+    if (outletIds.length > 0 && !outletIds.includes(Number(data.from_outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You can only view requests for your own outlet' });
+    }
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 

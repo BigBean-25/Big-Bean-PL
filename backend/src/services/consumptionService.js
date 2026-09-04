@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { resolveActiveRecipe } from './recipeService.js';
 
 // Extracted from reportController.js's getActualConsumptionReport/
 // getTheoreticalConsumptionReport so the calculation can be reused - originally
@@ -110,22 +111,40 @@ export async function getTheoreticalConsumption({ outletId, month, year }) {
   const theoreticalConsumption = [];
 
   for (const sale of sales) {
-    const recipeItems = await query(
-      `SELECT
-        ri.raw_material_id,
-        rm.material_name,
-        rm.material_code,
-        ri.qty_per_item,
-        u.unit_name,
-        ri.waste_percentage
-       FROM recipe_items ri
-       INNER JOIN recipes r ON ri.recipe_id = r.id
-       LEFT JOIN raw_materials rm ON ri.raw_material_id = rm.id
-       LEFT JOIN units u ON ri.unit_id = u.id
-       WHERE r.menu_item_id = ? AND r.status = 'Active'
-       AND (r.for_outlet_id IS NULL OR r.for_outlet_id = ?)`,
-      [sale.menu_item_id, outletId]
-    );
+    // Was an inline query here: WHERE r.menu_item_id = ? AND r.status = 'Active'
+    // AND (r.for_outlet_id IS NULL OR r.for_outlet_id = ?), with no LIMIT. That
+    // has two bugs: (1) it ignores effective_from/effective_to entirely, so a
+    // recipe edited today silently rewrites theoretical consumption for every
+    // past month's report, and (2) an outlet-specific override and its global
+    // default can both be Active at once by design (see recipeService.js's
+    // resolveActiveRecipe/resolveActiveRecipeByOutput, which already handle
+    // this correctly elsewhere) - the old query returned BOTH and summed their
+    // ingredients, double-counting for any menu item with an outlet override.
+    // resolveActiveRecipe() already implements the correct single-winner
+    // lookup (outlet-specific preferred over global, as-of a given date), so
+    // reuse it here instead of re-deriving the same logic incorrectly.
+    // as_of_date uses the reporting month's last day as the best single-date
+    // approximation - a recipe changed mid-month still isn't split day-by-day
+    // by this, but it fixes the "always uses whatever is active today,
+    // regardless of which month you're viewing" behavior, which was the more
+    // severe and more common failure.
+    const recipe = await resolveActiveRecipe({ menu_item_id: sale.menu_item_id, outlet_id: outletId, as_of_date: endDateStr });
+    const recipeItems = recipe
+      ? await query(
+        `SELECT
+          ri.raw_material_id,
+          rm.material_name,
+          rm.material_code,
+          ri.qty_per_item,
+          u.unit_name,
+          ri.waste_percentage
+         FROM recipe_items ri
+         LEFT JOIN raw_materials rm ON ri.raw_material_id = rm.id
+         LEFT JOIN units u ON ri.unit_id = u.id
+         WHERE ri.recipe_id = ?`,
+        [recipe.id]
+      )
+      : [];
 
     for (const recipeItem of recipeItems) {
       // Recipe wastage allowance must be folded in here, or the theoretical

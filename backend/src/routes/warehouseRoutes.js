@@ -166,9 +166,19 @@ router.get('/grn', checkPermission('grn', 'can_view'), applyLocationScope, async
   }
 });
 
-router.get('/grn/:id', checkPermission('grn', 'can_view'), checkLocationAccess(), async (req, res) => {
+router.get('/grn/:id', checkPermission('grn', 'can_view'), async (req, res) => {
   try {
     const data = await getGRNById(req.params.id);
+    if (!data) return res.status(404).json({ success: false, message: 'GRN not found' });
+    // checkLocationAccess() defaults to param 'location_id', which never
+    // appears on this route (:id is the GRN's own id) so the check silently
+    // no-op'd for every caller. Check the fetched record's own location
+    // instead, same as its sibling GET /locations/:id (checkLocationAccess('id'))
+    // and every other warehouse :id route in this file (requisitions,
+    // transfers, purchase-orders, purchase-returns, etc.).
+    if (!(await isLocationAccessible(req.user, data.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

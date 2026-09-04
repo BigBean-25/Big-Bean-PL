@@ -109,11 +109,19 @@ export const getOutletPL = async ({ outletId, month, year }) => {
     num(purchases[0].purchase_value) -
     num(closingStock[0].closing_stock_value);
 
+  // linked_purchase_item_id IS NULL excludes raw-material-tagged expenses
+  // that were auto-converted into a material_purchase_items row at approval
+  // (see approveDailyCashExpense in dailyAccountsController.js / database/
+  // add_raw_material_cash_expense_linkage.sql). Those already flow into the
+  // `purchases` sum above as material cost - without this exclusion the same
+  // rupee amount was counted twice: once as raw-material consumption cost
+  // and again as a flat cash expense, inflating total cost and understating
+  // profit for every outlet with an approved raw-material cash expense.
   const dailyExpenses = await query(
     `SELECT COALESCE(SUM(amount), 0) as total_expenses
      FROM daily_cash_expenses
      WHERE ${expenseOutlet.sql} AND date >= ? AND date <= ?
-     AND status = 'Approved'`,
+     AND status = 'Approved' AND linked_purchase_item_id IS NULL`,
     [...expenseOutlet.params, startDate, endDate]
   );
 

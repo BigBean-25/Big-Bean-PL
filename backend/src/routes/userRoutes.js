@@ -20,8 +20,10 @@ const router = express.Router();
 // supplied by the client.
 router.get('/', protect, checkPermission('users', 'can_view'), applyOutletScope, getUsers);
 
-// Get users by outlet (Outlet Admin can see their outlet's users)
-router.get('/outlet/:outlet_id', protect, getUsersByOutlet);
+// Get users by outlet (Outlet Admin can see their outlet's users). This
+// route had no permission gate at all until now - any authenticated user,
+// regardless of their actual users.can_view grant, could call it.
+router.get('/outlet/:outlet_id', protect, checkPermission('users', 'can_view'), getUsersByOutlet);
 
 // Get single user
 router.get('/:id', protect, checkPermission('users', 'can_view'), getUserById);

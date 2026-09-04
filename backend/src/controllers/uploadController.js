@@ -250,12 +250,31 @@ export const uploadOpeningStock = async (req, res) => {
       });
     }
 
+    // Unlike item_sales (checked below by date-range overlap), opening stock
+    // has no existing-batch check at all - re-uploading for a month that
+    // already has a Processing/Completed batch silently adds a second set of
+    // opening_stock_items, which plCalculator.js sums unconditionally,
+    // doubling that month's opening stock value in the P&L. Mirrors the
+    // item_sales overlap check already established in uploadItemSales below.
+    const [existingBatch] = await connection.execute(
+      `SELECT id, batch_id FROM opening_stock_uploads
+       WHERE outlet_id = ? AND month = ? AND year = ? AND status IN ('Processing', 'Completed')
+       LIMIT 1`,
+      [outlet_id, month, year]
+    );
+    if (existingBatch.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Opening stock already uploaded for this outlet/month in batch ${existingBatch[0].batch_id}. Delete it first if you need to re-upload.`
+      });
+    }
+
     await connection.beginTransaction();
 
     const batchId = generateUploadBatchId();
 
     const uploadResult = await connection.execute(
-      `INSERT INTO opening_stock_uploads (batch_id, month, year, outlet_id, file_name, file_path, status, uploaded_by, created_at) 
+      `INSERT INTO opening_stock_uploads (batch_id, month, year, outlet_id, file_name, file_path, status, uploaded_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'Processing', ?, NOW())`,
       [batchId, month, year, outlet_id, file.originalname, file.path, req.user.id]
     );
@@ -392,12 +411,28 @@ export const uploadClosingStock = async (req, res) => {
       });
     }
 
+    // Same gap as uploadOpeningStock above - re-uploading for a month that
+    // already has a Processing/Completed batch silently doubles that month's
+    // closing stock value in plCalculator.js.
+    const [existingBatch] = await connection.execute(
+      `SELECT id, batch_id FROM closing_stock_uploads
+       WHERE outlet_id = ? AND month = ? AND year = ? AND status IN ('Processing', 'Completed')
+       LIMIT 1`,
+      [outlet_id, month, year]
+    );
+    if (existingBatch.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Closing stock already uploaded for this outlet/month in batch ${existingBatch[0].batch_id}. Delete it first if you need to re-upload.`
+      });
+    }
+
     await connection.beginTransaction();
 
     const batchId = generateUploadBatchId();
 
     const uploadResult = await connection.execute(
-      `INSERT INTO closing_stock_uploads (batch_id, month, year, outlet_id, file_name, file_path, status, uploaded_by, created_at) 
+      `INSERT INTO closing_stock_uploads (batch_id, month, year, outlet_id, file_name, file_path, status, uploaded_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'Processing', ?, NOW())`,
       [batchId, month, year, outlet_id, file.originalname, file.path, req.user.id]
     );
@@ -664,6 +699,40 @@ export const uploadMaterialPurchase = async (req, res) => {
     }
 
     const finalStatus = successCount === 0 && failCount > 0 ? 'Failed' : 'Completed';
+
+    // material_purchase has no month/year header (rows carry their own date,
+    // parsed per-row above), so the overlap check has to run after parsing,
+    // against the date range of what actually got inserted for this upload -
+    // unlike opening/closing stock's simpler month/year check above, or
+    // item_sales' pre-parse-then-check ordering. Without this, re-uploading
+    // (accidentally or to fix a mistake without deleting the old batch first)
+    // silently doubles material purchase cost in plCalculator.js for any
+    // overlapping date.
+    if (finalStatus === 'Completed' && successCount > 0) {
+      const [[dateRange]] = await connection.execute(
+        `SELECT MIN(date) as min_date, MAX(date) as max_date FROM material_purchase_items WHERE upload_id = ?`,
+        [uploadId]
+      );
+      if (dateRange && dateRange.min_date) {
+        const [overlap] = await connection.execute(
+          `SELECT u.id, u.batch_id
+           FROM material_purchase_uploads u
+           INNER JOIN material_purchase_items i ON i.upload_id = u.id
+           WHERE u.outlet_id = ? AND u.status IN ('Processing', 'Completed') AND u.id != ?
+             AND i.date BETWEEN ? AND ?
+           GROUP BY u.id, u.batch_id
+           LIMIT 1`,
+          [outlet_id, uploadId, dateRange.min_date, dateRange.max_date]
+        );
+        if (overlap.length > 0) {
+          await connection.rollback();
+          return res.status(409).json({
+            success: false,
+            message: `Material purchase already uploaded for this outlet in batch ${overlap[0].batch_id} covering an overlapping date range. Delete it first if you need to re-upload.`
+          });
+        }
+      }
+    }
 
     await connection.execute(
       `UPDATE material_purchase_uploads SET total_rows = ?, success_rows = ?, failed_rows = ?, status = ? WHERE id = ?`,

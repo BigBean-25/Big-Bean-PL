@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { assertSafeColumnNames } from '../utils/validators.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
@@ -77,6 +78,7 @@ export const createUtilityBill = async (req, res) => {
     }
 
     const fields = Object.keys(billData);
+    assertSafeColumnNames(fields);
     const values = Object.values(billData);
     const placeholders = fields.map(() => '?').join(', ');
 
@@ -137,6 +139,7 @@ export const updateUtilityBill = async (req, res) => {
     }
 
     const fields = Object.keys(updateData);
+    assertSafeColumnNames(fields);
     const values = Object.values(updateData);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 

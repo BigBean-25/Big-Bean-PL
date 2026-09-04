@@ -2,6 +2,7 @@ import express from 'express';
 import { protect, applyOutletScope, loadScopedRecord } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { query } from '../config/database.js';
+import { assertSafeColumnNames } from '../utils/validators.js';
 
 const router = express.Router();
 
@@ -140,6 +141,7 @@ router.put('/online/:id', protect, applyOutletScope, checkPermission('online_pay
     if (fields.length === 0) {
       return res.status(400).json({ success: false, message: 'No fields to update' });
     }
+    assertSafeColumnNames(fields);
     const values = Object.values(req.body);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 

@@ -78,15 +78,19 @@ export const getUsers = async (req, res) => {
 export const getUsersByOutlet = async (req, res) => {
   try {
     const { outlet_id } = req.params;
-    
-    // Check if user has access to this outlet
-    if (req.user.role_name === 'Outlet Admin' || req.user.role_name === 'Outlet Staff') {
+
+    // Outlet-locked roles (Outlet Admin/Staff/Manager, Franchise/Franchise
+    // Owner) may only look up their own outlet's users - matches
+    // LOCKED_OUTLET_ROLES rather than a hardcoded role-name pair, so it
+    // stays correct as new locked roles are added instead of silently
+    // letting them through.
+    if (!canAccessAllOutlets(req.user.role_name)) {
       const userOutlets = await query(
         'SELECT outlet_id FROM user_outlets WHERE user_id = ?',
         [req.user.id]
       );
       const hasAccess = userOutlets.some(uo => uo.outlet_id == outlet_id);
-      
+
       if (!hasAccess) {
         return res.status(403).json({
           success: false,
@@ -147,6 +151,25 @@ export const getUserById = async (req, res) => {
     }
 
     const user = users[0];
+
+    // Same outlet-scope check updateUser already applies below in this file -
+    // getUserById had none at all, so an outlet-locked caller with users.can_view
+    // (e.g. a Franchise Owner) could read any other outlet's user record by id.
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      const targetOutletIds = (user.outlet_ids || '')
+        .split(',')
+        .filter(Boolean)
+        .map((oid) => Number(oid));
+      const sharesOutlet = targetOutletIds.some((oid) => callerOutletIds.includes(oid));
+      if (!sharesOutlet) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only view users assigned to your own outlet'
+        });
+      }
+    }
+
     delete user.password;
 
     // Get assigned outlets details
@@ -200,9 +223,21 @@ export const createUser = async (req, res) => {
 
     const userId = result.insertId;
 
-    // Assign outlets if provided
-    if (outlet_ids && outlet_ids.length > 0) {
-      for (const outlet_id of outlet_ids) {
+    // Assign outlets if provided. Same restriction updateUser/assignUserToOutlet
+    // already apply - a non-full-access creator can only grant outlets they
+    // themselves have, otherwise they could create a user scoped to an
+    // outlet they can't even see themselves. Not currently reachable by any
+    // configured role (every outlet-locked role's users.can_create is
+    // false today), kept for consistency with the sibling endpoints and as
+    // a safeguard if that ever changes.
+    let nextOutletIds = outlet_ids;
+    if (outlet_ids && outlet_ids.length > 0 && !canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      nextOutletIds = outlet_ids.filter((oid) => callerOutletIds.includes(Number(oid)));
+    }
+
+    if (nextOutletIds && nextOutletIds.length > 0) {
+      for (const outlet_id of nextOutletIds) {
         await query(
           'INSERT INTO user_outlets (user_id, outlet_id, created_at) VALUES (?, ?, NOW())',
           [userId, outlet_id]

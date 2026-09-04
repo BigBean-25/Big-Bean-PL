@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { query, getConnection } from '../config/database.js';
+import { assertSafeColumnNames } from '../utils/validators.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
@@ -141,6 +142,7 @@ export const createDailyCashbook = async (req, res) => {
     cashbookData.cash_expenses = totalExpenses[0].total;
 
     const fields = Object.keys(cashbookData);
+    assertSafeColumnNames(fields);
     const values = Object.values(cashbookData);
     const placeholders = fields.map(() => '?').join(', ');
 
@@ -253,6 +255,7 @@ export const updateDailyCashbook = async (req, res) => {
     }
 
     const fields = Object.keys(updateData);
+    assertSafeColumnNames(fields);
     const values = Object.values(updateData);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 
@@ -844,6 +847,7 @@ export const updateDailyCashExpense = async (req, res) => {
     }
 
     const fields = Object.keys(updateData);
+    assertSafeColumnNames(fields);
     const values = Object.values(updateData);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 
@@ -1316,6 +1320,7 @@ export const updateBankDeposit = async (req, res) => {
     }
 
     const fields = Object.keys(updateData);
+    assertSafeColumnNames(fields);
     const values = Object.values(updateData);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 
@@ -1356,6 +1361,7 @@ export const createBankDeposit = async (req, res) => {
     depositData.proof_attachment = req.file?.path ? normalizeUploadPath(req.file.path) : null;
 
     const fields = Object.keys(depositData);
+    assertSafeColumnNames(fields);
     const values = Object.values(depositData);
     const placeholders = fields.map(() => '?').join(', ');
 
@@ -1782,6 +1788,7 @@ export const createDayClosing = async (req, res) => {
     }
 
     const fields = Object.keys(closingData);
+    assertSafeColumnNames(fields);
     const values = Object.values(closingData);
     const placeholders = fields.map(() => '?').join(', ');
 
@@ -1846,6 +1853,7 @@ export const updateDayClosing = async (req, res) => {
     }
 
     const fields = Object.keys(updateData);
+    assertSafeColumnNames(fields);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
     const values = Object.values(updateData);
 

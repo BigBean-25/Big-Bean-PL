@@ -25,3 +25,22 @@ export const validateContactFields = (body) => {
   }
   return null;
 };
+
+// A real database column name is always a plain identifier. Several
+// controllers build dynamic INSERT/UPDATE statements by taking
+// Object.keys(req.body) (or a spread of it) and interpolating those keys
+// directly into the SQL column list / SET clause - the values go through
+// parameterized `?` placeholders, but the KEY NAMES themselves are raw
+// string concatenation with no escaping at all. A client-supplied JSON key
+// containing SQL metacharacters (spaces, parens, quotes, `--`, `=`) would be
+// interpolated as-is. This is the one check every one of those call sites
+// must run on `fields` before building the query string, since it's the
+// only thing standing between "arbitrary JSON key" and "raw SQL text".
+// Throws so callers can let their existing try/catch turn it into a 400.
+const SAFE_COLUMN_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+export const assertSafeColumnNames = (fields) => {
+  const bad = fields.find((f) => !SAFE_COLUMN_NAME.test(f));
+  if (bad !== undefined) {
+    throw new Error(`Invalid field name: ${bad}`);
+  }
+};

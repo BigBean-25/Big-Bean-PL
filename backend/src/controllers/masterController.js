@@ -4,7 +4,7 @@ import { query } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import { sanitizeString, parseNumber } from '../utils/helpers.js';
-import { validateContactFields } from '../utils/validators.js';
+import { validateContactFields, assertSafeColumnNames } from '../utils/validators.js';
 
 const db = { query };
 
@@ -87,6 +87,7 @@ const createMasterController = (tableName, itemName) => ({
         return res.status(400).json({ success: false, message: contactError });
       }
       const fields = Object.keys(req.body);
+      assertSafeColumnNames(fields);
       const values = Object.values(req.body);
       const placeholders = fields.map(() => '?').join(', ');
 
@@ -127,6 +128,7 @@ const createMasterController = (tableName, itemName) => ({
         return res.status(400).json({ success: false, message: contactError });
       }
       const fields = Object.keys(req.body);
+      assertSafeColumnNames(fields);
       const values = Object.values(req.body);
       const setClause = fields.map(f => `${f} = ?`).join(', ');
 
@@ -292,6 +294,20 @@ export const outletController = {
         });
       }
 
+      // getAll above already restricts locked roles to their own assigned
+      // outlets - this route has no checkPermission at all (masterRoutes.js
+      // wires it as protect-only), so without the same check here any
+      // authenticated user, including Outlet Staff, could fetch any other
+      // outlet's record directly by id.
+      const canSeeAll = canAccessAllOutlets(req.user?.role_name);
+      const assignedOutletIds = (req.user?.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
+      if (!canSeeAll && !assignedOutletIds.includes(Number(req.params.id))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this outlet'
+        });
+      }
+
       res.status(200).json({
         success: true,
         data: items[0]
@@ -312,6 +328,7 @@ export const outletController = {
         return res.status(400).json({ success: false, message: contactError });
       }
       const fields = Object.keys(req.body);
+      assertSafeColumnNames(fields);
       const values = Object.values(req.body);
       const placeholders = fields.map(() => '?').join(', ');
 
@@ -353,6 +370,7 @@ export const outletController = {
         return res.status(400).json({ success: false, message: contactError });
       }
       const fields = Object.keys(req.body);
+      assertSafeColumnNames(fields);
       const values = Object.values(req.body);
       const setClause = fields.map(f => `${f} = ?`).join(', ');
 
@@ -435,6 +453,7 @@ export const createRawMaterial = async (req, res) => {
     }
 
     const fields = Object.keys(body);
+    assertSafeColumnNames(fields);
     const values = Object.values(body);
     const placeholders = fields.map(() => '?').join(', ');
 

@@ -16,7 +16,14 @@ export const ALL_OUTLET_ROLES = [
   'Viewer / Auditor'
 ];
 
-export const LOCKED_OUTLET_ROLES = ['Outlet Staff', 'Outlet Admin', 'Outlet Manager'];
+// Franchise/Franchise Owner: configured in Role Access with real permissions
+// (Franchise Owner has users.can_view=true) but absent from both role lists
+// until now - isKnownRole() would have 403'd any user assigned either role
+// off of nearly every outlet-scoped route in the app. A franchise owner
+// manages their own franchise outlet(s), not the whole company, so this is
+// the same locked-to-assigned-outlet category as Outlet Admin/Staff/Manager,
+// not the all-outlet category.
+export const LOCKED_OUTLET_ROLES = ['Outlet Staff', 'Outlet Admin', 'Outlet Manager', 'Franchise', 'Franchise Owner'];
 
 export const normalizeRoleName = (roleName = '') => String(roleName || '').trim();
 
