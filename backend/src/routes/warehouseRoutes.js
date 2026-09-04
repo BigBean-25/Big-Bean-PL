@@ -82,7 +82,7 @@ router.get('/locations/:id', protect, checkLocationAccess('id'), async (req, res
   }
 });
 
-router.get('/locations/:id/summary', checkPermission('locations', 'can_view'), async (req, res) => {
+router.get('/locations/:id/summary', checkPermission('locations', 'can_view'), checkLocationAccess('id'), async (req, res) => {
   try {
     const row = await getLocationById(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Location not found' });
