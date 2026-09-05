@@ -11,7 +11,7 @@ import {
 
 const router = express.Router();
 
-router.get('/employee-salary', protect, applyOutletScope, getEmployeeSalaries);
+router.get('/employee-salary', protect, applyOutletScope, checkPermission('payroll', 'can_view'), getEmployeeSalaries);
 router.post('/employee-salary', protect, applyOutletScope, checkPermission('payroll', 'can_create'), createEmployeeSalary);
 router.put('/employee-salary/:id', protect, applyOutletScope, checkPermission('payroll', 'can_edit'), loadScopedRecord('employee_salary_monthly'), preventLockedModification, updateEmployeeSalary);
 router.delete('/employee-salary/:id', protect, applyOutletScope, authorize('Super Admin'), loadScopedRecord('employee_salary_monthly'), preventLockedModification, deleteEmployeeSalary);
