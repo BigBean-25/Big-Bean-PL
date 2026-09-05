@@ -496,7 +496,33 @@ export const supplierController = {
     return genericSupplierController.delete(req, res);
   },
 };
-export const rawMaterialController = createMasterController('raw_materials', 'Raw Material');
+// production_batch_materials.raw_material_id is ON DELETE CASCADE (unlike
+// every actual-consumption table on the warehouse side - grn_items,
+// stock_ledger, stock_requisition_items, stock_transfer_items,
+// physical_stock_count_items, stock_adjustment_items, warehouse_wastage_items,
+// purchase_order_items - which are all ON DELETE RESTRICT), even though it
+// stores real posted-batch data: actual_issued_qty, unit_cost, total_cost,
+// and a stock_ledger_reference_id. In practice a material with any real
+// warehouse history already has a stock_ledger row (RESTRICT) that blocks
+// its deletion first, but that's an indirect, fragile protection via a
+// DIFFERENT table's constraint - checked directly here instead, matching
+// unitController's delete-guard pattern below.
+const genericRawMaterialController = createMasterController('raw_materials', 'Raw Material');
+export const rawMaterialController = {
+  ...genericRawMaterialController,
+  delete: async (req, res) => {
+    try {
+      const inUse = await query('SELECT id FROM production_batch_materials WHERE raw_material_id = ? LIMIT 1', [req.params.id]);
+      if (inUse.length > 0) {
+        return res.status(400).json({ success: false, message: 'Cannot delete Raw Material - it has been used in a production batch' });
+      }
+    } catch (error) {
+      console.error('Check raw material usage error:', error);
+      return res.status(500).json({ success: false, message: 'Error checking raw material usage' });
+    }
+    return genericRawMaterialController.delete(req, res);
+  },
+};
 
 // Raw materials get an auto-generated code (RM0001, RM0002, ...) so nobody
 // has to invent one by hand - manual entry still works if the client sends
