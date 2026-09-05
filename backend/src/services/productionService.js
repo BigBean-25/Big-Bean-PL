@@ -273,6 +273,15 @@ export async function setProductionBatchMaterials(id, materials) {
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
+    // Even more destructive than updateProductionBatchActualQty above if
+    // called post-posting: postProductionBatch stamps stock_ledger_reference_id/
+    // unit_cost/total_cost onto each row here once it posts, and this DELETEs
+    // every row for the batch outright and re-inserts fresh ones with none of
+    // that - severing the batch's material lines from the stock_ledger entries
+    // that already moved real stock for them.
+    const [[existingBatch]] = await conn.execute('SELECT is_posted FROM production_batches WHERE id = ?', [id]);
+    if (!existingBatch) { await conn.rollback(); throw new Error('Production batch not found'); }
+    if (existingBatch.is_posted) { await conn.rollback(); throw new Error('Cannot edit materials on an already-posted production batch'); }
     await conn.execute('DELETE FROM production_batch_materials WHERE production_batch_id = ?', [id]);
     for (const m of materials || []) {
       await conn.execute(
@@ -292,6 +301,15 @@ export async function setProductionBatchMaterials(id, materials) {
 }
 
 export async function updateProductionBatchActualQty(id, data) {
+  // postProductionBatch bakes actual_qty/accepted_output_qty into the
+  // stock_ledger entries it creates (qty_in, unit_cost = totalMaterialCost /
+  // actualOutputBaseQty) - editing these fields after posting would silently
+  // desynchronize the batch record from what was actually posted, with no
+  // warning and no way to tell the two apart later.
+  const [existing] = await query('SELECT is_posted FROM production_batches WHERE id = ?', [id]);
+  if (!existing) throw new Error('Production batch not found');
+  if (existing.is_posted) throw new Error('Cannot edit quantities on an already-posted production batch');
+
   const { actual_qty, gross_output_qty, rejected_output_qty, accepted_output_qty } = data || {};
   const fields = [];
   const values = [];
