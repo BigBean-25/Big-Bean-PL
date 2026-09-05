@@ -1,7 +1,18 @@
 import { query } from '../config/database.js';
-import { isKnownRole } from '../utils/roleAccess.js';
+import { isKnownRole, canAccessAllOutlets } from '../utils/roleAccess.js';
 
-const fullAccessRoles = ['Super Admin', 'Admin', 'Developer'];
+// Warehouse Admin is an all-outlet role too (canAccessAllOutlets(roleName)
+// is true for it), but it gets its own narrower branch below (Central
+// Warehouse locations only) rather than the unrestricted "sees every
+// location" access every other all-outlet role gets - so it's excluded here
+// and checked separately.
+// This used to be a separately-maintained ['Super Admin', 'Admin',
+// 'Developer'] list, narrower than roleAccess.js's ALL_OUTLET_ROLES -
+// Central Kitchen Admin (explicit locations.can_view=1) and Viewer/Viewer
+// Auditor (retains locations.can_view=1 via its blanket view-only sweep)
+// both have real view permission on locations but were wrongly 403'd here
+// because they aren't Super Admin/Admin/Developer and have no outlet_ids.
+const isFullAccessRole = (roleName) => canAccessAllOutlets(roleName) && roleName !== 'Warehouse Admin';
 
 export const applyLocationScope = async (req, res, next) => {
   try {
@@ -15,7 +26,7 @@ export const applyLocationScope = async (req, res, next) => {
     let allowedLocationIds = [];
     let all = false;
 
-    if (fullAccessRoles.includes(roleName)) {
+    if (isFullAccessRole(roleName)) {
       all = true;
     } else if (roleName === 'Warehouse Admin') {
       const rows = await query("SELECT id FROM locations WHERE location_type = 'Central Warehouse' AND is_active = 1");
@@ -79,7 +90,7 @@ export const applyLocationScope = async (req, res, next) => {
 export const isLocationAccessible = async (user, locationId) => {
   if (!locationId) return false;
   const roleName = user.role_name;
-  if (fullAccessRoles.includes(roleName)) return true;
+  if (isFullAccessRole(roleName)) return true;
   if (roleName === 'Warehouse Admin') {
     const rows = await query("SELECT id FROM locations WHERE id = ? AND location_type = 'Central Warehouse' AND is_active = 1", [locationId]);
     return rows.length > 0;
@@ -149,7 +160,7 @@ export const checkLocationAccess = (param = 'location_id') => async (req, res, n
     if (!locationId) return next();
 
     const roleName = req.user.role_name;
-    if (fullAccessRoles.includes(roleName)) return next();
+    if (isFullAccessRole(roleName)) return next();
 
     if (roleName === 'Warehouse Admin') {
       const rows = await query("SELECT id FROM locations WHERE id = ? AND location_type = 'Central Warehouse' AND is_active = 1", [locationId]);

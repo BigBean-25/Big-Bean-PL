@@ -4,6 +4,7 @@ import { allocateFEFO } from './warehouseBatchService.js';
 import { updatePOStatusAfterGRN } from './warehousePurchaseOrderService.js';
 import { getSettingValue } from './warehouseSettingService.js';
 import { validateContactFields } from '../utils/validators.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -12,7 +13,14 @@ export const getAllowedLocations = async (user, scope = 'all') => {
   if (scope === 'central_warehouse') {
     return query("SELECT * FROM locations WHERE location_type = 'Central Warehouse' AND is_active = 1 ORDER BY location_name");
   }
-  if (['Super Admin', 'Admin', 'Developer'].includes(roleName)) {
+  // canAccessAllOutlets(roleName), not a separately-maintained role list -
+  // Central Kitchen Admin (explicit locations.can_view=1), Technical Admin
+  // (blanket edit grant) and Viewer/Viewer Auditor (retains locations.can_view=1
+  // via its blanket view-only sweep) all have real view permission on
+  // locations but would otherwise fall through to the outlet-scoped branch
+  // below and, with empty outlet_ids (the norm for an all-outlet role), only
+  // ever see Central Warehouse locations instead of everything.
+  if (canAccessAllOutlets(roleName) && roleName !== 'Warehouse Admin') {
     return query("SELECT * FROM locations WHERE is_active = 1 ORDER BY location_name");
   }
   if (roleName === 'Warehouse Admin') {
