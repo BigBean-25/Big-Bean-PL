@@ -2,6 +2,7 @@ import { query } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { validateContactFields } from '../utils/validators.js';
 import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing } from '../services/outletVendorLedgerService.js';
+import { assertDateEditable } from '../utils/periodLock.js';
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 const isAllOutlets = (v) => !v || v === 'all';
@@ -191,6 +192,8 @@ export const createVendorPurchase = async (req, res) => {
     if (!vendorRows.length) return res.status(400).json({ success: false, message: 'Vendor not found' });
     if (Number(vendorRows[0].is_active) !== 1) return res.status(400).json({ success: false, message: 'Selected vendor is not active' });
 
+    await assertDateEditable(outlet_id, purchase_date, 'An outlet vendor purchase');
+
     const purchaseNo = await generatePurchaseNo();
     const result = await query(
       `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, remarks, created_by, created_at)
@@ -205,6 +208,9 @@ export const createVendorPurchase = async (req, res) => {
     res.status(201).json({ success: true, message: 'Purchase recorded successfully', data: { id: result.insertId, purchase_no: purchaseNo } });
   } catch (error) {
     console.error('Create vendor purchase error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error recording purchase' });
   }
 };
@@ -279,6 +285,8 @@ export const createVendorPayment = async (req, res) => {
     const vendorRows = await query('SELECT id, is_active FROM outlet_vendors WHERE id = ?', [vendor_id]);
     if (!vendorRows.length) return res.status(400).json({ success: false, message: 'Vendor not found' });
 
+    await assertDateEditable(outlet_id, date, 'An outlet vendor payment');
+
     const summary = await getVendorLedgerSummary({ outletId: outlet_id, vendorId: vendor_id, date });
     if (num(paid_amount) > summary.current_outstanding + 0.005) {
       return res.status(400).json({ success: false, message: `Payment amount cannot exceed current outstanding of ₹${summary.current_outstanding.toFixed(2)}` });
@@ -293,6 +301,9 @@ export const createVendorPayment = async (req, res) => {
     res.status(201).json({ success: true, message: 'Payment recorded successfully', data: { id: result.insertId } });
   } catch (error) {
     console.error('Create vendor payment error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error recording payment' });
   }
 };
