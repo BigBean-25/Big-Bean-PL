@@ -959,10 +959,20 @@ export const approveDailyCashExpense = async (req, res) => {
     }
 
     const { admin_remarks } = req.body || {};
-    await query(
-      `UPDATE daily_cash_expenses SET status = ?, verified_by = ?, verified_at = NOW(), admin_remarks = ? WHERE id = ?`,
+    // req.record (existing) is a plain, unlocked SELECT from loadScopedRecord -
+    // two near-simultaneous approve requests for the same expense could both
+    // pass the status check above before either UPDATE commits. The
+    // status = 'Submitted' guard here (rather than just WHERE id = ?) plus the
+    // affectedRows check turns that into a clean "someone already handled
+    // this" error instead of letting both requests fall through to the
+    // material_purchase_items linkage below and double-record the cost.
+    const updateResult = await query(
+      `UPDATE daily_cash_expenses SET status = ?, verified_by = ?, verified_at = NOW(), admin_remarks = ? WHERE id = ? AND status = 'Submitted'`,
       ['Approved', req.user.id, admin_remarks || null, existing.id]
     );
+    if (updateResult.affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'This expense was already actioned by someone else' });
+    }
 
     // Raw-material-tagged cash expenses get a real material_purchase_items row
     // created only now, at approval time, so they feed consumption tracking /
@@ -971,9 +981,11 @@ export const approveDailyCashExpense = async (req, res) => {
     // The approval update above has already committed, so a failure in this
     // block must not fail the request - it's logged for manual reconciliation
     // instead of surfacing as a 500 on an approval that actually succeeded.
+    // existing.linked_purchase_item_id is checked as a second, defense-in-depth
+    // guard against double-linking, independent of the status race above.
     let linkedPurchaseItemId = null;
     let linkedMaterial = null;
-    if (existing.raw_material_id && existing.material_qty) {
+    if (!existing.linked_purchase_item_id && existing.raw_material_id && existing.material_qty) {
       try {
         const [head] = await query('SELECT is_raw_material_category FROM expense_heads WHERE id = ?', [existing.expense_head_id]);
         if (head && Number(head.is_raw_material_category) === 1) {
