@@ -8,6 +8,28 @@ import { validateContactFields, assertSafeColumnNames } from '../utils/validator
 
 const db = { query };
 
+// categories.category_type ('Raw Material'/'Menu Item'/'Both') is only ever
+// enforced client-side (RawMaterials.jsx/MenuItems.jsx filter the category
+// dropdown to compatible types) - a direct API call, or a future bug
+// elsewhere, could still assign a raw material a Menu-Item-only category (or
+// vice versa) with nothing stopping it server-side, silently corrupting
+// category-based report groupings. Purely additive: the UI never sends an
+// incompatible category_id, so this can't reject anything real usage relies on.
+const REQUIRED_CATEGORY_TYPE = { raw_materials: 'Raw Material', menu_items: 'Menu Item' };
+
+const assertCompatibleCategory = async (tableName, categoryId) => {
+  const required = REQUIRED_CATEGORY_TYPE[tableName];
+  if (!required || !categoryId) return;
+  const rows = await query('SELECT category_type FROM categories WHERE id = ?', [categoryId]);
+  if (rows.length === 0) return;
+  const type = rows[0].category_type;
+  if (type !== required && type !== 'Both') {
+    const err = new Error(`Selected category is not valid for ${tableName === 'raw_materials' ? 'raw materials' : 'menu items'}`);
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
 const createMasterController = (tableName, itemName) => ({
   getAll: async (req, res) => {
     try {
@@ -86,6 +108,7 @@ const createMasterController = (tableName, itemName) => ({
       if (contactError) {
         return res.status(400).json({ success: false, message: contactError });
       }
+      await assertCompatibleCategory(tableName, req.body.category_id);
       const fields = Object.keys(req.body);
       assertSafeColumnNames(fields);
       const values = Object.values(req.body);
@@ -105,6 +128,9 @@ const createMasterController = (tableName, itemName) => ({
       });
     } catch (error) {
       console.error(`Create ${itemName} error:`, error);
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
       res.status(500).json({
         success: false,
         message: error.code === 'ER_DUP_ENTRY' ? `${itemName} already exists` : `Error creating ${itemName}`
@@ -127,6 +153,7 @@ const createMasterController = (tableName, itemName) => ({
       if (contactError) {
         return res.status(400).json({ success: false, message: contactError });
       }
+      await assertCompatibleCategory(tableName, req.body.category_id);
       const fields = Object.keys(req.body);
       assertSafeColumnNames(fields);
       const values = Object.values(req.body);
@@ -145,6 +172,9 @@ const createMasterController = (tableName, itemName) => ({
       });
     } catch (error) {
       console.error(`Update ${itemName} error:`, error);
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
       res.status(500).json({
         success: false,
         message: `Error updating ${itemName}`
@@ -491,6 +521,7 @@ export const createRawMaterial = async (req, res) => {
     if (!body.material_code || !String(body.material_code).trim()) {
       body.material_code = await generateNextMaterialCode();
     }
+    await assertCompatibleCategory('raw_materials', body.category_id);
 
     const fields = Object.keys(body);
     assertSafeColumnNames(fields);
@@ -511,6 +542,9 @@ export const createRawMaterial = async (req, res) => {
     });
   } catch (error) {
     console.error('Create Raw Material error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: error.code === 'ER_DUP_ENTRY' ? 'Raw Material already exists' : 'Error creating Raw Material'
