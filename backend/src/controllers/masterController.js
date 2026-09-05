@@ -607,9 +607,9 @@ export const bulkUploadRawMaterials = async (req, res) => {
     }
 
     const rows = parseExcelFile(req.file.path);
-    const categories = await query('SELECT id, category_name FROM categories');
+    const categories = await query('SELECT id, category_name, category_type FROM categories');
     const units = await query('SELECT id, unit_name FROM units');
-    const categoryByName = new Map(categories.map((c) => [c.category_name.toLowerCase(), c.id]));
+    const categoryByName = new Map(categories.map((c) => [c.category_name.toLowerCase(), c]));
     const unitByName = new Map(units.map((u) => [u.unit_name.toLowerCase(), u.id]));
 
     let created = 0;
@@ -627,8 +627,12 @@ export const bulkUploadRawMaterials = async (req, res) => {
         }
 
         const categoryName = sanitizeString(row['Category']);
-        const categoryId = categoryName ? categoryByName.get(categoryName.toLowerCase()) : null;
-        if (categoryName && !categoryId) throw new Error(`Category not found: ${categoryName}`);
+        const category = categoryName ? categoryByName.get(categoryName.toLowerCase()) : null;
+        if (categoryName && !category) throw new Error(`Category not found: ${categoryName}`);
+        if (category && category.category_type !== 'Raw Material' && category.category_type !== 'Both') {
+          throw new Error(`Category "${categoryName}" is not valid for raw materials`);
+        }
+        const categoryId = category ? category.id : null;
 
         const unitName = sanitizeString(row['Unit']);
         const unitId = unitName ? unitByName.get(unitName.toLowerCase()) : null;
@@ -724,8 +728,8 @@ export const bulkUploadMenuItems = async (req, res) => {
     }
 
     const rows = parseExcelFile(req.file.path);
-    const categories = await query('SELECT id, category_name FROM categories');
-    const categoryByName = new Map(categories.map((c) => [c.category_name.toLowerCase(), c.id]));
+    const categories = await query('SELECT id, category_name, category_type FROM categories');
+    const categoryByName = new Map(categories.map((c) => [c.category_name.toLowerCase(), c]));
 
     let created = 0;
     let updated = 0;
@@ -742,8 +746,12 @@ export const bulkUploadMenuItems = async (req, res) => {
         }
 
         const categoryName = sanitizeString(row['Category']);
-        const categoryId = categoryName ? categoryByName.get(categoryName.toLowerCase()) : null;
-        if (categoryName && !categoryId) throw new Error(`Category not found: ${categoryName}`);
+        const category = categoryName ? categoryByName.get(categoryName.toLowerCase()) : null;
+        if (categoryName && !category) throw new Error(`Category not found: ${categoryName}`);
+        if (category && category.category_type !== 'Menu Item' && category.category_type !== 'Both') {
+          throw new Error(`Category "${categoryName}" is not valid for menu items`);
+        }
+        const categoryId = category ? category.id : null;
 
         const sellingPrice = row['Selling Price'] ? parseNumber(row['Selling Price']) : 0;
         const hsnCode = sanitizeString(row['HSN Code']) || null;
