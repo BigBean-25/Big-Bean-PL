@@ -140,6 +140,12 @@ export const getOutletPL = async ({ outletId, month, year }) => {
     [...utilityOutlet.params, month, year]
   );
 
+  // employee_salary_monthly has the same Draft/Submitted/Verified workflow as
+  // utility_bills/online_payouts/dine_in_payouts (all filtered to Verified
+  // above) - this was missing that filter, so an unreviewed Draft/Submitted
+  // salary figure flowed straight into the P&L before payroll's own verify
+  // step (verifyEmployeeSalary) ever ran, defeating the point of that
+  // maker-checker review.
   const salary = await query(
     `SELECT
       COALESCE(total_employee_salary, 0) as salary,
@@ -148,7 +154,7 @@ export const getOutletPL = async ({ outletId, month, year }) => {
       COALESCE(other_staff_cost, 0) as other_staff,
       COALESCE(total_salary_cost, 0) as total_salary
      FROM employee_salary_monthly
-     WHERE ${salaryOutlet.sql} AND month = ? AND year = ?`,
+     WHERE ${salaryOutlet.sql} AND month = ? AND year = ? AND status = 'Verified'`,
     [...salaryOutlet.params, month, year]
   );
 
