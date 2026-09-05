@@ -51,8 +51,8 @@ import {
 
 const router = express.Router();
 
-router.get('/cashbooks', protect, applyOutletScope, getDailyCashbooks);
-router.get('/cashbooks/summary', protect, applyOutletScope, getCashbookSummary);
+router.get('/cashbooks', protect, applyOutletScope, checkPermission('daily_cashbook', 'can_view'), getDailyCashbooks);
+router.get('/cashbooks/summary', protect, applyOutletScope, checkPermission('daily_cashbook', 'can_view'), getCashbookSummary);
 router.post('/cashbooks', protect, applyOutletScope, checkPermission('daily_cashbook', 'can_create'), createDailyCashbook);
 router.put('/cashbooks/:id', protect, applyOutletScope, checkPermission('daily_cashbook', 'can_edit'), loadScopedRecord('daily_cashbooks'), preventLockedModification, updateDailyCashbook);
 router.post('/cashbooks/:id/submit', protect, applyOutletScope, checkPermission('daily_cashbook', 'can_submit'), loadScopedRecord('daily_cashbooks'), submitDailyCashbook);
