@@ -165,6 +165,21 @@ const parseMaterialPurchaseDate = (value) => {
 // fallback, so e.g. an exact material named "Milk" is never shadowed by a
 // nondeterministic LIKE '%Milk%' hit on "Butter Milk" (LIKE has no ORDER BY,
 // so which row wins is whatever the storage engine happens to return first).
+// That only protects an EXACT match from being shadowed - it doesn't cover
+// the case where there's no exact match at all and the fuzzy fallback itself
+// matches more than one row (e.g. uploaded name "Sugar" with no exact
+// "Sugar" master record, but both "Brown Sugar" and "White Sugar" exist).
+// LIMIT 1 there would silently pick an arbitrary one of them - a wrong-item
+// match with no visible error, corrupting stock/cost against the wrong
+// material/supplier/unit. Fetch 2 instead of 1 and throw when the fuzzy
+// match is ambiguous, so the row fails loudly (same as "not found") instead
+// of guessing.
+const resolveFuzzyMatch = (rows, label, name) => {
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  throw new Error(`Ambiguous ${label} "${name}" matches multiple master records - use the exact name`);
+};
+
 const findMaterialByName = async (materialName) => {
   const exact = await query(
     'SELECT * FROM raw_materials WHERE LOWER(material_name) = LOWER(?) LIMIT 1',
@@ -172,10 +187,10 @@ const findMaterialByName = async (materialName) => {
   );
   if (exact.length > 0) return exact[0];
   const materials = await query(
-    'SELECT * FROM raw_materials WHERE material_name LIKE ? LIMIT 1',
+    'SELECT * FROM raw_materials WHERE material_name LIKE ? LIMIT 2',
     [`%${materialName}%`]
   );
-  return materials.length > 0 ? materials[0] : null;
+  return resolveFuzzyMatch(materials, 'raw material', materialName);
 };
 
 const findSupplierByName = async (supplierName) => {
@@ -185,10 +200,10 @@ const findSupplierByName = async (supplierName) => {
   );
   if (exact.length > 0) return exact[0];
   const suppliers = await query(
-    'SELECT * FROM suppliers WHERE supplier_name LIKE ? LIMIT 1',
+    'SELECT * FROM suppliers WHERE supplier_name LIKE ? LIMIT 2',
     [`%${supplierName}%`]
   );
-  return suppliers.length > 0 ? suppliers[0] : null;
+  return resolveFuzzyMatch(suppliers, 'supplier', supplierName);
 };
 
 const findMenuItemByName = async (itemName) => {
@@ -198,10 +213,10 @@ const findMenuItemByName = async (itemName) => {
   );
   if (exact.length > 0) return exact[0];
   const items = await query(
-    'SELECT * FROM menu_items WHERE item_name LIKE ? LIMIT 1',
+    'SELECT * FROM menu_items WHERE item_name LIKE ? LIMIT 2',
     [`%${itemName}%`]
   );
-  return items.length > 0 ? items[0] : null;
+  return resolveFuzzyMatch(items, 'menu item', itemName);
 };
 
 const findCategoryByName = async (categoryName) => {
@@ -211,10 +226,10 @@ const findCategoryByName = async (categoryName) => {
   );
   if (exact.length > 0) return exact[0];
   const categories = await query(
-    'SELECT * FROM categories WHERE category_name LIKE ? LIMIT 1',
+    'SELECT * FROM categories WHERE category_name LIKE ? LIMIT 2',
     [`%${categoryName}%`]
   );
-  return categories.length > 0 ? categories[0] : null;
+  return resolveFuzzyMatch(categories, 'category', categoryName);
 };
 
 const findUnitByName = async (unitName) => {
@@ -224,10 +239,10 @@ const findUnitByName = async (unitName) => {
   );
   if (exact.length > 0) return exact[0];
   const units = await query(
-    'SELECT * FROM units WHERE unit_name LIKE ? OR unit_symbol LIKE ? LIMIT 1',
+    'SELECT * FROM units WHERE unit_name LIKE ? OR unit_symbol LIKE ? LIMIT 2',
     [`%${unitName}%`, `%${unitName}%`]
   );
-  return units.length > 0 ? units[0] : null;
+  return resolveFuzzyMatch(units, 'unit', unitName);
 };
 
 export const uploadOpeningStock = async (req, res) => {
