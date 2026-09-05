@@ -3,6 +3,7 @@ import { protect, applyOutletScope, loadScopedRecord } from '../middleware/auth.
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { query } from '../config/database.js';
 import { assertSafeColumnNames } from '../utils/validators.js';
+import { assertMonthEditable } from '../utils/periodLock.js';
 
 const router = express.Router();
 
@@ -81,6 +82,8 @@ router.post('/online', protect, applyOutletScope, checkPermission('online_payout
       return res.status(403).json({ success: false, message: 'You do not have access to the selected outlet' });
     }
 
+    await assertMonthEditable(outletId, req.body.month, req.body.year, 'An online payout');
+
     // Force Draft status on creation
     for (const f of WORKFLOW_FIELDS) delete req.body[f];
     delete req.body.created_by;
@@ -124,6 +127,9 @@ router.post('/online', protect, applyOutletScope, checkPermission('online_payout
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: 'Online payout already exists for this outlet, month and platform.' });
     }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -133,6 +139,13 @@ router.put('/online/:id', protect, applyOutletScope, checkPermission('online_pay
     const record = req.record;
     if (!EDITABLE_STATUSES.includes(record.status)) {
       return res.status(400).json({ success: false, message: `Cannot edit a payout with status "${record.status}". Only Draft or Rejected records can be edited.` });
+    }
+
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'An online payout');
+    const effectiveMonth = req.body.month !== undefined ? Number(req.body.month) : record.month;
+    const effectiveYear = req.body.year !== undefined ? Number(req.body.year) : record.year;
+    if (effectiveMonth !== record.month || effectiveYear !== record.year) {
+      await assertMonthEditable(record.outlet_id, effectiveMonth, effectiveYear, 'An online payout');
     }
 
     stripProtectedFields(req.body);
@@ -154,6 +167,9 @@ router.put('/online/:id', protect, applyOutletScope, checkPermission('online_pay
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: 'Online payout already exists for this outlet, month and platform.' });
+    }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: error.message });
   }
@@ -299,6 +315,8 @@ router.post('/dine-in', protect, applyOutletScope, checkPermission('dine_in_payo
       return res.status(403).json({ success: false, message: 'You do not have access to the selected outlet' });
     }
 
+    await assertMonthEditable(outletId, req.body.month, req.body.year, 'A dine-in payout');
+
     for (const f of WORKFLOW_FIELDS) delete req.body[f];
     delete req.body.created_by;
     delete req.body.created_at;
@@ -339,6 +357,9 @@ router.post('/dine-in', protect, applyOutletScope, checkPermission('dine_in_payo
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: 'Dine-in payout already exists for this outlet, month and portal.' });
     }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -348,6 +369,13 @@ router.put('/dine-in/:id', protect, applyOutletScope, checkPermission('dine_in_p
     const record = req.record;
     if (!EDITABLE_STATUSES.includes(record.status)) {
       return res.status(400).json({ success: false, message: `Cannot edit a payout with status "${record.status}". Only Draft or Rejected records can be edited.` });
+    }
+
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'A dine-in payout');
+    const effectiveMonth = req.body.month !== undefined ? Number(req.body.month) : record.month;
+    const effectiveYear = req.body.year !== undefined ? Number(req.body.year) : record.year;
+    if (effectiveMonth !== record.month || effectiveYear !== record.year) {
+      await assertMonthEditable(record.outlet_id, effectiveMonth, effectiveYear, 'A dine-in payout');
     }
 
     stripProtectedFields(req.body);
@@ -384,6 +412,9 @@ router.put('/dine-in/:id', protect, applyOutletScope, checkPermission('dine_in_p
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: 'Dine-in payout already exists for this outlet, month and portal.' });
+    }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: error.message });
   }
