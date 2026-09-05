@@ -2,6 +2,7 @@ import { query, getConnection } from '../config/database.js';
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
+import { assertDateRangeEditable } from '../utils/periodLock.js';
 
 const generateBatchNumber = () => {
   const now = new Date();
@@ -89,6 +90,8 @@ export const uploadItemTaxReport = async (req, res) => {
         message: `An item tax report already covers part of this range for this outlet (batch ${existing.batch_number}, ${existing.upload_date_from} to ${existing.upload_date_to}). Delete it first if you need to re-upload.`
       });
     }
+
+    await assertDateRangeEditable(outlet_id, from_date, to_date, 'An item tax upload');
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(file.path);
@@ -193,7 +196,7 @@ export const uploadItemTaxReport = async (req, res) => {
       try { connection.release(); } catch {}
     }
     console.error('Upload item tax report error:', error);
-    res.status(500).json({ success: false, message: 'Error uploading item tax report', error: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error uploading item tax report' });
   }
 };
 
