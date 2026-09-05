@@ -52,8 +52,14 @@ const recalcTotals = (items) => {
   return { subtotal: fmt(subtotal), discount_amount: fmt(discount), tax_amount: fmt(tax), total_amount: fmt(total) };
 };
 
-const getAcceptedByPOItem = async (conn, poId, itemId) => {
-  const [rows] = await conn.execute(`
+// Both call sites (getPOReceiptSummary, getGRNPrefill) are read-only report
+// helpers outside any transaction, always called with no open connection -
+// this used to unconditionally call conn.execute() on that null, throwing
+// "Cannot read properties of null (reading 'execute')" on every single
+// call, so both PO receipt-summary and GRN-prefill-from-PO were completely
+// broken. Uses the plain query() helper instead of requiring a connection.
+const getAcceptedByPOItem = async (poId, itemId) => {
+  const rows = await query(`
     SELECT COALESCE(SUM(gri.accepted_qty), 0) as total
     FROM grn g
     JOIN grn_items gri ON gri.grn_id = g.id
@@ -262,7 +268,7 @@ export const getPOReceiptSummary = async (poId) => {
   const summary = [];
   for (const it of po.items) {
     const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
-    const accepted = await getAcceptedByPOItem(null, poId, it.id);
+    const accepted = await getAcceptedByPOItem(poId, it.id);
     const acceptedBase = await convertToBase(accepted, it.unit_id, baseUnit.id);
     const orderedBase = await convertToBase(num(it.ordered_qty), it.unit_id, baseUnit.id);
     summary.push({
@@ -282,7 +288,7 @@ export const getGRNPrefill = async (poId) => {
   if (!['Approved','Sent','Partially Received'].includes(po.status)) throw new Error('PO cannot be received yet');
   const items = [];
   for (const it of po.items) {
-    const accepted = await getAcceptedByPOItem(null, poId, it.id);
+    const accepted = await getAcceptedByPOItem(poId, it.id);
     const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
     const orderedBase = await convertToBase(num(it.ordered_qty), it.unit_id, baseUnit.id);
     const acceptedBase = await convertToBase(accepted, it.unit_id, baseUnit.id);

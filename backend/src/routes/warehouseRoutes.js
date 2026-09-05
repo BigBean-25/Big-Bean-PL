@@ -761,7 +761,16 @@ router.post('/purchase-orders/:id/approve', checkPermission('warehouse_purchase_
 });
 
 router.post('/purchase-orders/:id/reject', checkPermission('warehouse_purchase_orders', 'can_reject'), async (req, res) => {
-  try { const data = await rejectPO(Number(req.params.id), req.user.id, req.body.rejection_reason); res.json({ success: true, data }); }
+  try {
+    const po = await getPOById(Number(req.params.id));
+    if (!po) return res.status(404).json({ success: false, message: 'PO not found' });
+    // approve already blocks this above; reject is the same review step's
+    // other outcome and was missing the same maker-checker check every other
+    // approve/reject pair in this codebase applies to both sides.
+    if (po.created_by === req.user.id) return res.status(403).json({ success: false, message: 'Creator cannot reject own PO' });
+    const data = await rejectPO(Number(req.params.id), req.user.id, req.body.rejection_reason);
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
