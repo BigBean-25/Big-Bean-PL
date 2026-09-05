@@ -384,6 +384,7 @@ export const dailyAccountsAPI = {
     api.post("/daily-accounts/expenses", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+  createExpensesBatch: (data) => api.post("/daily-accounts/expenses/batch", data),
   updateExpense: (id, formData) =>
     api.put(`/daily-accounts/expenses/${id}`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
@@ -713,6 +714,7 @@ export const outletVendorAPI = {
   getLedger: (params) => api.get("/outlet-vendors/ledger", { params }),
   getPurchases: (params) => api.get("/outlet-vendors/purchases/list", { params }),
   createPurchase: (data) => api.post("/outlet-vendors/purchases", data),
+  createPurchasesBatch: (data) => api.post("/outlet-vendors/purchases/batch", data),
   deletePurchase: (id) => api.delete(`/outlet-vendors/purchases/${id}`),
   getPayments: (params) => api.get("/outlet-vendors/payments/list", { params }),
   createPayment: (data) => api.post("/outlet-vendors/payments", data),

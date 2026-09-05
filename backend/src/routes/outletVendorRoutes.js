@@ -3,7 +3,7 @@ import { protect, applyOutletScope } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import {
   getVendors, getVendorById, createVendor, updateVendor, deleteVendor,
-  getVendorPurchases, createVendorPurchase, deleteVendorPurchase,
+  getVendorPurchases, createVendorPurchase, createVendorPurchasesBatch, deleteVendorPurchase,
   getVendorPayments, createVendorPayment,
   getVendorLedger, getVendorOutstandingReport,
 } from '../controllers/outletVendorController.js';
@@ -20,6 +20,7 @@ router.delete('/:id', protect, checkPermission('outlet_vendors', 'can_delete'), 
 
 router.get('/purchases/list', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorPurchases);
 router.post('/purchases', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_create'), createVendorPurchase);
+router.post('/purchases/batch', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_create'), createVendorPurchasesBatch);
 router.delete('/purchases/:id', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_delete'), deleteVendorPurchase);
 
 router.get('/payments/list', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorPayments);

@@ -14,6 +14,7 @@ import {
   getDailyCashExpenses,
   getDailyCashExpenseById,
   createDailyCashExpense,
+  createDailyCashExpensesBatch,
   updateDailyCashExpense,
   submitDailyCashExpense,
   approveDailyCashExpense,
@@ -63,6 +64,7 @@ router.delete('/cashbooks/:id', protect, applyOutletScope, checkPermission('dail
 router.get('/expenses', protect, applyOutletScope, checkPermission('daily_expenses', 'can_view'), getDailyCashExpenses);
 router.get('/expenses/:id', protect, applyOutletScope, checkPermission('daily_expenses', 'can_view'), loadScopedRecord('daily_cash_expenses'), getDailyCashExpenseById);
 router.post('/expenses', protect, applyOutletScope, checkPermission('daily_expenses', 'can_create'), upload.single('proof'), createDailyCashExpense);
+router.post('/expenses/batch', protect, applyOutletScope, checkPermission('daily_expenses', 'can_create'), createDailyCashExpensesBatch);
 router.put('/expenses/:id', protect, applyOutletScope, checkPermission('daily_expenses', 'can_edit'), loadScopedRecord('daily_cash_expenses'), preventLockedModification, upload.single('proof'), updateDailyCashExpense);
 router.post('/expenses/:id/submit', protect, applyOutletScope, checkPermission('daily_expenses', 'can_submit'), loadScopedRecord('daily_cash_expenses'), submitDailyCashExpense);
 router.post('/expenses/:id/approve', protect, applyOutletScope, checkPermission('daily_expenses', 'can_approve'), loadScopedRecord('daily_cash_expenses'), preventOwnApproval('entered_by'), preventLockedModification, approveDailyCashExpense);

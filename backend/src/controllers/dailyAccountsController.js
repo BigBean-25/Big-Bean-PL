@@ -768,6 +768,148 @@ export const createDailyCashExpense = async (req, res) => {
   }
 };
 
+export const createDailyCashExpensesBatch = async (req, res) => {
+  try {
+    const { date, outlet_id, items } = req.body;
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, message: 'Valid date is required (YYYY-MM-DD)' });
+    }
+    if (!outlet_id) {
+      return res.status(400).json({ success: false, message: 'Outlet is required' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one expense item is required' });
+    }
+
+    const [outlet] = await query('SELECT id FROM outlets WHERE id = ? AND is_active = 1', [outlet_id]);
+    if (!outlet) {
+      return res.status(400).json({ success: false, message: 'Outlet not found or inactive' });
+    }
+
+    await assertDateEditable(outlet_id, date, 'A cash expense');
+
+    // Validate every row up front so a bad row further down the list fails
+    // the whole batch before anything is inserted, rather than leaving a
+    // partial set of drafts behind.
+    const validatedItems = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] || {};
+      const rowLabel = `Item ${i + 1}`;
+      const { expense_head_id, amount, payment_mode_id, paid_to, description, raw_material_id, material_qty } = item;
+
+      if (!expense_head_id) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: expense head is required` });
+      }
+      if (!payment_mode_id) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: payment mode is required` });
+      }
+      const parsedAmount = Number(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: amount must be greater than 0` });
+      }
+
+      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+      if (!head) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: expense head not found or inactive` });
+      }
+
+      const [mode] = await query('SELECT id FROM payment_modes WHERE id = ? AND is_active = 1', [payment_mode_id]);
+      if (!mode) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: payment mode not found or inactive` });
+      }
+
+      let finalRawMaterialId = null;
+      let finalMaterialQty = null;
+      if (Number(head.is_raw_material_category) === 1) {
+        if (!raw_material_id) {
+          return res.status(400).json({ success: false, message: `${rowLabel}: please select a raw material` });
+        }
+        const parsedQty = Number(material_qty);
+        if (material_qty === undefined || material_qty === null || material_qty === '' || !Number.isFinite(parsedQty) || parsedQty <= 0) {
+          return res.status(400).json({ success: false, message: `${rowLabel}: quantity must be greater than 0` });
+        }
+        const [material] = await query('SELECT id, unit_id FROM raw_materials WHERE id = ? AND is_active = 1', [raw_material_id]);
+        if (!material) {
+          return res.status(400).json({ success: false, message: `${rowLabel}: raw material not found or inactive` });
+        }
+        finalRawMaterialId = raw_material_id;
+        finalMaterialQty = parsedQty;
+      }
+
+      validatedItems.push({
+        expense_head_id, amount: parsedAmount, payment_mode_id,
+        paid_to: paid_to || null, description: description || null,
+        raw_material_id: finalRawMaterialId, material_qty: finalMaterialQty,
+      });
+    }
+
+    const conn = await getConnection();
+    const insertedIds = [];
+    try {
+      await conn.beginTransaction();
+      for (const item of validatedItems) {
+        const [result] = await conn.execute(
+          `INSERT INTO daily_cash_expenses
+           (date, outlet_id, expense_head_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [date, outlet_id, item.expense_head_id, item.raw_material_id, item.material_qty, item.amount, item.payment_mode_id, item.paid_to, item.description, null, req.user.id, 'Draft']
+        );
+        insertedIds.push(result.insertId);
+      }
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+
+    const createdRows = await query(
+      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
+              u1.full_name as entered_by_name, u2.full_name as verified_by_name
+       FROM daily_cash_expenses dce
+       LEFT JOIN outlets o ON dce.outlet_id = o.id
+       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
+       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
+       LEFT JOIN users u1 ON dce.entered_by = u1.id
+       LEFT JOIN users u2 ON dce.verified_by = u2.id
+       WHERE dce.id IN (${insertedIds.map(() => '?').join(',')})
+       ORDER BY dce.id ASC`,
+      insertedIds
+    );
+
+    await logAudit(req.user.id, 'CREATE', 'daily_cash_expenses', insertedIds.join(','), null, createdRows, `Created ${insertedIds.length} daily cash expenses in one batch entry`);
+
+    const totalAmount = validatedItems.reduce((sum, item) => sum + item.amount, 0);
+    await notifyAdmins({
+      actorId: req.user.id,
+      outletId: outlet_id,
+      type: 'info',
+      title: 'Draft Expenses Created',
+      message: `${insertedIds.length} cash expense draft(s) totalling ₹${totalAmount} have been created for ${date}.`,
+      referenceType: 'expense',
+      referenceId: insertedIds[0],
+      navPath: '/daily-accounts/expenses'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `${insertedIds.length} daily cash expenses created successfully`,
+      data: createdRows.map(normalizeExpenseDate)
+    });
+  } catch (error) {
+    console.error('Create daily cash expenses batch error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Error creating daily cash expenses'
+    });
+  }
+};
+
 export const getDailyCashExpenseById = async (req, res) => {
   try {
     const [expense] = await query(

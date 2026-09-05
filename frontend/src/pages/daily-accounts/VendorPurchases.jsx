@@ -12,9 +12,14 @@ const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mod
 const fmtINR = (n = 0) => "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => new Date().toISOString().slice(0, 10);
 
-const emptyPurchase = () => ({
-  outlet_id: "", vendor_id: "", purchase_date: today(), description: "", amount: "",
+const emptyPurchaseItem = () => ({
+  vendor_id: "", description: "", amount: "",
   paid_by: "Outlet", payment_mode_id: "", is_emergency: false, invoice_no: "", remarks: "",
+});
+
+const emptyPurchase = () => ({
+  outlet_id: "", purchase_date: today(),
+  items: [emptyPurchaseItem()],
 });
 
 export default function VendorPurchases() {
@@ -99,31 +104,77 @@ export default function VendorPurchases() {
   }, [purchases]);
 
   const vendorMap = useMemo(() => Object.fromEntries(vendors.map((v) => [String(v.id), v])), [vendors]);
-  const selectedVendorCreditDays = Number(vendorMap[String(form.vendor_id)]?.credit_days) || 0;
+  const getVendorCreditDays = (vendorId) => Number(vendorMap[String(vendorId)]?.credit_days) || 0;
+
+  const updateItem = (index, field, value) => setForm((f) => ({
+    ...f,
+    items: f.items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+  }));
+  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, emptyPurchaseItem()] }));
+  const removeItem = (index) => setForm((f) => ({
+    ...f,
+    items: f.items.length > 1 ? f.items.filter((_, i) => i !== index) : f.items,
+  }));
+
+  const itemsTotal = useMemo(() => form.items.reduce((s, item) => s + Number(item.amount || 0), 0), [form.items]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
     if (saving) return;
-    if (!form.outlet_id || !form.vendor_id || !form.purchase_date || !form.description.trim()) {
-      toast.error("Outlet, vendor, date and description are required");
+    if (!form.outlet_id || !form.purchase_date) {
+      toast.error("Outlet and date are required");
       return;
     }
-    if (!form.amount || Number(form.amount) <= 0) {
-      toast.error("Amount must be greater than zero");
-      return;
+    for (let i = 0; i < form.items.length; i++) {
+      const item = form.items[i];
+      const label = form.items.length > 1 ? `Item ${i + 1}: ` : "";
+      if (!item.vendor_id || !item.description.trim()) {
+        toast.error(`${label}Vendor and description are required`);
+        return;
+      }
+      if (!item.amount || Number(item.amount) <= 0) {
+        toast.error(`${label}Amount must be greater than zero`);
+        return;
+      }
     }
     setSaving(true);
     try {
-      await outletVendorAPI.createPurchase({
-        ...form,
-        amount: Number(form.amount),
-        is_emergency: form.is_emergency ? 1 : 0,
-        payment_mode_id: form.payment_mode_id || null,
-      });
-      toast.success("Purchase recorded");
+      if (form.items.length === 1) {
+        const item = form.items[0];
+        await outletVendorAPI.createPurchase({
+          outlet_id: form.outlet_id,
+          vendor_id: item.vendor_id,
+          purchase_date: form.purchase_date,
+          description: item.description,
+          amount: Number(item.amount),
+          paid_by: item.paid_by,
+          payment_mode_id: item.payment_mode_id || null,
+          is_emergency: item.is_emergency ? 1 : 0,
+          invoice_no: item.invoice_no,
+          remarks: item.remarks,
+        });
+        toast.success("Purchase recorded");
+      } else {
+        await outletVendorAPI.createPurchasesBatch({
+          outlet_id: form.outlet_id,
+          purchase_date: form.purchase_date,
+          items: form.items.map((item) => ({
+            vendor_id: item.vendor_id,
+            description: item.description,
+            amount: Number(item.amount),
+            paid_by: item.paid_by,
+            payment_mode_id: item.payment_mode_id || null,
+            is_emergency: item.is_emergency ? 1 : 0,
+            invoice_no: item.invoice_no,
+            remarks: item.remarks,
+          })),
+        });
+        toast.success(`${form.items.length} purchases recorded`);
+      }
+      const purchasedVendorIds = form.items.map((item) => String(item.vendor_id));
       setForm({ ...emptyPurchase(), outlet_id: form.outlet_id });
       fetchPurchases();
-      if (String(ledgerOutlet) === String(form.outlet_id) && String(ledgerVendor) === String(form.vendor_id)) fetchLedger();
+      if (String(ledgerOutlet) === String(form.outlet_id) && purchasedVendorIds.includes(String(ledgerVendor))) fetchLedger();
     } catch (error) { toast.error(error.response?.data?.message || "Failed to record purchase"); }
     finally { setSaving(false); }
   };
@@ -192,69 +243,96 @@ export default function VendorPurchases() {
 
       <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
         <span className={`mb-3 block text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Record a Purchase</span>
-        <form onSubmit={handleCreate} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Outlet *</label>
-            <select value={form.outlet_id} onChange={(e) => setForm({ ...form, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
-              <option value="">Select outlet</option>
-              {visibleOutlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
-            </select>
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[13px] font-medium">Outlet *</label>
+              <select value={form.outlet_id} onChange={(e) => setForm({ ...form, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                <option value="">Select outlet</option>
+                {visibleOutlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-medium">Date *</label>
+              <input type="date" value={form.purchase_date} max={today()} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+            </div>
           </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">
-              Vendor *
-              {form.vendor_id && <span className={`ml-1.5 font-normal ${mutedCls}`}>({selectedVendorCreditDays === 0 ? "cash" : `${selectedVendorCreditDays}d credit`})</span>}
-            </label>
-            <select value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
-              <option value="">Select vendor</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.vendor_name} ({v.category})</option>)}
-            </select>
+
+          <div className="space-y-3">
+            {form.items.map((item, index) => (
+              <div key={index} className={`rounded-md border p-3 ${borderCls}`}>
+                {form.items.length > 1 && (
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[13px] font-semibold">Item {index + 1}</span>
+                    <button type="button" onClick={() => removeItem(index)} className="flex h-7 w-7 items-center justify-center rounded-md bg-[#FCEAEA] text-[#EA5455] hover:opacity-80" title="Remove item">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">
+                      Vendor *
+                      {item.vendor_id && <span className={`ml-1.5 font-normal ${mutedCls}`}>({getVendorCreditDays(item.vendor_id) === 0 ? "cash" : `${getVendorCreditDays(item.vendor_id)}d credit`})</span>}
+                    </label>
+                    <select value={item.vendor_id} onChange={(e) => updateItem(index, "vendor_id", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                      <option value="">Select vendor</option>
+                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.vendor_name} ({v.category})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">Description *</label>
+                    <input value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="e.g. Milk 20L, Curd 5kg" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">Amount *</label>
+                    <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(index, "amount", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">Paid By</label>
+                    <select value={item.paid_by} onChange={(e) => updateItem(index, "paid_by", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                      <option value="Outlet">Outlet (cash/UPI)</option>
+                      <option value="Management">Management / HQ</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">Payment Mode</label>
+                    <select value={item.payment_mode_id} onChange={(e) => updateItem(index, "payment_mode_id", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                      <option value="">Not paid yet (credit)</option>
+                      {paymentModes.map((pm) => <option key={pm.id} value={pm.id}>{pm.mode_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[13px] font-medium">Invoice / Bill No</label>
+                    <input value={item.invoice_no} onChange={(e) => updateItem(index, "invoice_no", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                  </div>
+                  <div className="flex items-end">
+                    <label className="flex h-10 items-center gap-2 text-[13px] font-medium">
+                      <input type="checkbox" checked={item.is_emergency} onChange={(e) => updateItem(index, "is_emergency", e.target.checked)} />
+                      <AlertTriangle size={14} className="text-[#FF9F43]" /> Emergency / top-up purchase
+                    </label>
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-2">
+                    <label className="mb-1 block text-[13px] font-medium">Remarks</label>
+                    <input value={item.remarks} onChange={(e) => updateItem(index, "remarks", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Date *</label>
-            <input type="date" value={form.purchase_date} max={today()} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
-          </div>
-          <div className="sm:col-span-2 lg:col-span-1">
-            <label className="mb-1 block text-[13px] font-medium">Description *</label>
-            <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. Milk 20L, Curd 5kg" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
-          </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Amount *</label>
-            <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
-          </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Paid By</label>
-            <select value={form.paid_by} onChange={(e) => setForm({ ...form, paid_by: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
-              <option value="Outlet">Outlet (cash/UPI)</option>
-              <option value="Management">Management / HQ</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Payment Mode</label>
-            <select value={form.payment_mode_id} onChange={(e) => setForm({ ...form, payment_mode_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
-              <option value="">Not paid yet (credit)</option>
-              {paymentModes.map((pm) => <option key={pm.id} value={pm.id}>{pm.mode_name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[13px] font-medium">Invoice / Bill No</label>
-            <input value={form.invoice_no} onChange={(e) => setForm({ ...form, invoice_no: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
-          </div>
-          <div className="flex items-end">
-            <label className="flex h-10 items-center gap-2 text-[13px] font-medium">
-              <input type="checkbox" checked={form.is_emergency} onChange={(e) => setForm({ ...form, is_emergency: e.target.checked })} />
-              <AlertTriangle size={14} className="text-[#FF9F43]" /> Emergency / top-up purchase
-            </label>
-          </div>
-          <div className="sm:col-span-2 lg:col-span-3">
-            <label className="mb-1 block text-[13px] font-medium">Remarks</label>
-            <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
-          </div>
-          <div className="sm:col-span-2 lg:col-span-3">
-            <button type="submit" disabled={saving} className="flex h-[42px] items-center justify-center gap-2 rounded-md px-5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-70" style={{ backgroundColor: primaryColor }}>
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {saving ? "Saving…" : "Record Purchase"}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button type="button" onClick={addItem} className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[13px] font-semibold ${inputCls}`}>
+              <Plus size={15} /> Add Another Item
             </button>
+            {form.items.length > 1 && (
+              <span className="text-[13px] font-semibold">Total: {fmtINR(itemsTotal)} across {form.items.length} items</span>
+            )}
           </div>
+
+          <button type="submit" disabled={saving} className="flex h-[42px] items-center justify-center gap-2 rounded-md px-5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-70" style={{ backgroundColor: primaryColor }}>
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {saving ? "Saving…" : form.items.length > 1 ? `Record ${form.items.length} Purchases` : "Record Purchase"}
+          </button>
         </form>
       </div>
 

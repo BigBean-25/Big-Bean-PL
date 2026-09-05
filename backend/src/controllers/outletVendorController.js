@@ -1,4 +1,4 @@
-import { query } from '../config/database.js';
+import { query, getConnection } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { validateContactFields } from '../utils/validators.js';
 import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing } from '../services/outletVendorLedgerService.js';
@@ -212,6 +212,104 @@ export const createVendorPurchase = async (req, res) => {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: 'Error recording purchase' });
+  }
+};
+
+export const createVendorPurchasesBatch = async (req, res) => {
+  try {
+    const { outlet_id, purchase_date, items } = req.body;
+
+    if (!outlet_id || !purchase_date) {
+      return res.status(400).json({ success: false, message: 'Outlet and date are required' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one purchase item is required' });
+    }
+
+    const outletScope = req.outletScope;
+    if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+    }
+
+    await assertDateEditable(outlet_id, purchase_date, 'An outlet vendor purchase');
+
+    // Validate every row up front so a bad row further down the list fails
+    // the whole batch before anything is inserted.
+    const validatedItems = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] || {};
+      const rowLabel = `Item ${i + 1}`;
+      const { vendor_id, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, remarks } = item;
+
+      if (!vendor_id || !description || !String(description).trim()) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: vendor and description are required` });
+      }
+      if (Number.isNaN(Number(amount)) || num(amount) <= 0) {
+        return res.status(400).json({ success: false, message: `${rowLabel}: amount must be a positive number` });
+      }
+
+      const vendorRows = await query('SELECT id, is_active FROM outlet_vendors WHERE id = ?', [vendor_id]);
+      if (!vendorRows.length) return res.status(400).json({ success: false, message: `${rowLabel}: vendor not found` });
+      if (Number(vendorRows[0].is_active) !== 1) return res.status(400).json({ success: false, message: `${rowLabel}: selected vendor is not active` });
+
+      validatedItems.push({
+        vendor_id,
+        description: String(description).trim(),
+        amount: num(amount),
+        paid_by: paid_by === 'Management' ? 'Management' : 'Outlet',
+        payment_mode_id: payment_mode_id || null,
+        is_emergency: is_emergency ? 1 : 0,
+        invoice_no: invoice_no || null,
+        remarks: remarks || null,
+      });
+    }
+
+    const year = new Date().getFullYear();
+    const prefix = `OVP-${year}-`;
+
+    const conn = await getConnection();
+    const created = [];
+    try {
+      await conn.beginTransaction();
+      const [lastRows] = await conn.execute(
+        "SELECT purchase_no FROM outlet_vendor_purchases WHERE purchase_no LIKE ? ORDER BY purchase_no DESC LIMIT 1",
+        [`${prefix}%`]
+      );
+      let nextSeq = 1;
+      if (lastRows.length > 0) {
+        const last = String(lastRows[0].purchase_no).split('-').pop();
+        nextSeq = Number(last) + 1 || 1;
+      }
+
+      for (const item of validatedItems) {
+        const purchaseNo = `${prefix}${String(nextSeq).padStart(5, '0')}`;
+        nextSeq += 1;
+        const [result] = await conn.execute(
+          `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, remarks, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            purchaseNo, outlet_id, item.vendor_id, purchase_date, item.description, item.amount,
+            item.paid_by, item.payment_mode_id, item.is_emergency, item.invoice_no, item.remarks, req.user.id,
+          ]
+        );
+        created.push({ id: result.insertId, purchase_no: purchaseNo });
+      }
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+
+    await logAudit(req.user.id, 'CREATE', 'outlet_vendor_purchases', created.map((c) => c.id).join(','), null, { outlet_id, purchase_date, items: validatedItems }, `Created ${created.length} outlet vendor purchases in one batch entry`);
+    res.status(201).json({ success: true, message: `${created.length} purchases recorded successfully`, data: created });
+  } catch (error) {
+    console.error('Create vendor purchases batch error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    res.status(500).json({ success: false, message: 'Error recording purchases' });
   }
 };
 

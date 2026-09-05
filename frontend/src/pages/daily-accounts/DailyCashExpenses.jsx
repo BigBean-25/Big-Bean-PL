@@ -110,17 +110,21 @@ const statusStyle = (status) => {
   return { text: "text-[#FF9F43]", bg: "bg-[#FFF4E5]", border: "border-[#FF9F43]" };
 };
 
-const initialForm = () => ({
-  outlet_id: "",
-  date: todayISO(),
+const emptyItem = () => ({
   expense_head_id: "",
   amount: "",
   payment_mode_id: "",
   paid_to: "",
   description: "",
-  proof_file: null,
   raw_material_id: "",
   material_qty: "",
+});
+
+const initialForm = () => ({
+  outlet_id: "",
+  date: todayISO(),
+  proof_file: null,
+  items: [emptyItem()],
 });
 
 const DailyCashExpenses = () => {
@@ -160,17 +164,19 @@ const DailyCashExpenses = () => {
     [outlets, userOutletIds, isAdmin]
   );
 
-  const selectedHeadIsRawMaterial = useMemo(
-    () => Boolean(expenseHeads.find((h) => Number(h.id) === Number(formData.expense_head_id))?.is_raw_material_category),
-    [expenseHeads, formData.expense_head_id]
-  );
+  const isHeadRawMaterial = (headId) => Boolean(expenseHeads.find((h) => Number(h.id) === Number(headId))?.is_raw_material_category);
 
-  const selectedRawMaterialUnitName = useMemo(() => {
-    const material = rawMaterials.find((m) => Number(m.id) === Number(formData.raw_material_id));
+  const getRawMaterialUnitName = (rawMaterialId) => {
+    const material = rawMaterials.find((m) => Number(m.id) === Number(rawMaterialId));
     if (!material) return "-";
     const unit = units.find((u) => Number(u.id) === Number(material.unit_id));
     return unit?.unit_name || "-";
-  }, [rawMaterials, units, formData.raw_material_id]);
+  };
+
+  const itemsTotal = useMemo(
+    () => formData.items.reduce((sum, item) => sum + num(item.amount), 0),
+    [formData.items]
+  );
 
   const { selectedOutletId, selectedOutletLabel } = useSelectedOutlet((nextId) => {
     if (editingId || !showForm) return;
@@ -247,17 +253,34 @@ const DailyCashExpenses = () => {
 
   const updateField = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
-  const handleHeadChange = (value) => {
-    const nextHeadIsRawMaterial = Boolean(expenseHeads.find((h) => Number(h.id) === Number(value))?.is_raw_material_category);
+  const updateItemField = (index, field, value) => {
     setFormData((prev) => ({
       ...prev,
-      expense_head_id: value,
-      // Switching away from a raw-material head shouldn't leave stale
-      // material/qty selections around to be submitted with an unrelated category.
-      raw_material_id: nextHeadIsRawMaterial ? prev.raw_material_id : "",
-      material_qty: nextHeadIsRawMaterial ? prev.material_qty : "",
+      items: prev.items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     }));
   };
+
+  const handleHeadChange = (index, value) => {
+    const nextHeadIsRawMaterial = isHeadRawMaterial(value);
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) => (i === index ? {
+        ...item,
+        expense_head_id: value,
+        // Switching away from a raw-material head shouldn't leave stale
+        // material/qty selections around to be submitted with an unrelated category.
+        raw_material_id: nextHeadIsRawMaterial ? item.raw_material_id : "",
+        material_qty: nextHeadIsRawMaterial ? item.material_qty : "",
+      } : item)),
+    }));
+  };
+
+  const addItemRow = () => setFormData((prev) => ({ ...prev, items: [...prev.items, emptyItem()] }));
+
+  const removeItemRow = (index) => setFormData((prev) => ({
+    ...prev,
+    items: prev.items.length > 1 ? prev.items.filter((_, i) => i !== index) : prev.items,
+  }));
 
   const resetForm = () => {
     setEditingId(null);
@@ -280,12 +303,16 @@ const DailyCashExpenses = () => {
   const validate = () => {
     if (!formData.outlet_id) { toast.error("Please select outlet"); return false; }
     if (!formData.date) { toast.error("Please select expense date"); return false; }
-    if (!formData.expense_head_id) { toast.error("Please select expense head"); return false; }
-    if (!formData.amount || num(formData.amount) <= 0) { toast.error("Amount must be greater than zero"); return false; }
-    if (!formData.payment_mode_id) { toast.error("Please select payment mode"); return false; }
-    if (selectedHeadIsRawMaterial) {
-      if (!formData.raw_material_id) { toast.error("Please select a raw material"); return false; }
-      if (!formData.material_qty || num(formData.material_qty) <= 0) { toast.error("Quantity must be greater than 0"); return false; }
+    for (let i = 0; i < formData.items.length; i++) {
+      const item = formData.items[i];
+      const label = formData.items.length > 1 ? `Item ${i + 1}: ` : "";
+      if (!item.expense_head_id) { toast.error(`${label}Please select expense head`); return false; }
+      if (!item.amount || num(item.amount) <= 0) { toast.error(`${label}Amount must be greater than zero`); return false; }
+      if (!item.payment_mode_id) { toast.error(`${label}Please select payment mode`); return false; }
+      if (isHeadRawMaterial(item.expense_head_id)) {
+        if (!item.raw_material_id) { toast.error(`${label}Please select a raw material`); return false; }
+        if (!item.material_qty || num(item.material_qty) <= 0) { toast.error(`${label}Quantity must be greater than 0`); return false; }
+      }
     }
     return true;
   };
@@ -295,32 +322,61 @@ const DailyCashExpenses = () => {
     if (!validate()) return;
     setSaving(true);
     try {
-      const submitData = new FormData();
-      submitData.append("outlet_id", formData.outlet_id);
-      submitData.append("date", formData.date);
-      submitData.append("expense_head_id", formData.expense_head_id);
-      submitData.append("amount", num(formData.amount));
-      submitData.append("payment_mode_id", formData.payment_mode_id);
-      submitData.append("paid_to", formData.paid_to || "");
-      submitData.append("description", formData.description || "");
-      if (selectedHeadIsRawMaterial) {
-        submitData.append("raw_material_id", formData.raw_material_id);
-        submitData.append("material_qty", num(formData.material_qty));
-      }
-      if (formData.proof_file) submitData.append("proof", formData.proof_file);
-
       if (editingId) {
+        const item = formData.items[0];
+        const submitData = new FormData();
+        submitData.append("outlet_id", formData.outlet_id);
+        submitData.append("date", formData.date);
+        submitData.append("expense_head_id", item.expense_head_id);
+        submitData.append("amount", num(item.amount));
+        submitData.append("payment_mode_id", item.payment_mode_id);
+        submitData.append("paid_to", item.paid_to || "");
+        submitData.append("description", item.description || "");
+        if (isHeadRawMaterial(item.expense_head_id)) {
+          submitData.append("raw_material_id", item.raw_material_id);
+          submitData.append("material_qty", num(item.material_qty));
+        }
+        if (formData.proof_file) submitData.append("proof", formData.proof_file);
         await dailyAccountsAPI.updateExpense(editingId, submitData);
         toast.success("Expense updated successfully");
-      } else {
+      } else if (formData.items.length === 1) {
+        const item = formData.items[0];
+        const submitData = new FormData();
+        submitData.append("outlet_id", formData.outlet_id);
+        submitData.append("date", formData.date);
+        submitData.append("expense_head_id", item.expense_head_id);
+        submitData.append("amount", num(item.amount));
+        submitData.append("payment_mode_id", item.payment_mode_id);
+        submitData.append("paid_to", item.paid_to || "");
+        submitData.append("description", item.description || "");
+        if (isHeadRawMaterial(item.expense_head_id)) {
+          submitData.append("raw_material_id", item.raw_material_id);
+          submitData.append("material_qty", num(item.material_qty));
+        }
+        if (formData.proof_file) submitData.append("proof", formData.proof_file);
         await dailyAccountsAPI.createExpense(submitData);
         toast.success("Expense saved as draft");
+      } else {
+        await dailyAccountsAPI.createExpensesBatch({
+          outlet_id: formData.outlet_id,
+          date: formData.date,
+          items: formData.items.map((item) => ({
+            expense_head_id: item.expense_head_id,
+            amount: num(item.amount),
+            payment_mode_id: item.payment_mode_id,
+            paid_to: item.paid_to || "",
+            description: item.description || "",
+            raw_material_id: isHeadRawMaterial(item.expense_head_id) ? item.raw_material_id : null,
+            material_qty: isHeadRawMaterial(item.expense_head_id) ? num(item.material_qty) : null,
+          })),
+        });
+        toast.success(`${formData.items.length} expenses saved as drafts`);
       }
       setShowForm(false);
       resetForm();
       await fetchExpenses();
     } catch (error) {
-      toast.error(error.response?.data?.message || `Failed to ${editingId ? "update" : "save"} expense`);
+      toast.error(error.response?.data?.message || `Failed to ${editingId ? "update" : "save"} expense(s)`);
     } finally {
       setSaving(false);
     }
@@ -331,15 +387,17 @@ const DailyCashExpenses = () => {
     setFormData({
       outlet_id: String(expense.outlet_id),
       date: String(expense.date).slice(0, 10),
-      expense_head_id: String(expense.expense_head_id),
-      amount: String(expense.amount),
-      payment_mode_id: String(expense.payment_mode_id),
-      paid_to: expense.paid_to || "",
-      description: expense.description || "",
       proof_attachment: expense.proof_attachment || null,
       proof_file: null,
-      raw_material_id: expense.raw_material_id ? String(expense.raw_material_id) : "",
-      material_qty: expense.material_qty !== undefined && expense.material_qty !== null ? String(expense.material_qty) : "",
+      items: [{
+        expense_head_id: String(expense.expense_head_id),
+        amount: String(expense.amount),
+        payment_mode_id: String(expense.payment_mode_id),
+        paid_to: expense.paid_to || "",
+        description: expense.description || "",
+        raw_material_id: expense.raw_material_id ? String(expense.raw_material_id) : "",
+        material_qty: expense.material_qty !== undefined && expense.material_qty !== null ? String(expense.material_qty) : "",
+      }],
     });
     setProofPreview(null);
     setShowForm(true);
@@ -627,92 +685,126 @@ const DailyCashExpenses = () => {
                     <input type="date" value={formData.date} onChange={(e) => updateField("date", e.target.value)} className={`h-11 w-full rounded-md border pl-10 pr-3 text-[14px] outline-none ${inputClass}`} required />
                   </div>
                 </div>
-                <div>
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Expense Category *</label>
-                  <select value={formData.expense_head_id} onChange={(e) => handleHeadChange(e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
-                    <option value="">Select Expense Category</option>
-                    {expenseHeads.map((h) => (
-                      <option key={h.id} value={h.id}>{h.expense_name}</option>
-                    ))}
-                  </select>
-                </div>
-                {selectedHeadIsRawMaterial && (
-                  <>
-                    <div>
-                      <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Raw Material *</label>
-                      <select value={formData.raw_material_id} onChange={(e) => updateField("raw_material_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
-                        <option value="">Select Raw Material</option>
-                        {rawMaterials.map((m) => (
-                          <option key={m.id} value={m.id}>{m.material_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Quantity *</label>
-                      <div className="flex items-center gap-2">
-                        <input type="number" step="0.001" min="0.001" value={formData.material_qty} onChange={(e) => updateField("material_qty", e.target.value)} placeholder="0.000" className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required />
-                        <span className={`whitespace-nowrap text-[13px] ${mutedClass}`}>{selectedRawMaterialUnitName}</span>
-                      </div>
-                    </div>
-                  </>
-                )}
-                <div>
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Amount *</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-[#A8AAAE]">₹</span>
-                    <input type="number" step="0.01" min="0.01" value={formData.amount} onChange={(e) => updateField("amount", e.target.value)} placeholder="0.00" className={`h-11 w-full rounded-md border pl-8 pr-3 text-[14px] outline-none ${inputClass}`} required />
-                  </div>
-                </div>
-                <div>
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Payment Mode *</label>
-                  <select value={formData.payment_mode_id} onChange={(e) => updateField("payment_mode_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
-                    <option value="">Select Payment Mode</option>
-                    {paymentModes.map((m) => (
-                      <option key={m.id} value={m.id}>{m.mode_name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Paid To</label>
-                  <input type="text" value={formData.paid_to} onChange={(e) => updateField("paid_to", e.target.value)} placeholder="Vendor / recipient name" className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} />
-                </div>
               </div>
             </div>
 
-            <div>
-              <h4 className={`mb-3 text-[14px] font-semibold uppercase tracking-wider ${mutedClass}`}>Proof & Description</h4>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <div className="sm:col-span-2 xl:col-span-2">
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Proof Attachment</label>
-                  <div className="flex items-center gap-2">
-                    <label className={`flex h-11 flex-1 cursor-pointer items-center gap-2 rounded-md border px-3 text-[14px] transition hover:opacity-80 ${inputClass}`}>
-                      <Upload size={17} className="text-[#A8AAAE]" />
-                      <span className="truncate">
-                        {formData.proof_file?.name || formData.proof_attachment?.split("/").pop() || "Choose File (JPG, PNG, WEBP, PDF up to 10 MB)"}
-                      </span>
-                      <input type="file" accept=".jpg,.jpeg,.png,.pdf,.webp" onChange={handleProofChange} className="hidden" />
-                    </label>
-                    {editingId && formData.proof_attachment && (
-                      <a href={getProofUrl(formData.proof_attachment)} target="_blank" rel="noopener noreferrer" className={`flex h-11 items-center gap-2 rounded-md border px-3 text-[13px] font-medium cursor-pointer ${cardClass}`}>
-                        <Eye size={16} /> View
-                      </a>
+            <div className="space-y-4">
+              {formData.items.map((item, index) => {
+                const itemIsRawMaterial = isHeadRawMaterial(item.expense_head_id);
+                return (
+                  <div key={index} className={`rounded-md border p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                    {formData.items.length > 1 && (
+                      <div className="mb-3 flex items-center justify-between">
+                        <span className={`text-[13px] font-semibold ${mainTextClass}`}>Item {index + 1}</span>
+                        {!editingId && (
+                          <button type="button" onClick={() => removeItemRow(index)} className="flex h-8 w-8 items-center justify-center rounded-md bg-[#FCEAEA] text-[#EA5455] hover:opacity-80" title="Remove item">
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
                     )}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Expense Category *</label>
+                        <select value={item.expense_head_id} onChange={(e) => handleHeadChange(index, e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                          <option value="">Select Expense Category</option>
+                          {expenseHeads.map((h) => (
+                            <option key={h.id} value={h.id}>{h.expense_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {itemIsRawMaterial && (
+                        <>
+                          <div>
+                            <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Raw Material *</label>
+                            <select value={item.raw_material_id} onChange={(e) => updateItemField(index, "raw_material_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                              <option value="">Select Raw Material</option>
+                              {rawMaterials.map((m) => (
+                                <option key={m.id} value={m.id}>{m.material_name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Quantity *</label>
+                            <div className="flex items-center gap-2">
+                              <input type="number" step="0.001" min="0.001" value={item.material_qty} onChange={(e) => updateItemField(index, "material_qty", e.target.value)} placeholder="0.000" className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required />
+                              <span className={`whitespace-nowrap text-[13px] ${mutedClass}`}>{getRawMaterialUnitName(item.raw_material_id)}</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      <div>
+                        <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Amount *</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-[#A8AAAE]">₹</span>
+                          <input type="number" step="0.01" min="0.01" value={item.amount} onChange={(e) => updateItemField(index, "amount", e.target.value)} placeholder="0.00" className={`h-11 w-full rounded-md border pl-8 pr-3 text-[14px] outline-none ${inputClass}`} required />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Payment Mode *</label>
+                        <select value={item.payment_mode_id} onChange={(e) => updateItemField(index, "payment_mode_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                          <option value="">Select Payment Mode</option>
+                          {paymentModes.map((m) => (
+                            <option key={m.id} value={m.id}>{m.mode_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Paid To</label>
+                        <input type="text" value={item.paid_to} onChange={(e) => updateItemField(index, "paid_to", e.target.value)} placeholder="Vendor / recipient name" className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} />
+                      </div>
+                      <div className="sm:col-span-2 xl:col-span-3">
+                        <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Description</label>
+                        <textarea value={item.description} onChange={(e) => updateItemField(index, "description", e.target.value)} placeholder="Enter expense reason, bill number, vendor name, manager remarks..." className={`min-h-[70px] w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`} />
+                      </div>
+                    </div>
                   </div>
-                  {proofPreview && (
-                    <img src={proofPreview} alt="Proof preview" className="mt-3 h-24 w-40 rounded-md border object-cover" />
+                );
+              })}
+
+              {!editingId && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button type="button" onClick={addItemRow} className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[13px] font-semibold ${cardClass}`}>
+                    <Plus size={16} /> Add Another Item
+                  </button>
+                  {formData.items.length > 1 && (
+                    <span className={`text-[13px] font-semibold ${mainTextClass}`}>Total: {formatINR(itemsTotal)} across {formData.items.length} items</span>
                   )}
                 </div>
-                <div className="sm:col-span-2 xl:col-span-3">
-                  <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Description</label>
-                  <textarea value={formData.description} onChange={(e) => updateField("description", e.target.value)} placeholder="Enter expense reason, bill number, vendor name, manager remarks..." className={`min-h-[80px] w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`} />
+              )}
+            </div>
+
+            {formData.items.length === 1 && (
+              <div>
+                <h4 className={`mb-3 text-[14px] font-semibold uppercase tracking-wider ${mutedClass}`}>Proof Attachment</h4>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="sm:col-span-2 xl:col-span-2">
+                    <div className="flex items-center gap-2">
+                      <label className={`flex h-11 flex-1 cursor-pointer items-center gap-2 rounded-md border px-3 text-[14px] transition hover:opacity-80 ${inputClass}`}>
+                        <Upload size={17} className="text-[#A8AAAE]" />
+                        <span className="truncate">
+                          {formData.proof_file?.name || formData.proof_attachment?.split("/").pop() || "Choose File (JPG, PNG, WEBP, PDF up to 10 MB)"}
+                        </span>
+                        <input type="file" accept=".jpg,.jpeg,.png,.pdf,.webp" onChange={handleProofChange} className="hidden" />
+                      </label>
+                      {editingId && formData.proof_attachment && (
+                        <a href={getProofUrl(formData.proof_attachment)} target="_blank" rel="noopener noreferrer" className={`flex h-11 items-center gap-2 rounded-md border px-3 text-[13px] font-medium cursor-pointer ${cardClass}`}>
+                          <Eye size={16} /> View
+                        </a>
+                      )}
+                    </div>
+                    {proofPreview && (
+                      <img src={proofPreview} alt="Proof preview" className="mt-3 h-24 w-40 rounded-md border object-cover" />
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="flex flex-wrap gap-3">
               <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-md px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70" style={{ backgroundColor: primaryColor }}>
                 {saving ? <Loader2 size={17} className="animate-spin" /> : <Check size={17} />}
-                {saving ? "Saving..." : editingId ? "Save Changes" : "Save Draft"}
+                {saving ? "Saving..." : editingId ? "Save Changes" : formData.items.length > 1 ? `Save ${formData.items.length} Drafts` : "Save Draft"}
               </button>
               {editingId && record && record.status !== "Approved" && record.status !== "Submitted" && can("can_submit") && (
                 <button type="button" onClick={() => handleSubmitExpense(record.id)} disabled={saving || actionLoadingId === record.id} className="flex items-center gap-2 rounded-md bg-[#E9F9EF] px-5 py-2.5 text-[14px] font-semibold text-[#28C76F]">
