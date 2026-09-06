@@ -15,6 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const emptyPurchaseItem = () => ({
   vendor_id: "", description: "", amount: "",
   paid_by: "Outlet", payment_mode_id: "", is_emergency: false, invoice_no: "", remarks: "",
+  category_head_id: "", raw_material_id: "", material_qty: "",
 });
 
 const emptyPurchase = () => ({
@@ -38,6 +39,9 @@ export default function VendorPurchases() {
   const [outlets, setOutlets] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [paymentModes, setPaymentModes] = useState([]);
+  const [expenseHeads, setExpenseHeads] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
+  const [units, setUnits] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,14 +65,20 @@ export default function VendorPurchases() {
 
   const fetchLookups = async () => {
     try {
-      const [o, v, pm] = await Promise.all([
+      const [o, v, pm, eh, rm, u] = await Promise.all([
         masterAPI.getOutlets(),
         outletVendorAPI.getVendors({ is_active: 1 }),
         masterAPI.getPaymentModes(),
+        masterAPI.getExpenseHeads({ is_active: 1 }),
+        masterAPI.getRawMaterials({ limit: 1000 }),
+        masterAPI.getUnits(),
       ]);
       setOutlets(o?.data?.data || []);
       setVendors(v?.data?.data || []);
       setPaymentModes(pm?.data?.data || []);
+      setExpenseHeads(Array.isArray(eh?.data?.data) ? eh.data.data : (eh?.data || []));
+      setRawMaterials(Array.isArray(rm?.data?.data) ? rm.data.data : (rm?.data || []));
+      setUnits(Array.isArray(u?.data?.data) ? u.data.data : (u?.data || []));
     } catch { /* non-fatal */ }
   };
 
@@ -116,6 +126,44 @@ export default function VendorPurchases() {
     items: f.items.length > 1 ? f.items.filter((_, i) => i !== index) : f.items,
   }));
 
+  const isHeadRawMaterial = (headId) => Boolean(expenseHeads.find((h) => Number(h.id) === Number(headId))?.is_raw_material_category);
+  const getRawMaterialUnitName = (rawMaterialId) => {
+    const material = rawMaterials.find((m) => Number(m.id) === Number(rawMaterialId));
+    if (!material) return "-";
+    const unit = units.find((u) => Number(u.id) === Number(material.unit_id));
+    return unit?.unit_name || "-";
+  };
+
+  const updateItemCategory = (index, headId) => {
+    const nextIsRawMaterial = isHeadRawMaterial(headId);
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((item, i) => (i === index ? {
+        ...item,
+        category_head_id: headId,
+        raw_material_id: nextIsRawMaterial ? item.raw_material_id : "",
+        material_qty: nextIsRawMaterial ? item.material_qty : "",
+        description: nextIsRawMaterial ? item.description : (item.raw_material_id ? "" : item.description),
+      } : item)),
+    }));
+  };
+
+  const updateItemRawMaterial = (index, field, value) => {
+    setForm((f) => ({
+      ...f,
+      items: f.items.map((item, i) => {
+        if (i !== index) return item;
+        const next = { ...item, [field]: value };
+        const material = rawMaterials.find((m) => Number(m.id) === Number(next.raw_material_id));
+        const unitName = getRawMaterialUnitName(next.raw_material_id);
+        next.description = material && next.material_qty
+          ? `${material.material_name} - ${next.material_qty}${unitName !== "-" ? unitName : ""}`
+          : (material ? material.material_name : "");
+        return next;
+      }),
+    }));
+  };
+
   const itemsTotal = useMemo(() => form.items.reduce((s, item) => s + Number(item.amount || 0), 0), [form.items]);
 
   const handleCreate = async (e) => {
@@ -128,8 +176,15 @@ export default function VendorPurchases() {
     for (let i = 0; i < form.items.length; i++) {
       const item = form.items[i];
       const label = form.items.length > 1 ? `Item ${i + 1}: ` : "";
-      if (!item.vendor_id || !item.description.trim()) {
-        toast.error(`${label}Vendor and description are required`);
+      if (!item.vendor_id) {
+        toast.error(`${label}Vendor is required`);
+        return;
+      }
+      if (isHeadRawMaterial(item.category_head_id)) {
+        if (!item.raw_material_id) { toast.error(`${label}Please select a raw material`); return; }
+        if (!item.material_qty || Number(item.material_qty) <= 0) { toast.error(`${label}Quantity must be greater than 0`); return; }
+      } else if (!item.description.trim()) {
+        toast.error(`${label}Description is required`);
         return;
       }
       if (!item.amount || Number(item.amount) <= 0) {
@@ -259,7 +314,9 @@ export default function VendorPurchases() {
           </div>
 
           <div className="space-y-3">
-            {form.items.map((item, index) => (
+            {form.items.map((item, index) => {
+              const itemIsRawMaterial = isHeadRawMaterial(item.category_head_id);
+              return (
               <div key={index} className={`rounded-md border p-3 ${borderCls}`}>
                 {form.items.length > 1 && (
                   <div className="mb-2 flex items-center justify-between">
@@ -281,9 +338,35 @@ export default function VendorPurchases() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-[13px] font-medium">Description *</label>
-                    <input value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="e.g. Milk 20L, Curd 5kg" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                    <label className="mb-1 block text-[13px] font-medium">Category</label>
+                    <select value={item.category_head_id} onChange={(e) => updateItemCategory(index, e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                      <option value="">No category</option>
+                      {expenseHeads.map((h) => <option key={h.id} value={h.id}>{h.expense_name}</option>)}
+                    </select>
                   </div>
+                  {itemIsRawMaterial ? (
+                    <>
+                      <div>
+                        <label className="mb-1 block text-[13px] font-medium">Raw Material *</label>
+                        <select value={item.raw_material_id} onChange={(e) => updateItemRawMaterial(index, "raw_material_id", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+                          <option value="">Select raw material</option>
+                          {rawMaterials.map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[13px] font-medium">Quantity *</label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" step="0.001" min="0.001" value={item.material_qty} onChange={(e) => updateItemRawMaterial(index, "material_qty", e.target.value)} placeholder="0.000" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                          <span className={`whitespace-nowrap text-[13px] ${mutedCls}`}>{getRawMaterialUnitName(item.raw_material_id)}</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="mb-1 block text-[13px] font-medium">Description *</label>
+                      <input value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="e.g. Milk 20L, Curd 5kg" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
+                    </div>
+                  )}
                   <div>
                     <label className="mb-1 block text-[13px] font-medium">Amount *</label>
                     <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(index, "amount", e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
@@ -318,7 +401,8 @@ export default function VendorPurchases() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
