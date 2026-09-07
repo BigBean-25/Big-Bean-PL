@@ -549,6 +549,7 @@ export const fixedCostsAPI = {
   createFixedCost: (data) => api.post("/fixed-costs", data),
   updateFixedCost: (id, data) => api.put(`/fixed-costs/${id}`, data),
   deleteFixedCost: (id) => api.delete(`/fixed-costs/${id}`),
+  verifyFixedCost: (id, action) => api.post(`/fixed-costs/${id}/verify`, { action }),
 };
 
 export const warehouseAPI = {

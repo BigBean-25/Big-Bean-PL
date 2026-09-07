@@ -1,9 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Plus, Trash2, Edit2, Loader2, Search, Wallet, Info, X, Check } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, Search, Wallet, Info, X, Check, Send, CheckCircle2, XCircle } from 'lucide-react';
 import { fixedCostsAPI, masterAPI } from '../../services/api';
 import useAuthStore from '../../store/authStore';
 import toast from 'react-hot-toast';
+
+const STATUS_STYLES = {
+  Draft: "bg-[#FFF4E5] text-[#FF9F43]",
+  Submitted: "bg-[#E6FAFD] text-[#00A6B7]",
+  Verified: "bg-[#E9F9EF] text-[#28C76F]",
+  Rejected: "bg-[#FEE9E9] text-[#EA5455]",
+};
+
+const StatusBadge = ({ status }) => (
+  <span className={`inline-flex rounded px-2.5 py-1 text-[11px] font-semibold ${STATUS_STYLES[status] || "bg-[#F3F2F7] text-[#6F6B7D]"}`}>
+    {status || "Draft"}
+  </span>
+);
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -40,6 +53,7 @@ const FixedCostsEntry = () => {
   const [editValues, setEditValues] = useState(emptyEntry());
   const [deletingId, setDeletingId] = useState(null);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [actioningId, setActioningId] = useState(null);
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -125,6 +139,17 @@ const FixedCostsEntry = () => {
     finally { setDeletingId(null); }
   };
 
+  const handleVerifyAction = async (id, action) => {
+    if (action === 'Rejected' && !window.confirm('Reject this fixed cost entry and send it back to Draft?')) return;
+    setActioningId(id);
+    try {
+      await fixedCostsAPI.verifyFixedCost(id, action);
+      toast.success(`Fixed cost entry ${action.toLowerCase()}`);
+      fetchEntries();
+    } catch (err) { toast.error(err.response?.data?.message || `Failed to mark entry as ${action.toLowerCase()}`); }
+    finally { setActioningId(null); }
+  };
+
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
       <div>
@@ -135,7 +160,7 @@ const FixedCostsEntry = () => {
       <div className={`flex items-start gap-3 rounded-md border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#FFF4E5]"}`} style={!isDark ? { borderColor: "#FFDCA8" } : undefined}>
         <Info size={18} className="mt-0.5 shrink-0 text-[#FF9F43]" />
         <p className={`text-[13px] ${isDark ? "text-[#D0D2D6]" : "text-[#5D596C]"}`}>
-          Fixed costs entered here are <span className="font-semibold">included in the Net Profit calculation</span> on the Monthly P&amp;L report for the same outlet/month. Entries can only be added, edited, or deleted before that month is finalized.
+          Fixed costs entered here are <span className="font-semibold">included in the Net Profit calculation</span> on the Monthly P&amp;L report only once <span className="font-semibold">Verified</span>. Submit an entry for review, then a second person must verify it before it affects the P&amp;L. Entries can only be added, edited, or deleted before that month is finalized.
         </p>
       </div>
 
@@ -216,13 +241,37 @@ const FixedCostsEntry = () => {
                         <Wallet size={16} />
                       </div>
                       <div>
-                        <p className={`text-[14px] font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{entry.category}</p>
+                        <div className="flex items-center gap-2">
+                          <p className={`text-[14px] font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{entry.category}</p>
+                          <StatusBadge status={entry.status} />
+                        </div>
                         {entry.remarks && <p className={`text-[12px] ${mutedCls}`}>{entry.remarks}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                       <span className={`text-[14px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{fmt(entry.amount)}</span>
-                      {perms.can_edit ? (
+
+                      {perms.can_verify && ['Draft', 'Rejected'].includes(entry.status || 'Draft') && (
+                        <button onClick={() => handleVerifyAction(entry.id, 'Submitted')} disabled={actioningId === entry.id}
+                          title="Submit for verification" className="text-[#00A6B7] disabled:opacity-50">
+                          {actioningId === entry.id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        </button>
+                      )}
+
+                      {perms.can_verify && entry.status === 'Submitted' && (
+                        <>
+                          <button onClick={() => handleVerifyAction(entry.id, 'Verified')} disabled={actioningId === entry.id}
+                            title="Verify" className="text-[#28C76F] disabled:opacity-50">
+                            {actioningId === entry.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                          </button>
+                          <button onClick={() => handleVerifyAction(entry.id, 'Rejected')} disabled={actioningId === entry.id}
+                            title="Reject" className="text-[#EA5455] disabled:opacity-50">
+                            <XCircle size={16} />
+                          </button>
+                        </>
+                      )}
+
+                      {perms.can_edit && entry.status !== 'Verified' ? (
                         <button onClick={() => startEdit(entry)} className={mutedCls}><Edit2 size={16} /></button>
                       ) : null}
                       {perms.can_delete ? (

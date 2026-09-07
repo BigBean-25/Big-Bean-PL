@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
-import { logAudit } from '../utils/logger.js';
+import { logAudit, logApproval } from '../utils/logger.js';
+import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
 const assertMonthEditable = async (outletId, month, year) => {
   const rows = await query(
@@ -96,6 +97,9 @@ export const updateFixedCost = async (req, res) => {
     }
 
     const record = existing[0];
+    if (record.status === 'Verified') {
+      return res.status(400).json({ success: false, message: 'Cannot edit a verified fixed cost entry' });
+    }
     await assertMonthEditable(record.outlet_id, record.month, record.year);
 
     const updateData = {};
@@ -139,5 +143,84 @@ export const deleteFixedCost = async (req, res) => {
   } catch (error) {
     console.error('Delete fixed cost error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error deleting fixed cost entry' });
+  }
+};
+
+// Single combined submit/verify/reject endpoint, modeled on utility_bills'
+// verifyUtilityBill: a status-transition guard per action plus a
+// self-verification block that only applies to the Verified transition -
+// blocking it on Submitted too would leave a lone Accountant (the only role
+// with fixed_costs.can_verify) unable to ever submit their own draft.
+export const verifyFixedCost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action } = req.body;
+
+    if (!['Submitted', 'Verified', 'Rejected'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Invalid action' });
+    }
+
+    const existing = await query('SELECT * FROM outlet_fixed_costs WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'Fixed cost entry not found' });
+    }
+    const record = existing[0];
+
+    const allowedFromStatus = {
+      Submitted: ['Draft', 'Rejected'],
+      Verified: ['Submitted'],
+      Rejected: ['Submitted']
+    }[action];
+
+    if (!allowedFromStatus.includes(record.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Fixed cost entry must be ${allowedFromStatus.join(' or ')} before it can be marked ${action}`
+      });
+    }
+    if (action === 'Verified' && Number(record.created_by) === Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Users cannot verify their own fixed cost entry' });
+    }
+
+    if (action === 'Submitted') {
+      await query(`UPDATE outlet_fixed_costs SET status = 'Submitted', updated_at = NOW() WHERE id = ?`, [id]);
+    } else {
+      await query(
+        `UPDATE outlet_fixed_costs SET status = ?, verified_by = ?, verified_at = NOW() WHERE id = ?`,
+        [action, req.user.id, id]
+      );
+    }
+
+    await logApproval(req.user.id, 'outlet_fixed_costs', id, action, null);
+    await logAudit(req.user.id, action.toUpperCase(), 'outlet_fixed_costs', id, record, { status: action }, `${action} fixed cost entry`);
+
+    if (action === 'Submitted') {
+      await notifyAdmins({
+        actorId: req.user.id,
+        outletId: record.outlet_id,
+        type: 'info',
+        title: 'Fixed Cost Submitted',
+        message: `A fixed cost entry (${record.category}) has been submitted for ${record.month}/${record.year}.`,
+        referenceType: 'fixed_cost',
+        referenceId: id,
+        navPath: '/settings/fixed-costs'
+      });
+    } else {
+      await notifyUser({
+        userId: record.created_by,
+        outletId: record.outlet_id,
+        type: action === 'Verified' ? 'success' : 'warning',
+        title: `Fixed Cost ${action}`,
+        message: `Fixed cost entry (${record.category}) for ${record.month}/${record.year} has been ${action.toLowerCase()}.`,
+        referenceType: 'fixed_cost',
+        referenceId: id,
+        navPath: '/settings/fixed-costs'
+      });
+    }
+
+    res.status(200).json({ success: true, message: `Fixed cost entry ${action.toLowerCase()} successfully` });
+  } catch (error) {
+    console.error('Verify fixed cost error:', error);
+    res.status(500).json({ success: false, message: 'Error updating fixed cost entry status' });
   }
 };

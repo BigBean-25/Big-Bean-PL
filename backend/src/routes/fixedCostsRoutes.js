@@ -5,7 +5,8 @@ import {
   getFixedCosts,
   createFixedCost,
   updateFixedCost,
-  deleteFixedCost
+  deleteFixedCost,
+  verifyFixedCost
 } from '../controllers/fixedCostsController.js';
 
 const router = express.Router();
@@ -14,5 +15,6 @@ router.get('/', protect, applyOutletScope, checkPermission('fixed_costs', 'can_v
 router.post('/', protect, applyOutletScope, checkPermission('fixed_costs', 'can_create'), createFixedCost);
 router.put('/:id', protect, applyOutletScope, checkPermission('fixed_costs', 'can_edit'), loadScopedRecord('outlet_fixed_costs'), updateFixedCost);
 router.delete('/:id', protect, applyOutletScope, checkPermission('fixed_costs', 'can_delete'), loadScopedRecord('outlet_fixed_costs'), deleteFixedCost);
+router.post('/:id/verify', protect, applyOutletScope, checkPermission('fixed_costs', 'can_verify'), loadScopedRecord('outlet_fixed_costs'), verifyFixedCost);
 
 export default router;

@@ -158,10 +158,16 @@ export const getOutletPL = async ({ outletId, month, year }) => {
     [...salaryOutlet.params, month, year]
   );
 
+  // outlet_fixed_costs now has the same Draft/Submitted/Verified/Rejected
+  // workflow as utility_bills/employee_salary_monthly (both filtered to
+  // Verified above) - this was missing that filter, so an unreviewed
+  // Draft/Submitted fixed cost figure flowed straight into the P&L before
+  // fixed costs' own verify step (verifyFixedCost) ever ran, letting anyone
+  // with only can_create change a location's reported Net Profit unchecked.
   const fixedCosts = await query(
     `SELECT COALESCE(SUM(amount), 0) as total_fixed_costs
      FROM outlet_fixed_costs
-     WHERE ${fixedCostOutlet.sql} AND month = ? AND year = ?`,
+     WHERE ${fixedCostOutlet.sql} AND month = ? AND year = ? AND status = 'Verified'`,
     [...fixedCostOutlet.params, month, year]
   );
 
