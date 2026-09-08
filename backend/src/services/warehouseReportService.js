@@ -353,6 +353,34 @@ export const getWastageReport = async (filters) => {
   return query(sql, params);
 };
 
+// Same source rows as getWastageReport, grouped by raw material category
+// instead of listed per line item - kept as a separate function rather than
+// adding a `groupBy` flag to getWastageReport, since that one is also used
+// unmodified as one of the 27 sheets in the full warehouse report export.
+export const getWastageByCategoryReport = async (filters) => {
+  const { location_id, from_date, to_date } = filters;
+  let sql = `SELECT COALESCE(c.category_name, 'Uncategorized') as category_name,
+                    COALESCE(SUM(wwi.qty), 0) as total_qty,
+                    COALESCE(SUM(wwi.value), 0) as total_value,
+                    COUNT(DISTINCT ww.id) as wastage_count
+             FROM warehouse_wastage ww
+             INNER JOIN warehouse_wastage_items wwi ON wwi.warehouse_wastage_id = ww.id
+             LEFT JOIN raw_materials rm ON rm.id = wwi.raw_material_id
+             LEFT JOIN categories c ON c.id = rm.category_id
+             WHERE ww.status IN ('Posted','Approved')`;
+  const params = [];
+  if (location_id) { sql += ' AND ww.location_id = ?'; params.push(location_id); }
+  if (from_date && to_date) { sql += ' AND ww.wastage_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
+  sql += ' GROUP BY COALESCE(c.category_name, \'Uncategorized\') ORDER BY total_value DESC';
+  const rows = await query(sql, params);
+  return rows.map((r) => ({
+    category_name: r.category_name,
+    total_qty: num(r.total_qty),
+    total_value: num(r.total_value),
+    wastage_count: Number(r.wastage_count || 0),
+  }));
+};
+
 export const getAdjustmentReport = async (filters) => {
   const { location_id, from_date, to_date } = filters;
   let sql = `SELECT sa.id, sa.adjustment_no, sa.adjustment_date, sa.status, l.location_name,

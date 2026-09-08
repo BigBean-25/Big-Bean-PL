@@ -720,4 +720,11 @@ export const outletVendorAPI = {
   createPayment: (data) => api.post("/outlet-vendors/payments", data),
 };
 
+export const outletDashboardAPI = {
+  getSummary: (params) => api.get("/outlet-dashboard/summary", { params }),
+  getSalesBreakdown: (params) => api.get("/outlet-dashboard/sales-breakdown", { params }),
+  getTarget: (params) => api.get("/outlet-dashboard/target", { params }),
+  setTarget: (data) => api.post("/outlet-dashboard/target", data),
+};
+
 export default api;

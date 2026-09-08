@@ -26,6 +26,9 @@ import Dashboard from "./pages/Dashboard";
 import Outlets from "./pages/masters/Outlets";
 import MastersHub from "./pages/masters/MastersHub";
 import Categories from "./pages/masters/Categories";
+import OutletDashboardOverview from "./pages/outlet-dashboard/OutletDashboardOverview";
+import OutletSalesBreakdown from "./pages/outlet-dashboard/OutletSalesBreakdown";
+import WastageByCategory from "./pages/outlet-dashboard/WastageByCategory";
 import Suppliers from "./pages/masters/Suppliers";
 import OutletVendors from "./pages/masters/OutletVendors";
 import VendorPurchases from "./pages/daily-accounts/VendorPurchases";
@@ -282,6 +285,12 @@ function App() {
             <Route path="day-closing" element={<DayClosing />} />
             <Route path="checklist" element={<DayClosingChecklist />} />
             <Route path="vendor-purchases" element={<VendorPurchases />} />
+          </Route>
+
+          <Route path="outlet-dashboard">
+            <Route index element={<OutletDashboardOverview />} />
+            <Route path="sales" element={<OutletSalesBreakdown />} />
+            <Route path="wastage-by-category" element={<WastageByCategory />} />
           </Route>
 
           <Route path="payroll">

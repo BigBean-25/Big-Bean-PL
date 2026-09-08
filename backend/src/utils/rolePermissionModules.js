@@ -47,6 +47,7 @@ export const ROLE_PERMISSION_MODULES = [
   { module_key: 'reports', module_name: 'Reports' },
   { module_key: 'monthly_pl', module_name: 'Monthly P&L' },
   { module_key: 'fixed_costs', module_name: 'Fixed Costs' },
+  { module_key: 'sales_target', module_name: 'Sales Target' },
   { module_key: 'warehouse_dashboard', module_name: 'Warehouse Dashboard' },
   { module_key: 'warehouse_stock', module_name: 'Warehouse Current Stock' },
   { module_key: 'warehouse_ledger', module_name: 'Warehouse Stock Ledger' },
@@ -140,6 +141,7 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     setModules(matrix, SALES_MODULES, { can_view: 1, can_verify: 1, can_export: 1 });
     setModules(matrix, ['item_sales_tax'], { can_view: 1, can_create: 1, can_upload: 1, can_export: 1, can_delete: 1 });
     setModules(matrix, MONTH_END_MODULES, { can_view: 1, can_create: 1, can_edit: 1, can_verify: 1, can_export: 1 });
+    setModules(matrix, ['sales_target'], { can_view: 1, can_export: 1 });
     setModules(matrix, PAYOUT_MODULES, { can_view: 1, can_edit: 1, can_export: 1 });
     setModules(matrix, ['recipe_list'], viewExport());
     setModules(matrix, REPORT_MODULES, { can_view: 1, can_lock: 1, can_export: 1 });
@@ -206,6 +208,7 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
   // warehouse current stock so the request reflects what's actually available.
   if (role === 'Outlet Manager' || role === 'Outlet Admin') {
     setModules(matrix, ['dashboard', 'daily_cashbook', 'daily_expenses', 'day_closing', 'daily_checklist', 'bank_deposits'], { can_view: 1, can_create: 1, can_edit: 1, can_submit: 1 });
+    setModules(matrix, ['sales_target'], { can_view: 1, can_create: 1, can_edit: 1 });
     setModules(matrix, MONTH_END_MODULES, { can_view: 1, can_export: 1 });
     setModules(matrix, ['reports'], { can_view: 1, can_export: 1 });
     setModules(matrix, STOCK_PURCHASE_MODULES, { can_view: 1, can_upload: 1, can_export: 1 });

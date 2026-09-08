@@ -936,6 +936,7 @@ router.get('/reports/:type', checkPermission('warehouse_reports', 'can_view'), a
       'physical-count': reportService.getPhysicalCountReport,
       'variance': reportService.getVarianceReport,
       'wastage': reportService.getWastageReport,
+      'wastage-by-category': reportService.getWastageByCategoryReport,
       'adjustment': reportService.getAdjustmentReport,
       'movement': reportService.getMaterialMovementReport,
       'trend': reportService.getMovementTrend,

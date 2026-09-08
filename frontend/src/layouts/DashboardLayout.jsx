@@ -167,6 +167,7 @@ const LANGUAGES = {
   en: {
     name: "English",
     dashboard: "Dashboard",
+    outletDashboard: "Outlet Dashboard",
     users: "User Management",
     masters: "Masters",
     outlets: "Outlets",
@@ -610,6 +611,45 @@ const DashboardLayout = () => {
         show: canView("dashboard", legacyCanView("dashboard", true)),
       },
       {
+        key: "outletDashboard",
+        title: t.outletDashboard,
+        icon: LayoutDashboard,
+        section: "Overview",
+        show: canView("sales_target") || canView("dashboard", legacyCanView("dashboard", true)),
+        // Consolidated, outlet-facing landing menu. Most sub-items just deep
+        // link into pages that already live elsewhere in the sidebar (Daily
+        // Accounts, Sales, Stock, Masters, Reports) - only the "Dashboard"
+        // and "Sales" group's first item and the "Wastage" item are new
+        // pages. "Vivin Store" / "Big Bean Bake House" are outlet-facing
+        // display names for the existing Warehouse PO/GRN flow and the
+        // existing Central Kitchen (already labeled "Bakehouse") Request/
+        // Receive flow, respectively - no new backend entities.
+        submenu: [
+          ...(canView("sales_target") ? [{ title: "Sales Overview", path: "/outlet-dashboard", group: "Dashboard" }] : []),
+          ...(canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) ? [{ title: t.cashbook, path: "/daily-accounts/cashbook", group: "Daily Accounts" }] : []),
+          ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: t.expenses, path: "/daily-accounts/expenses", group: "Daily Accounts" }] : []),
+          ...(canView("bank_deposits", false) ? [{ title: t.bankDeposits, path: "/daily-accounts/bank-deposits", group: "Daily Accounts" }] : []),
+          ...(canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) ? [{ title: t.dayClosing, path: "/daily-accounts/day-closing", group: "Daily Accounts" }] : []),
+          ...(canView("daily_checklist", legacyCanView("daily_checklist", false)) ? [{ title: t.checklist, path: "/daily-accounts/checklist", group: "Daily Accounts" }] : []),
+          ...(canView("sales_target") ? [{ title: "Sales Breakdown", path: "/outlet-dashboard/sales", group: "Sales" }] : []),
+          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload", group: "Sales" }] : []),
+          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload", group: "Sales" }] : []),
+          ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: "Cash Purchase", path: "/daily-accounts/expenses", group: "Purchase" }] : []),
+          ...(canView("warehouse_purchase_orders") ? [{ title: "Vivin Store - Purchase Order", path: "/warehouse/purchase-orders", group: "Purchase" }] : []),
+          ...(canView("grn") ? [{ title: "Vivin Store - Goods Received", path: "/warehouse/grn", group: "Purchase" }] : []),
+          ...(canView("production_requests") ? [{ title: "Big Bean Bake House - Request", path: "/central-kitchen/requests", group: "Purchase" }] : []),
+          ...(canView("production_dispatch") ? [{ title: "Big Bean Bake House - Receive", path: "/central-kitchen-receive", group: "Purchase" }] : []),
+          ...(canView("outlet_vendors") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases", group: "Purchase" }] : []),
+          ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock", group: "Stock" }] : []),
+          ...(canView("closing_stock", legacyCanView("closing_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.closingStock, path: "/stock/closing-stock", group: "Stock" }] : []),
+          ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials", group: "Master" }] : []),
+          ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories", group: "Master" }] : []),
+          ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers", group: "Master" }] : []),
+          ...(canView("warehouse_reports") ? [{ title: "Wastage - Category Wise", path: "/outlet-dashboard/wastage-by-category", group: "Wastage" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "All Reports", path: "/reports", group: "Reports" }] : []),
+        ],
+      },
+      {
         key: "users",
         title: "User Management",
         icon: Users,
@@ -748,23 +788,28 @@ const DashboardLayout = () => {
         icon: Package,
         section: "Inventory & Production",
         show: canView("warehouse_dashboard") || canView("warehouse_stock") || canView("grn") || canView("warehouse_requisitions") || canView("warehouse_transfers"),
+        // Each entry carries a `group` label so the submenu renders as
+        // labeled sub-sections (Overview / Procurement / Inventory /
+        // Reports & Settings) instead of one flat 14-item list - grouping is
+        // purely a rendering concern (see the submenu render block below),
+        // the path/permission wiring underneath is unchanged.
         submenu: [
-          ...(canView("warehouse_dashboard") ? [{ title: t.warehouseDashboard, path: "/warehouse/dashboard", icon: LayoutDashboard }] : []),
-          ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock", icon: Package }] : []),
-          ...(canView("grn") ? [{ title: t.warehouseGRN, path: "/warehouse/grn", icon: ClipboardCheck }] : []),
-          ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger", icon: BookOpen }] : []),
-          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList }] : []),
-          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft }] : []),
-          ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry", icon: Scale }] : []),
-          ...(canView("warehouse_purchase_returns") ? [{ title: t.warehousePurchaseReturns, path: "/warehouse/purchase-returns", icon: Truck }] : []),
-          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale }] : []),
-          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal }] : []),
-          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2 }] : []),
-          ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders", icon: FileText }] : []),
-          ...(canView("warehouse_supplier_history") ? [{ title: t.warehouseSupplierHistory, path: "/warehouse/supplier-history", icon: TrendingUp }] : []),
-          ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder", icon: AlertTriangle }] : []),
-          ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen }] : []),
-          ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings }] : []),
+          ...(canView("warehouse_dashboard") ? [{ title: t.warehouseDashboard, path: "/warehouse/dashboard", icon: LayoutDashboard, group: "Overview" }] : []),
+          ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders", icon: FileText, group: "Procurement" }] : []),
+          ...(canView("grn") ? [{ title: t.warehouseGRN, path: "/warehouse/grn", icon: ClipboardCheck, group: "Procurement" }] : []),
+          ...(canView("warehouse_purchase_returns") ? [{ title: t.warehousePurchaseReturns, path: "/warehouse/purchase-returns", icon: Truck, group: "Procurement" }] : []),
+          ...(canView("warehouse_supplier_history") ? [{ title: t.warehouseSupplierHistory, path: "/warehouse/supplier-history", icon: TrendingUp, group: "Procurement" }] : []),
+          ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder", icon: AlertTriangle, group: "Procurement" }] : []),
+          ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock", icon: Package, group: "Inventory" }] : []),
+          ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger", icon: BookOpen, group: "Inventory" }] : []),
+          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList, group: "Inventory" }] : []),
+          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft, group: "Inventory" }] : []),
+          ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry", icon: Scale, group: "Inventory" }] : []),
+          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale, group: "Inventory" }] : []),
+          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal, group: "Inventory" }] : []),
+          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Inventory" }] : []),
+          ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen, group: "Reports & Settings" }] : []),
+          ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings, group: "Reports & Settings" }] : []),
         ],
       },
       {
@@ -841,6 +886,9 @@ const DashboardLayout = () => {
 
   const routeModuleMap = {
     "/": "dashboard",
+    "/outlet-dashboard": "sales_target",
+    "/outlet-dashboard/sales": "sales_target",
+    "/outlet-dashboard/wastage-by-category": "warehouse_reports",
     "/users": "users",
     "/role-access": "role_access",
     "/masters/outlets": "outlets",
@@ -1961,10 +2009,24 @@ const DashboardLayout = () => {
                           className="overflow-hidden"
                         >
                           <div className="mt-1 space-y-1 pl-3">
-                            {item.submenu.map((sub) => {
+                            {(() => {
+                              let lastSubGroup = null;
+                              return item.submenu.flatMap((sub) => {
                               const subActive = isActive(sub.path);
+                              const showGroupHeader = sub.group && sub.group !== lastSubGroup;
+                              if (sub.group) lastSubGroup = sub.group;
+                              const groupHeader = showGroupHeader ? (
+                                <div
+                                  key={`subgroup-${sub.group}`}
+                                  className={`px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider first:pt-0 ${
+                                    effectiveSidebarDark ? "text-[#565B7D]" : "text-[#C4C2CC]"
+                                  }`}
+                                >
+                                  {sub.group}
+                                </div>
+                              ) : null;
 
-                              return (
+                              return [groupHeader, (
                                 <motion.button
                                   key={sub.path}
                                   type="button"
@@ -2000,8 +2062,9 @@ const DashboardLayout = () => {
                                   )}
                                   <span className="relative z-10 truncate">{sub.title}</span>
                                 </motion.button>
-                              );
-                            })}
+                              )].filter(Boolean);
+                              });
+                            })()}
                           </div>
                         </motion.div>
                       )}
