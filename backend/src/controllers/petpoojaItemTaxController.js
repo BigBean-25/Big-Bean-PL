@@ -274,13 +274,21 @@ export const deleteItemTaxUpload = async (req, res) => {
   let connection = null;
   try {
     const { id } = req.params;
-    const uploads = await query('SELECT id, outlet_id, file_path FROM petpooja_item_tax_uploads WHERE id = ?', [id]);
+    const uploads = await query(
+      `SELECT id, outlet_id, file_path,
+              DATE_FORMAT(upload_date_from, '%Y-%m-%d') AS upload_date_from,
+              DATE_FORMAT(upload_date_to, '%Y-%m-%d') AS upload_date_to
+       FROM petpooja_item_tax_uploads WHERE id = ?`,
+      [id]
+    );
     if (uploads.length === 0) return res.status(404).json({ success: false, message: 'Upload not found' });
 
     const outletScope = req.outletScope;
     if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(uploads[0].outlet_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
     }
+
+    await assertDateRangeEditable(uploads[0].outlet_id, uploads[0].upload_date_from, uploads[0].upload_date_to, 'An item tax upload');
 
     connection = await getConnection();
     await connection.beginTransaction();
@@ -305,6 +313,6 @@ export const deleteItemTaxUpload = async (req, res) => {
       try { connection.release(); } catch {}
     }
     console.error('Delete item tax upload error:', error);
-    res.status(500).json({ success: false, message: 'Error deleting item tax upload' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error deleting item tax upload' });
   }
 };
