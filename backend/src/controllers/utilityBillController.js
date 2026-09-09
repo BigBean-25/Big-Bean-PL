@@ -227,6 +227,15 @@ export const deleteUtilityBill = async (req, res) => {
       });
     }
 
+    if (existing[0].status === 'Verified') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete verified utility bill record'
+      });
+    }
+
+    await assertMonthEditable(existing[0].outlet_id, existing[0].month, existing[0].year, 'A utility bill');
+
     await query('DELETE FROM utility_bills WHERE id = ?', [id]);
 
     await logAudit(req.user.id, 'DELETE', 'utility_bills', id, existing[0], null, 'Deleted utility bill record');
@@ -237,6 +246,9 @@ export const deleteUtilityBill = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete utility bill error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error deleting utility bill record'
