@@ -202,6 +202,22 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: contactError });
     }
 
+    // updateUser blocks a non-Super-Admin/Developer from reassigning an
+    // existing user to a privileged role, but createUser had no equivalent
+    // check at all - anyone with users.can_create (e.g. Technical Admin,
+    // onboarding regular staff) could sidestep that entirely by just
+    // creating a brand-new user with role_id set to Super Admin instead of
+    // editing one into that role.
+    if (role_id && !ROLE_REASSIGNMENT_ROLES.includes(req.user.role_name)) {
+      const [targetRole] = await query('SELECT role_name FROM roles WHERE id = ?', [role_id]);
+      if (targetRole && ROLE_REASSIGNMENT_ROLES.includes(targetRole.role_name)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only Super Admin or Developer can create a user with this role'
+        });
+      }
+    }
+
     // Check if email already exists
     const existing = await query('SELECT id FROM users WHERE email = ?', [email]);
     if (existing.length > 0) {
@@ -410,6 +426,22 @@ export const toggleUserStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Same outlet-scope check updateUser applies - without it, an
+    // outlet-locked caller with users.can_edit could activate/deactivate any
+    // user system-wide via this endpoint, not just their own outlet's staff.
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      const targetOutletRows = await query('SELECT outlet_id FROM user_outlets WHERE user_id = ?', [userId]);
+      const targetOutletIds = targetOutletRows.map((r) => Number(r.outlet_id));
+      const sharesOutlet = targetOutletIds.some((oid) => callerOutletIds.includes(oid));
+      if (!sharesOutlet) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only manage users assigned to your own outlet'
+        });
+      }
+    }
+
     const next = Number(is_active) === 1 ? 1 : 0;
 
     await query('UPDATE users SET is_active = ?, updated_at = NOW() WHERE id = ?', [next, userId]);
@@ -448,6 +480,22 @@ export const deleteUser = async (req, res) => {
         success: false,
         message: 'You cannot delete or deactivate your own account'
       });
+    }
+
+    // Same outlet-scope check updateUser applies - without it, an
+    // outlet-locked caller with users.can_delete could delete any user
+    // system-wide via this endpoint, not just their own outlet's staff.
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      const targetOutletRows = await query('SELECT outlet_id FROM user_outlets WHERE user_id = ?', [userId]);
+      const targetOutletIds = targetOutletRows.map((r) => Number(r.outlet_id));
+      const sharesOutlet = targetOutletIds.some((oid) => callerOutletIds.includes(oid));
+      if (!sharesOutlet) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only manage users assigned to your own outlet'
+        });
+      }
     }
 
     // Check for foreign-key references before deleting
@@ -531,6 +579,24 @@ export const assignUserToOutlet = async (req, res) => {
         success: false,
         message: 'User not found'
       });
+    }
+
+    // Same outlet-scope check updateUser applies to the target user - without
+    // it, an outlet-locked caller could pull ANY user (even one they have no
+    // access to) into their own outlet by wiping that user's existing
+    // assignments below and reassigning them, regardless of which outlet
+    // that user was actually in before.
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const callerOutletIds = (req.user.outlet_ids || []).map((oid) => Number(oid));
+      const targetOutletRows = await query('SELECT outlet_id FROM user_outlets WHERE user_id = ?', [id]);
+      const targetOutletIds = targetOutletRows.map((r) => Number(r.outlet_id));
+      const sharesOutlet = targetOutletIds.some((oid) => callerOutletIds.includes(oid));
+      if (!sharesOutlet) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only manage users assigned to your own outlet'
+        });
+      }
     }
 
     let nextOutletIds = outlet_ids || [];
