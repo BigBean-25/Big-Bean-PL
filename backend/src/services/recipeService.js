@@ -312,7 +312,7 @@ export const createNewVersion = async (existingRecipeId, userId) => {
   const result = await query(
     `INSERT INTO recipes (
       menu_item_id, output_raw_material_id, recipe_name, recipe_code, recipe_category, recipe_type,
-      for_outlet_id, portion, yield_qty, yield_unit_id, serving_size, serving_unit_id,
+      for_outlet_id, \`portion\`, yield_qty, yield_unit_id, serving_size, serving_unit_id,
       prep_time, cooking_time, finishing_time, effective_from, effective_to, status,
       version_no, notes, created_by, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,

@@ -294,7 +294,7 @@ router.post('/', protect, applyOutletScope, checkPermission('add_recipe', 'can_c
       const [recipesResult] = await connection.execute(
         `INSERT INTO recipes (
           menu_item_id, output_raw_material_id, recipe_name, recipe_code, recipe_category, recipe_type,
-          for_outlet_id, portion, yield_qty, yield_unit_id, serving_size, serving_unit_id,
+          for_outlet_id, \`portion\`, yield_qty, yield_unit_id, serving_size, serving_unit_id,
           prep_time, cooking_time, finishing_time, effective_from, effective_to, status,
           version_no, notes, created_by, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
@@ -342,16 +342,36 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
     if (!isEditableStatus(existing.status)) return res.status(400).json({ success: false, message: `Cannot edit recipe with status "${existing.status}"` });
 
     const { menu_item_id, recipe_name, recipe_code, recipe_category, recipe_type, for_outlet_id, portion, yield_qty, yield_unit_id, serving_size, serving_unit_id, prep_time, cooking_time, finishing_time, effective_from, effective_to, status, notes, items } = b;
+    // recipe_type/output_raw_material_id are fixed at creation (the UPDATE
+    // below never touches either column) - a recipe's fundamental identity
+    // (what it produces) doesn't change on edit, only its ingredients/timing/etc.
+    const type = existing.recipe_type;
+    const isDirect = type === 'Direct';
 
-    if (!menu_item_id || !recipe_name) {
-      return res.status(400).json({ success: false, message: 'Menu item and recipe name are required' });
+    if (!recipe_name) {
+      return res.status(400).json({ success: false, message: 'Recipe name is required' });
     }
 
     const itemError = validateRecipeItems(items);
     if (itemError) return res.status(400).json({ success: false, message: itemError });
 
-    const menuItem = (await query('SELECT is_active FROM menu_items WHERE id = ?', [menu_item_id]))[0];
-    if (!menuItem) return res.status(400).json({ success: false, message: 'Menu item not found' });
+    // This used to unconditionally require menu_item_id and look it up in
+    // menu_items - correct for Direct recipes, but a Batch/Semi-Finished/
+    // Production recipe legitimately has menu_item_id = null and
+    // output_raw_material_id set instead (see POST / above), so every edit
+    // of a non-Direct recipe was rejected with "Menu item and recipe name
+    // are required" before it ever reached the UPDATE.
+    let activatableRecord = null;
+    if (isDirect) {
+      if (!menu_item_id) return res.status(400).json({ success: false, message: 'Menu item is required for Direct recipes' });
+      activatableRecord = (await query('SELECT is_active FROM menu_items WHERE id = ?', [menu_item_id]))[0];
+      if (!activatableRecord) return res.status(400).json({ success: false, message: 'Menu item not found' });
+    } else {
+      if (num(yield_qty) <= 0) return res.status(400).json({ success: false, message: 'Yield quantity must be greater than 0' });
+      if (!yield_unit_id) return res.status(400).json({ success: false, message: 'Yield UOM is required' });
+      activatableRecord = (await query('SELECT is_active FROM raw_materials WHERE id = ?', [existing.output_raw_material_id]))[0];
+      if (!activatableRecord) return res.status(400).json({ success: false, message: 'Output material not found' });
+    }
 
     if (String(for_outlet_id) === 'all') {
       return res.status(400).json({ success: false, message: 'Invalid outlet selection' });
@@ -368,8 +388,8 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
     const activeTo = effective_to !== undefined ? effective_to : existing.effective_to;
     const activeStatus = status || existing.status;
 
-    if (activeStatus === 'Active' && !menuItem.is_active) {
-      return res.status(400).json({ success: false, message: 'Cannot activate a recipe for an inactive menu item' });
+    if (activeStatus === 'Active' && !activatableRecord.is_active) {
+      return res.status(400).json({ success: false, message: isDirect ? 'Cannot activate a recipe for an inactive menu item' : 'Cannot activate a recipe for an inactive output material' });
     }
 
     if (activeStatus === 'Active') {
@@ -380,9 +400,14 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
       // recipes (resolveActiveRecipe silently picks one via LIMIT 1, hiding
       // the other). Use the same true interval-overlap check POST / and
       // /:id/activate already use below, for consistency.
+      // output_raw_material_id was hardcoded to null here, and menu_item_id
+      // is also null for a non-Direct recipe - together that made isMenu/
+      // isOutput both 0 in findOverlappingEffective's WHERE clause, so the
+      // overlap check silently matched nothing and never fired for any
+      // non-Direct recipe.
       const conflict = await findOverlappingEffective({
-        menu_item_id,
-        output_raw_material_id: null,
+        menu_item_id: isDirect ? menu_item_id : null,
+        output_raw_material_id: isDirect ? null : existing.output_raw_material_id,
         for_outlet_id: for_outlet_id || null,
         effective_from: activeFrom,
         effective_to: activeTo,
@@ -390,6 +415,23 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
       });
       if (conflict) {
         return res.status(409).json({ success: false, message: 'Another recipe version is already effective for this menu item, outlet and date range. Deactivate it first.' });
+      }
+
+      // Same check POST / runs before activating a brand-new recipe - without
+      // it here, editing an existing Draft recipe's ingredients to include a
+      // circular BOM dependency and activating it in the same PUT bypassed
+      // the guard entirely, and the recursive cost resolution in
+      // getStandardOutputCost/getRecipeItems has no cycle detection of its
+      // own, so it would recurse without terminating the first time anyone
+      // views this recipe's cost.
+      const circular = await validateNoCircularDependency(
+        isDirect ? null : existing.output_raw_material_id,
+        for_outlet_id || null,
+        items.map((it) => it.raw_material_id),
+        activeFrom
+      );
+      if (!circular) {
+        return res.status(400).json({ success: false, message: 'Circular SOP dependency detected.' });
       }
     }
 
@@ -402,7 +444,7 @@ router.put('/:id', protect, applyOutletScope, checkPermission('add_recipe', 'can
       await connection.execute(
         `UPDATE recipes SET
           menu_item_id = ?, recipe_name = ?, recipe_code = ?, recipe_category = ?, recipe_type = ?,
-          for_outlet_id = ?, portion = ?, yield_qty = ?, yield_unit_id = ?, serving_size = ?, serving_unit_id = ?,
+          for_outlet_id = ?, \`portion\` = ?, yield_qty = ?, yield_unit_id = ?, serving_size = ?, serving_unit_id = ?,
           prep_time = ?, cooking_time = ?, finishing_time = ?, effective_from = ?, effective_to = ?, status = ?,
           notes = ?, updated_by = ?, updated_at = NOW()
         WHERE id = ?`,
@@ -466,6 +508,20 @@ router.post('/:id/activate', protect, applyOutletScope, checkPermission('add_rec
     });
     if (overlap) {
       return res.status(409).json({ success: false, message: 'Another recipe version is already effective for this menu item, outlet and date range.' });
+    }
+
+    // POST / (create-as-Active) already runs this same check - it was missing
+    // here, so a Draft recipe edited (via PUT) to include a circular BOM
+    // dependency could still be activated through this endpoint unchecked.
+    const existingItems = await query('SELECT raw_material_id FROM recipe_items WHERE recipe_id = ?', [existing.id]);
+    const circular = await validateNoCircularDependency(
+      existing.output_raw_material_id,
+      existing.for_outlet_id,
+      existingItems.map((it) => it.raw_material_id),
+      effective_from
+    );
+    if (!circular) {
+      return res.status(400).json({ success: false, message: 'Circular SOP dependency detected.' });
     }
 
     const prevRows = await query(
