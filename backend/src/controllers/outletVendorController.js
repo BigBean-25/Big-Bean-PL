@@ -324,11 +324,16 @@ export const deleteVendorPurchase = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].purchase_date, 'An outlet vendor purchase');
+
     await query('DELETE FROM outlet_vendor_purchases WHERE id = ?', [id]);
     await logAudit(req.user.id, 'DELETE', 'outlet_vendor_purchases', id, existing[0], null, 'Deleted outlet vendor purchase');
     res.status(200).json({ success: true, message: 'Purchase deleted successfully' });
   } catch (error) {
     console.error('Delete vendor purchase error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting purchase' });
   }
 };
