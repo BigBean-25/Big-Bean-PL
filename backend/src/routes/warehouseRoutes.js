@@ -94,7 +94,7 @@ router.get('/locations/:id/summary', checkPermission('locations', 'can_view'), c
   }
 });
 
-router.put('/locations/:id', checkPermission('locations', 'can_edit'), async (req, res) => {
+router.put('/locations/:id', checkPermission('locations', 'can_edit'), checkLocationAccess('id'), async (req, res) => {
   try {
     const row = await updateLocation(req.params.id, req.body);
     res.json({ success: true, data: row });
@@ -561,14 +561,14 @@ router.get('/batches', checkPermission('warehouse_batch_expiry', 'can_view'), as
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-router.get('/batches/:materialId/available', checkPermission('warehouse_batch_expiry', 'can_view'), async (req, res) => {
+router.get('/batches/:materialId/available', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
   try {
     const data = await getAvailableBatches(req.query.location_id, Number(req.params.materialId));
     res.json({ success: true, data });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-router.get('/batches/:materialId/fefo', checkPermission('warehouse_batch_expiry', 'can_view'), async (req, res) => {
+router.get('/batches/:materialId/fefo', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
   try {
     const { location_id, qty } = req.query;
     const data = await allocateFEFO(Number(location_id), Number(req.params.materialId), Number(qty));
@@ -581,7 +581,7 @@ router.get('/expiry-alerts', checkPermission('warehouse_batch_expiry', 'can_view
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-router.get('/batches/:materialId/history', checkPermission('warehouse_batch_expiry', 'can_view'), async (req, res) => {
+router.get('/batches/:materialId/history', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
   try {
     const { location_id, batch_no, expiry_date } = req.query;
     const data = await getBatchLedgerHistory(Number(location_id), Number(req.params.materialId), batch_no, expiry_date);
@@ -878,7 +878,7 @@ router.put('/reorder/:materialId/settings', checkPermission('warehouse_reorder',
   } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.post('/reorder/create-po', checkPermission('warehouse_reorder', 'can_create'), async (req, res) => {
+router.post('/reorder/create-po', checkPermission('warehouse_reorder', 'can_create'), checkLocationAccess(), async (req, res) => {
   try {
     const data = await createDraftPOFromReorder(req.body.material_ids, Number(req.body.location_id), req.user.id);
     res.json({ success: true, data });
@@ -968,7 +968,7 @@ router.get('/reports/pack/export', checkPermission('warehouse_reports', 'can_exp
 });
 
 // Warehouse Settings
-router.get('/settings', checkPermission('warehouse_settings', 'can_view'), async (req, res) => {
+router.get('/settings', checkPermission('warehouse_settings', 'can_view'), checkLocationAccess(), async (req, res) => {
   try {
     const locationId = Number(req.query.location_id);
     const data = await settingService.getWarehouseSettings(locationId);
@@ -976,7 +976,7 @@ router.get('/settings', checkPermission('warehouse_settings', 'can_view'), async
   } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.put('/settings', checkPermission('warehouse_settings', 'can_edit'), async (req, res) => {
+router.put('/settings', checkPermission('warehouse_settings', 'can_edit'), checkLocationAccess(), async (req, res) => {
   try {
     const { location_id, settings } = req.body;
     const data = await settingService.updateWarehouseSettings(Number(location_id), settings, req.user.id);
