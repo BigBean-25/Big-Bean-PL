@@ -235,6 +235,8 @@ export const deleteEmployeeSalary = async (req, res) => {
       });
     }
 
+    await assertMonthEditable(existing[0].outlet_id, existing[0].month, existing[0].year, 'A salary record');
+
     await query('DELETE FROM employee_salary_monthly WHERE id = ?', [id]);
 
     await logAudit(req.user.id, 'DELETE', 'employee_salary_monthly', id, existing[0], null, 'Deleted employee salary record');
@@ -245,6 +247,9 @@ export const deleteEmployeeSalary = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete employee salary error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error deleting employee salary record'
