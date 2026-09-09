@@ -166,7 +166,7 @@ export const createSupplierPayment = async (req, res) => {
       date,
     });
 
-    if (num(paid_amount) > current_outstanding) {
+    if (num(paid_amount) > current_outstanding + 0.005) {
       return res.status(400).json({
         success: false,
         message: `Payment amount cannot exceed current outstanding of ₹${current_outstanding.toFixed(2)}`
@@ -258,7 +258,7 @@ export const updateSupplierPayment = async (req, res) => {
       excludeId: Number(id),
     });
 
-    if (finalPaidAmount > current_outstanding) {
+    if (finalPaidAmount > current_outstanding + 0.005) {
       return res.status(400).json({
         success: false,
         message: `Payment amount cannot exceed current outstanding of ₹${current_outstanding.toFixed(2)}`
