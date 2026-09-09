@@ -374,27 +374,62 @@ router.delete('/physical-stock-counts/:id', checkPermission('physical_stock_coun
 });
 
 router.post('/physical-stock-counts/:id/submit', checkPermission('physical_stock_counts', 'can_submit'), async (req, res) => {
-  try { const data = await submitPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getPhysicalStockCountById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Physical stock count not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await submitPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/verify', checkPermission('physical_stock_counts', 'can_verify'), async (req, res) => {
-  try { const data = await verifyPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getPhysicalStockCountById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Physical stock count not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await verifyPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/approve', checkPermission('physical_stock_counts', 'can_approve'), async (req, res) => {
-  try { const data = await approvePhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getPhysicalStockCountById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Physical stock count not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await approvePhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/post', checkPermission('physical_stock_counts', 'can_approve'), async (req, res) => {
-  try { const data = await postPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getPhysicalStockCountById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Physical stock count not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await postPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/lock', checkPermission('physical_stock_counts', 'can_lock'), async (req, res) => {
-  try { const data = await lockPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getPhysicalStockCountById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Physical stock count not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await lockPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
@@ -452,27 +487,62 @@ router.delete('/stock-adjustments/:id', checkPermission('stock_adjustments', 'ca
 });
 
 router.post('/stock-adjustments/:id/submit', checkPermission('stock_adjustments', 'can_submit'), async (req, res) => {
-  try { const data = await submitStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getStockAdjustmentById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Stock adjustment not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await submitStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/verify', checkPermission('stock_adjustments', 'can_verify'), async (req, res) => {
-  try { const data = await verifyStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getStockAdjustmentById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Stock adjustment not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await verifyStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/approve', checkPermission('stock_adjustments', 'can_approve'), async (req, res) => {
-  try { const data = await approveStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getStockAdjustmentById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Stock adjustment not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await approveStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/post', checkPermission('stock_adjustments', 'can_approve'), async (req, res) => {
-  try { const data = await postStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getStockAdjustmentById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Stock adjustment not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await postStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/lock', checkPermission('stock_adjustments', 'can_lock'), async (req, res) => {
-  try { const data = await lockStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getStockAdjustmentById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Stock adjustment not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await lockStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
@@ -530,27 +600,62 @@ router.delete('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'ca
 });
 
 router.post('/warehouse-wastage/:id/submit', checkPermission('warehouse_wastage', 'can_submit'), async (req, res) => {
-  try { const data = await submitWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getWarehouseWastageById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Wastage record not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await submitWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/verify', checkPermission('warehouse_wastage', 'can_verify'), async (req, res) => {
-  try { const data = await verifyWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getWarehouseWastageById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Wastage record not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await verifyWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/approve', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
-  try { const data = await approveWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getWarehouseWastageById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Wastage record not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await approveWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/post', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
-  try { const data = await postWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getWarehouseWastageById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Wastage record not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await postWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/lock', checkPermission('warehouse_wastage', 'can_lock'), async (req, res) => {
-  try { const data = await lockWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getWarehouseWastageById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Wastage record not found' });
+    if (!(await isLocationAccessible(req.user, existing.location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await lockWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
@@ -653,32 +758,74 @@ router.delete('/purchase-returns/:id', checkPermission('warehouse_purchase_retur
 });
 
 router.post('/purchase-returns/:id/submit', checkPermission('warehouse_purchase_returns', 'can_submit'), async (req, res) => {
-  try { const data = await submitReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await submitReturn(Number(req.params.id), req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/verify', checkPermission('warehouse_purchase_returns', 'can_verify'), async (req, res) => {
-  try { const data = await verifyReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await verifyReturn(Number(req.params.id), req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/approve', checkPermission('warehouse_purchase_returns', 'can_approve'), async (req, res) => {
-  try { const data = await approveReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await approveReturn(Number(req.params.id), req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/reject', checkPermission('warehouse_purchase_returns', 'can_reject'), async (req, res) => {
-  try { const data = await rejectReturn(Number(req.params.id), req.user.id, req.body.rejection_reason); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await rejectReturn(Number(req.params.id), req.user.id, req.body.rejection_reason); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/post', checkPermission('warehouse_purchase_returns', 'can_approve'), async (req, res) => {
-  try { const data = await postReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await postReturn(Number(req.params.id), req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/lock', checkPermission('warehouse_purchase_returns', 'can_lock'), async (req, res) => {
-  try { const data = await lockReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
+  try {
+    const existing = await getReturnById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Purchase return not found' });
+    if (!(await isLocationAccessible(req.user, existing.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await lockReturn(Number(req.params.id), req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
