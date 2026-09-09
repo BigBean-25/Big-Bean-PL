@@ -287,6 +287,14 @@ export async function receiveProductionDispatch(id, data, userId) {
     const [transfer] = await conn.execute('SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE', [id]);
     if (!transfer.length) { await conn.rollback(); throw new Error('Dispatch not found'); }
     if (transfer[0].status === 'Received') { await conn.rollback(); throw new Error('Dispatch already fully received'); }
+    // Without this, a still-Draft dispatch (never posted, so postProductionDispatch's
+    // TRANSFER_OUT ledger entries never ran and no stock actually left the
+    // kitchen) could still be "received" here, inserting TRANSFER_IN entries
+    // and fabricating stock at the outlet with nothing deducted at the source.
+    if (!['In Transit', 'Partially Received'].includes(transfer[0].status)) {
+      await conn.rollback();
+      throw new Error('Dispatch must be In Transit before it can be received');
+    }
 
     for (const it of items) {
       const [ti] = await conn.execute('SELECT * FROM stock_transfer_items WHERE id = ? AND transfer_id = ?', [it.id, id]);
