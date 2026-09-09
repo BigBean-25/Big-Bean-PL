@@ -941,6 +941,29 @@ export const uploadItemSales = async (req, res) => {
 
     const finalStatus = failCount === 0 ? 'Completed' : (successCount === 0 ? 'Failed' : 'Completed');
 
+    // Unlike its siblings above (opening/closing stock, material purchase),
+    // this upload never checked the period lock at all - item_sales feeds
+    // getTheoreticalConsumption()/the Consumption Variance report the same
+    // way material_purchase feeds actual consumption, so a Completed upload
+    // here can silently rewrite theoretical-consumption numbers for a month
+    // that's already been finalized/locked. Same per-row-date situation as
+    // material_purchase (no month/year header), so the check runs the same
+    // way: after parsing, against the actual inserted date range.
+    if (finalStatus === 'Completed' && successCount > 0) {
+      const [[dateRange]] = await connection.execute(
+        `SELECT MIN(date) as min_date, MAX(date) as max_date FROM item_sales_items WHERE upload_id = ?`,
+        [uploadId]
+      );
+      if (dateRange && dateRange.min_date) {
+        try {
+          await assertDateRangeEditable(outlet_id, dateRange.min_date, dateRange.max_date, 'An item sales upload');
+        } catch (lockError) {
+          await connection.rollback();
+          return res.status(lockError.statusCode || 400).json({ success: false, message: lockError.message });
+        }
+      }
+    }
+
     await connection.execute(
       `UPDATE item_sales_uploads SET total_rows = ?, success_rows = ?, failed_rows = ?, status = ? WHERE id = ?`,
       [rows.length, successCount, failCount, finalStatus, uploadId]
@@ -1089,6 +1112,28 @@ export const deleteUpload = async (req, res) => {
       }
     }
 
+    // None of the four upload* functions above are the only way a Completed
+    // upload's data can disappear from a locked period - this delete path had
+    // no period-lock check at all, so anyone with <type>.can_delete could
+    // remove a Completed upload's items (and therefore its contribution to
+    // opening/closing stock, actual consumption, or theoretical consumption)
+    // for a month that's already been finalized in monthly_pnl_snapshots.
+    // A Processing/Failed upload never fed anything into a calculation, so
+    // it's always safe to delete regardless of period lock.
+    if (record.status === 'Completed') {
+      if (type === 'opening_stock' || type === 'closing_stock') {
+        await assertMonthEditable(record.outlet_id, record.month, record.year, type === 'opening_stock' ? 'An opening stock upload' : 'A closing stock upload');
+      } else {
+        const [[dateRange]] = await connection.execute(
+          `SELECT MIN(date) as min_date, MAX(date) as max_date FROM ${config.itemsTable} WHERE upload_id = ?`,
+          [id]
+        );
+        if (dateRange && dateRange.min_date) {
+          await assertDateRangeEditable(record.outlet_id, dateRange.min_date, dateRange.max_date, type === 'material_purchase' ? 'A material purchase upload' : 'An item sales upload');
+        }
+      }
+    }
+
     await connection.execute(
       `DELETE FROM ${config.itemsTable} WHERE upload_id = ?`,
       [id]
@@ -1128,7 +1173,7 @@ export const deleteUpload = async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error('Delete upload error:', error);
-    res.status(500).json({ success: false, message: 'Error deleting upload' });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error deleting upload' });
   } finally {
     connection.release();
   }
