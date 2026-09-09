@@ -155,13 +155,24 @@ export const applyOutletScope = (req, res, next) => {
     return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
   }
 
+  // A user assigned to more than one outlet must have their actually-requested
+  // (and just-validated) outlet honored here - forcing this to assignedOutletIds[0]
+  // unconditionally silently redirected every create/update for a multi-outlet
+  // user's non-first outlet onto their first outlet instead (e.g. an Area
+  // Manager submitting an expense for their second outlet had it recorded
+  // against their first outlet every time). Falls back to the first assigned
+  // outlet only when the caller didn't specify one.
+  const effectiveOutletId = (requestedOutletId && requestedOutletId !== 'all')
+    ? Number(requestedOutletId)
+    : assignedOutletIds[0];
+
   req.outletScope = {
     all: false,
     outletIds: assignedOutletIds,
-    requestedOutletId: assignedOutletIds[0]
+    requestedOutletId: effectiveOutletId
   };
-  req.query.outlet_id = assignedOutletIds[0];
-  req.body.outlet_id = assignedOutletIds[0];
+  req.query.outlet_id = effectiveOutletId;
+  req.body.outlet_id = effectiveOutletId;
   next();
 };
 
