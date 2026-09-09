@@ -34,13 +34,19 @@ export const getReportSummary = async (locationId) => {
     [locationId, locationId]
   );
 
+  // 'Locked' is a further-progressed state reached only from 'Posted' (see
+  // transitionDocument in warehousePhase2cService.js) - a Locked record is
+  // still a real, ledger-affecting record, just finalized against further
+  // edits. Omitting it here made this dashboard total silently DROP every
+  // time a wastage/adjustment record got locked, the opposite of what a
+  // cumulative total should do.
   const wastageValue = await query(
-    `SELECT COALESCE(SUM(total_value), 0) as v FROM warehouse_wastage WHERE location_id = ? AND status IN ('Posted','Approved')`,
+    `SELECT COALESCE(SUM(total_value), 0) as v FROM warehouse_wastage WHERE location_id = ? AND status IN ('Posted','Approved','Locked')`,
     [locationId]
   );
 
   const adjustmentValue = await query(
-    `SELECT COALESCE(SUM(total_value), 0) as v FROM stock_adjustments WHERE location_id = ? AND status IN ('Posted','Approved')`,
+    `SELECT COALESCE(SUM(total_value), 0) as v FROM stock_adjustments WHERE location_id = ? AND status IN ('Posted','Approved','Locked')`,
     [locationId]
   );
 
@@ -207,7 +213,7 @@ export const getPurchaseReturnReport = async (filters) => {
              LEFT JOIN grn g ON g.id = pr.grn_id
              LEFT JOIN supplier_credits sc ON sc.purchase_return_id = pr.id
              LEFT JOIN units u ON u.id = pri.input_unit_id
-             WHERE pr.status = 'Posted'`;
+             WHERE pr.status IN ('Posted','Locked')`;
   const params = [];
   if (location_id) { sql += ' AND pr.warehouse_location_id = ?'; params.push(location_id); }
   if (from_date && to_date) { sql += ' AND pr.return_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
@@ -320,7 +326,12 @@ export const getPhysicalCountReport = async (filters) => {
              LEFT JOIN raw_materials rm ON rm.id = psci.raw_material_id
              LEFT JOIN locations l ON l.id = psc.location_id
              LEFT JOIN units u ON u.id = psci.unit_id
-             WHERE 1=1`;
+             -- Unlike its sibling reports (getWastageReport, getAdjustmentReport,
+             -- both restricted to reviewed-or-later statuses), this had no status
+             -- filter at all, so a Draft/Submitted count's speculative
+             -- counted_qty/variance_qty - entered by staff before any review -
+             -- showed up in what's meant to be a report of finalized counts.
+             WHERE psc.status IN ('Approved','Posted','Locked')`;
   const params = [];
   if (location_id) { sql += ' AND psc.location_id = ?'; params.push(location_id); }
   if (from_date && to_date) { sql += ' AND psc.count_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
@@ -345,7 +356,7 @@ export const getWastageReport = async (filters) => {
              LEFT JOIN locations l ON l.id = ww.location_id
              LEFT JOIN units u ON u.id = wwi.unit_id
              LEFT JOIN users us ON us.id = ww.created_by
-             WHERE ww.status IN ('Posted','Approved')`;
+             WHERE ww.status IN ('Posted','Approved','Locked')`;
   const params = [];
   if (location_id) { sql += ' AND ww.location_id = ?'; params.push(location_id); }
   if (from_date && to_date) { sql += ' AND ww.wastage_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
@@ -367,7 +378,7 @@ export const getWastageByCategoryReport = async (filters) => {
              INNER JOIN warehouse_wastage_items wwi ON wwi.warehouse_wastage_id = ww.id
              LEFT JOIN raw_materials rm ON rm.id = wwi.raw_material_id
              LEFT JOIN categories c ON c.id = rm.category_id
-             WHERE ww.status IN ('Posted','Approved')`;
+             WHERE ww.status IN ('Posted','Approved','Locked')`;
   const params = [];
   if (location_id) { sql += ' AND ww.location_id = ?'; params.push(location_id); }
   if (from_date && to_date) { sql += ' AND ww.wastage_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
@@ -393,7 +404,7 @@ export const getAdjustmentReport = async (filters) => {
              LEFT JOIN locations l ON l.id = sa.location_id
              LEFT JOIN units u ON u.id = sai.unit_id
              LEFT JOIN users us ON us.id = sa.created_by
-             WHERE sa.status IN ('Posted','Approved')`;
+             WHERE sa.status IN ('Posted','Approved','Locked')`;
   const params = [];
   if (location_id) { sql += ' AND sa.location_id = ?'; params.push(location_id); }
   if (from_date && to_date) { sql += ' AND sa.adjustment_date BETWEEN ? AND ?'; params.push(from_date, to_date); }
@@ -826,7 +837,7 @@ export const getPurchaseReturnGSTSummary = async (filters) => {
     INNER JOIN purchase_return_items pri ON pri.purchase_return_id = pr.id
     LEFT JOIN suppliers s ON s.id = pr.supplier_id
     LEFT JOIN raw_materials rm ON rm.id = pri.raw_material_id
-    WHERE pr.status = 'Posted' AND pr.return_date BETWEEN ? AND ?`;
+    WHERE pr.status IN ('Posted','Locked') AND pr.return_date BETWEEN ? AND ?`;
   const params = [from_date, to_date];
   if (location_id) { sql += ' AND pr.warehouse_location_id = ?'; params.push(location_id); }
   const rows = await query(sql, params);
