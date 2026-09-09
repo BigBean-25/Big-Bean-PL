@@ -36,7 +36,8 @@ export const applyLocationScope = async (req, res, next) => {
       if (assignedOutletIds.length === 0) {
         return res.status(403).json({ success: false, message: 'No inventory location assigned to this user' });
       }
-      const rows = await query("SELECT id, outlet_id FROM locations WHERE outlet_id IN (?) AND is_active = 1", [assignedOutletIds]);
+      const placeholders = assignedOutletIds.map(() => '?').join(',');
+      const rows = await query(`SELECT id, outlet_id FROM locations WHERE outlet_id IN (${placeholders}) AND is_active = 1`, assignedOutletIds);
       allowedLocationIds = rows.map((r) => Number(r.id));
     }
 
@@ -97,7 +98,8 @@ export const isLocationAccessible = async (user, locationId) => {
   }
   const assignedOutletIds = (user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
   if (assignedOutletIds.length === 0) return false;
-  const rows = await query("SELECT id FROM locations WHERE id = ? AND outlet_id IN (?) AND is_active = 1", [locationId, assignedOutletIds]);
+  const placeholders = assignedOutletIds.map(() => '?').join(',');
+  const rows = await query(`SELECT id FROM locations WHERE id = ? AND outlet_id IN (${placeholders}) AND is_active = 1`, [locationId, ...assignedOutletIds]);
   return rows.length > 0;
 };
 
@@ -171,7 +173,11 @@ export const checkLocationAccess = (param = 'location_id') => async (req, res, n
     }
 
     const assignedOutletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    const rows = await query("SELECT id FROM locations WHERE id = ? AND outlet_id IN (?) AND is_active = 1", [locationId, assignedOutletIds]);
+    if (assignedOutletIds.length === 0) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const placeholders = assignedOutletIds.map(() => '?').join(',');
+    const rows = await query(`SELECT id FROM locations WHERE id = ? AND outlet_id IN (${placeholders}) AND is_active = 1`, [locationId, ...assignedOutletIds]);
     if (rows.length === 0) {
       return res.status(403).json({ success: false, message: 'You do not have access to this location' });
     }

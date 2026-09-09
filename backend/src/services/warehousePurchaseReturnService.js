@@ -111,8 +111,12 @@ export const getReturns = async (filters = {}) => {
   // Confines a location-scoped caller to returns at a location they're
   // allowed to see - see resolveScopedLocationIds in warehouseMiddleware.js.
   if (filters.allowedLocationIds) {
-    sql += filters.allowedLocationIds.length ? ' AND r.warehouse_location_id IN (?)' : ' AND 1=0';
-    if (filters.allowedLocationIds.length) params.push(filters.allowedLocationIds);
+    if (filters.allowedLocationIds.length) {
+      sql += ` AND r.warehouse_location_id IN (${filters.allowedLocationIds.map(() => '?').join(',')})`;
+      params.push(...filters.allowedLocationIds);
+    } else {
+      sql += ' AND 1=0';
+    }
   }
   sql += ' ORDER BY r.id DESC';
   return await query(sql, params);
