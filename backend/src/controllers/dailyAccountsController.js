@@ -1521,10 +1521,13 @@ export const updateBankDeposit = async (req, res) => {
     const values = Object.values(updateData);
     const setClause = fields.map(f => `${f} = ?`).join(', ');
 
-    await query(
-      `UPDATE bank_deposits SET ${setClause}, updated_at = NOW() WHERE id = ?`,
+    const updateResult = await query(
+      `UPDATE bank_deposits SET ${setClause}, updated_at = NOW() WHERE id = ? AND status IN ('Draft', 'Rejected')`,
       [...values, id]
     );
+    if (updateResult.affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'This bank deposit was already submitted or verified by someone else' });
+    }
 
     await logAudit(req.user.id, 'UPDATE', 'bank_deposits', id, existing[0], updateData, 'Updated bank deposit');
 
@@ -1614,10 +1617,18 @@ export const submitBankDeposit = async (req, res) => {
       });
     }
 
-    await query(
-      `UPDATE bank_deposits SET status = 'Submitted', updated_at = NOW() WHERE id = ?`,
+    // Status is re-checked in the UPDATE itself (not just the SELECT above) so a
+    // double-click or a race against another transition on this same row can't
+    // both fall through - whichever request's UPDATE actually matches a row wins,
+    // the other gets a clean "already actioned" error instead of silently
+    // overwriting it. Mirrors approveDailyCashExpense's identical guard.
+    const submitResult = await query(
+      `UPDATE bank_deposits SET status = 'Submitted', updated_at = NOW() WHERE id = ? AND status IN ('Draft', 'Rejected')`,
       [id]
     );
+    if (submitResult.affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'This bank deposit was already actioned by someone else' });
+    }
 
     await logAudit(req.user.id, 'SUBMIT', 'bank_deposits', id, existing[0], { status: 'Submitted' }, 'Submitted bank deposit');
 
@@ -1650,10 +1661,13 @@ export const verifyBankDeposit = async (req, res) => {
       });
     }
 
-    await query(
-      `UPDATE bank_deposits SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ?`,
+    const verifyResult = await query(
+      `UPDATE bank_deposits SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'Submitted'`,
       [req.user.id, id]
     );
+    if (verifyResult.affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'This bank deposit was already actioned by someone else' });
+    }
 
     const [updated] = await query('SELECT * FROM bank_deposits WHERE id = ?', [id]);
     await logAudit(req.user.id, 'VERIFY', 'bank_deposits', id, existing[0], updated, 'Verified bank deposit');
@@ -1695,10 +1709,13 @@ export const rejectBankDeposit = async (req, res) => {
       });
     }
 
-    await query(
-      `UPDATE bank_deposits SET status = 'Rejected', verified_by = ?, verified_at = NOW(), remarks = CONCAT(IFNULL(remarks, ''), ?), updated_at = NOW() WHERE id = ?`,
+    const rejectResult = await query(
+      `UPDATE bank_deposits SET status = 'Rejected', verified_by = ?, verified_at = NOW(), remarks = CONCAT(IFNULL(remarks, ''), ?), updated_at = NOW() WHERE id = ? AND status = 'Submitted'`,
       [req.user.id, `\nRejection reason: ${String(rejection_reason).trim()}`, id]
     );
+    if (rejectResult.affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'This bank deposit was already actioned by someone else' });
+    }
 
     const [updated] = await query('SELECT * FROM bank_deposits WHERE id = ?', [id]);
     await logAudit(req.user.id, 'REJECT', 'bank_deposits', id, existing[0], updated, `Rejected bank deposit: ${rejection_reason}`);
