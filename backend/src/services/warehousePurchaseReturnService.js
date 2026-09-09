@@ -278,6 +278,12 @@ const transition = async (id, action, userId, extra = {}) => {
     // creator could submit, have someone else verify, then circle back and
     // approve their own return, defeating the point of a distinct approval step.
     if (action === 'approve' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot approve own return'); }
+    // Reject is the same review decision as verify/approve, just the negative
+    // outcome (it fires from the identical Submitted/Verified predecessor
+    // states) - without this, a creator could reject their own submitted or
+    // verified return, which is exactly as much a maker-checker bypass as
+    // self-approving would be.
+    if (action === 'reject' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot reject own return'); }
     const sets = { status: cfg.to };
     if (action === 'submit') { sets.submitted_by = userId; sets.submitted_at = new Date(); }
     if (action === 'verify') { sets.verified_by = userId; sets.verified_at = new Date(); }
