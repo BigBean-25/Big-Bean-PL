@@ -1100,6 +1100,13 @@ export const approveDailyCashExpense = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Users cannot approve their own expense' });
     }
 
+    // createDailyCashExpense/updateDailyCashExpense both check this, but approval
+    // is the actual transition that makes the expense count (plCalculator.js only
+    // sums status='Approved' rows) - without it, a Submitted expense dated inside
+    // an already-finalized month could still be approved after the fact, adding
+    // cost into a P&L that was already reported.
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cash expense');
+
     const { admin_remarks } = req.body || {};
     // req.record (existing) is a plain, unlocked SELECT from loadScopedRecord -
     // two near-simultaneous approve requests for the same expense could both
@@ -1238,6 +1245,9 @@ export const approveDailyCashExpense = async (req, res) => {
     });
   } catch (error) {
     console.error('Approve daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error approving daily cash expense' });
   }
 };
