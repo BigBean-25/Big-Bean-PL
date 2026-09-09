@@ -1120,7 +1120,10 @@ export const approveSalesUpload = async (req, res) => {
     const { remarks } = req.body;
 
     const reconciliation = await query(
-      `SELECT * FROM sales_reconciliation_batches WHERE id = ?`,
+      `SELECT srb.*, psu.uploaded_by
+       FROM sales_reconciliation_batches srb
+       JOIN petpooja_sales_uploads psu ON psu.id = srb.upload_id
+       WHERE srb.id = ?`,
       [id]
     );
 
@@ -1134,6 +1137,10 @@ export const approveSalesUpload = async (req, res) => {
     const outletScope = req.outletScope;
     if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(reconciliation[0].outlet_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
+    }
+
+    if (Number(reconciliation[0].uploaded_by) === Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Users cannot approve their own sales upload' });
     }
 
     if (!reconciliation[0].is_matched || reconciliation[0].status !== 'Matched') {
@@ -1217,7 +1224,10 @@ export const rejectSalesUpload = async (req, res) => {
     }
 
     const reconciliation = await query(
-      `SELECT * FROM sales_reconciliation_batches WHERE id = ?`,
+      `SELECT srb.*, psu.uploaded_by
+       FROM sales_reconciliation_batches srb
+       JOIN petpooja_sales_uploads psu ON psu.id = srb.upload_id
+       WHERE srb.id = ?`,
       [id]
     );
 
@@ -1231,6 +1241,10 @@ export const rejectSalesUpload = async (req, res) => {
     const outletScope = req.outletScope;
     if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(reconciliation[0].outlet_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
+    }
+
+    if (Number(reconciliation[0].uploaded_by) === Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Users cannot reject their own sales upload' });
     }
 
     const nonRejectableStatuses = ['Approved', 'Rejected'];
