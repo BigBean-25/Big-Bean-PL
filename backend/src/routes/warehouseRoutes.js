@@ -601,13 +601,26 @@ router.get('/purchase-returns', checkPermission('warehouse_purchase_returns', 'c
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-router.get('/purchase-returns/grns', checkPermission('warehouse_purchase_returns', 'can_create'), async (req, res) => {
-  try { const data = await getGRNsForReturn(Number(req.query.supplier_id), Number(req.query.location_id)); res.json({ success: true, data }); }
+router.get('/purchase-returns/grns', checkPermission('warehouse_purchase_returns', 'can_create'), applyLocationScope, async (req, res) => {
+  try {
+    const locationId = resolveScopedLocationId(req, res, req.query.location_id);
+    if (locationId === undefined) return;
+    const data = await getGRNsForReturn(Number(req.query.supplier_id), locationId);
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-returns/grns/:id/items', checkPermission('warehouse_purchase_returns', 'can_create'), async (req, res) => {
-  try { const data = await getGRNItems(Number(req.params.id)); res.json({ success: true, data }); }
+  try {
+    const [grn] = await query('SELECT warehouse_location_id FROM grn WHERE id = ?', [Number(req.params.id)]);
+    if (!grn) return res.status(404).json({ success: false, message: 'GRN not found' });
+    if (!(await isLocationAccessible(req.user, grn.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await getGRNItems(Number(req.params.id));
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
@@ -688,7 +701,20 @@ router.get('/purchase-returns/credits-summary', checkPermission('warehouse_purch
 });
 
 router.put('/purchase-returns/credits/:id/status', checkPermission('warehouse_purchase_returns', 'can_edit'), async (req, res) => {
-  try { const data = await updateCreditStatus(Number(req.params.id), req.body.status, req.user.id); res.json({ success: true, data }); }
+  try {
+    const [credit] = await query(`
+      SELECT sc.id, pr.warehouse_location_id
+      FROM supplier_credits sc
+      JOIN purchase_returns pr ON pr.id = sc.purchase_return_id
+      WHERE sc.id = ?
+    `, [Number(req.params.id)]);
+    if (!credit) return res.status(404).json({ success: false, message: 'Supplier credit not found' });
+    if (!(await isLocationAccessible(req.user, credit.warehouse_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    }
+    const data = await updateCreditStatus(Number(req.params.id), req.body.status, req.user.id);
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
