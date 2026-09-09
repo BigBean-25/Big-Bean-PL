@@ -59,8 +59,25 @@ export const getUtilityBills = async (req, res) => {
 
 export const createUtilityBill = async (req, res) => {
   try {
+    const { month, year, outlet_id, electricity_bill, maintenance_cost, water_bill, garbage, internet, gas_monthly, other_utility, remarks } = req.body;
+
+    // Explicit whitelist (not a `...req.body` spread) so a caller can never
+    // smuggle in status/verified_by/verified_at/created_by/id - the same
+    // mass-assignment gap this table's verify() bug was fixed alongside
+    // (see payrollController.js's createEmployeeSalary for the mirrored,
+    // already-safe pattern this now matches).
     const billData = {
-      ...req.body,
+      month: Number(month),
+      year: Number(year),
+      outlet_id,
+      electricity_bill: electricity_bill ?? 0,
+      maintenance_cost: maintenance_cost ?? 0,
+      water_bill: water_bill ?? 0,
+      garbage: garbage ?? 0,
+      internet: internet ?? 0,
+      gas_monthly: gas_monthly ?? 0,
+      other_utility: other_utility ?? 0,
+      remarks: remarks || null,
       created_by: req.user.id,
       status: 'Draft',
       bill_attachment: req.file?.path || null
@@ -139,10 +156,28 @@ export const updateUtilityBill = async (req, res) => {
       });
     }
 
-    const updateData = { ...req.body };
+    // Explicit whitelist (not a `...req.body` spread) - see createUtilityBill
+    // for why. Without this, a caller with only can_edit could PUT
+    // { status: 'Verified', verified_by, verified_at } directly and bypass
+    // the verify() endpoint's status-transition guard and self-check entirely,
+    // or reassign created_by to someone else.
+    const editableData = {
+      month: req.body.month !== undefined ? Number(req.body.month) : undefined,
+      year: req.body.year !== undefined ? Number(req.body.year) : undefined,
+      outlet_id: req.body.outlet_id,
+      electricity_bill: req.body.electricity_bill,
+      maintenance_cost: req.body.maintenance_cost,
+      water_bill: req.body.water_bill,
+      garbage: req.body.garbage,
+      internet: req.body.internet,
+      gas_monthly: req.body.gas_monthly,
+      other_utility: req.body.other_utility,
+      remarks: req.body.remarks,
+    };
     if (req.file?.path) {
-      updateData.bill_attachment = req.file.path;
+      editableData.bill_attachment = req.file.path;
     }
+    const updateData = Object.fromEntries(Object.entries(editableData).filter(([, v]) => v !== undefined));
 
     const effectiveOutletId = updateData.outlet_id !== undefined ? updateData.outlet_id : existing[0].outlet_id;
     const effectiveMonth = updateData.month !== undefined ? Number(updateData.month) : existing[0].month;
