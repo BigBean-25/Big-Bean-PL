@@ -170,7 +170,12 @@ export const getOutletDashboardSummary = async (outletId, asOfDate = new Date())
 
   const monthStart = startOfMonth(today);
   const lastMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1);
-  const lastMonthEndSameOffset = addDays(lastMonthStart, today.getDate() - 1);
+  // Clamped to the previous month's actual last day - without this, comparing
+  // e.g. March 31 to February (28/29 days) would push "last month" 2-3 days
+  // into March itself, mixing this month's own data into the "previous
+  // period" bucket it's being compared against.
+  const lastMonthLastDay = new Date(monthStart.getFullYear(), monthStart.getMonth(), 0).getDate();
+  const lastMonthEndSameOffset = new Date(lastMonthStart.getFullYear(), lastMonthStart.getMonth(), Math.min(today.getDate(), lastMonthLastDay));
 
   const [todayVsLastWeek, weekVsLastWeek, monthVsLastMonth] = await Promise.all([
     withComparison(outletId, [today, today], [sameDayLastWeek, sameDayLastWeek]),
