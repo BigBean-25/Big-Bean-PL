@@ -191,6 +191,36 @@ const Categories = () => {
     });
   }, [categories, searchTerm, typeFilter, statusFilter, parentFilter]);
 
+  // Group the filtered list into one section per category_type, with each
+  // section's sub-categories nested directly under their parent - instead of
+  // one flat table mixing every type and every parent/child level together.
+  // A child whose parent belongs to a different type (rare, but the data
+  // model allows it since parent_id isn't type-constrained) is shown as its
+  // own root row within its own type's section, since it can't be nested
+  // under a parent rendered in a different section.
+  const CATEGORY_TYPE_ORDER = ["Raw Material", "Menu Item", "Both"];
+  const groupedSections = useMemo(() => {
+    return CATEGORY_TYPE_ORDER.map((type) => {
+      const itemsOfType = filteredCategories.filter((c) => c.category_type === type);
+      if (itemsOfType.length === 0) return null;
+
+      const idsInSection = new Set(itemsOfType.map((c) => Number(c.id)));
+      const roots = itemsOfType.filter(
+        (c) => !c.parent_id || !idsInSection.has(Number(c.parent_id))
+      );
+
+      const rows = [];
+      roots.forEach((root) => {
+        rows.push({ category: root, depth: 0 });
+        itemsOfType
+          .filter((c) => Number(c.parent_id) === Number(root.id))
+          .forEach((child) => rows.push({ category: child, depth: 1 }));
+      });
+
+      return { type, rows, count: itemsOfType.length };
+    }).filter(Boolean);
+  }, [filteredCategories]);
+
   const stats = useMemo(() => {
     return {
       total: categories.length,
@@ -987,137 +1017,151 @@ const Categories = () => {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] border-collapse">
-              <thead>
-                <tr className="border-b border-[#EBE9F1]">
-                  <th className="px-6 py-4 text-left">
-                    <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Category
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Type
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Parent
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Sub Categories
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Action
-                  </th>
-                </tr>
-              </thead>
+          <div className="space-y-8 p-6">
+            {groupedSections.map((section) => (
+              <div key={section.type}>
+                <div className="mb-3 flex items-center gap-3">
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] font-semibold ${getTypeStyle(
+                      section.type
+                    )}`}
+                  >
+                    {getCategoryIcon(section.type, 15)}
+                    {section.type}
+                  </span>
+                  <span className={`text-[13px] ${mutedClass}`}>
+                    {section.count} categor{section.count === 1 ? "y" : "ies"}
+                  </span>
+                </div>
 
-              <tbody>
-                {filteredCategories.map((category) => {
-                  const parent = getParentCategory(category);
-                  const childrenCount = categories.filter(
-                    (item) => Number(item.parent_id) === Number(category.id)
-                  ).length;
+                <div className="overflow-x-auto rounded-md border border-[#EBE9F1]">
+                  <table className="w-full min-w-[1050px] border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#EBE9F1] bg-[#F8F7FA]">
+                        <th className="px-6 py-4 text-left">
+                          <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
+                        </th>
+                        <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                          Category
+                        </th>
+                        <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                          Parent
+                        </th>
+                        <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                          Sub Categories
+                        </th>
+                        <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                          Status
+                        </th>
+                        <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
 
-                  return (
-                    <tr
-                      key={category.id}
-                      className="border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
-                    >
-                      <td className="px-6 py-4">
-                        <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
-                      </td>
+                    <tbody>
+                      {section.rows.map(({ category, depth }) => {
+                        const parent = getParentCategory(category);
+                        const childrenCount = categories.filter(
+                          (item) => Number(item.parent_id) === Number(category.id)
+                        ).length;
 
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                          <CategoryAvatar category={category} size="sm" />
-                          <div className="min-w-0">
-                            <p className="truncate text-[15px] font-semibold text-[#2F2B3D]">
-                              {category.category_name || "-"}
-                            </p>
-                            <p className="truncate text-[13px] text-[#6F6B7D]">
-                              ID: {category.id}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold ${getTypeStyle(
-                            category.category_type
-                          )}`}
-                        >
-                          {getCategoryIcon(category.category_type, 14)}
-                          {category.category_type || "-"}
-                        </span>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span className="text-[14px] text-[#6F6B7D]">
-                          {parent?.category_name || "No Parent"}
-                        </span>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span
-                          className="inline-flex rounded px-3 py-1 text-[12px] font-semibold"
-                          style={{
-                            color: primaryColor,
-                            backgroundColor: `${primaryColor}18`,
-                          }}
-                        >
-                          {childrenCount}
-                        </span>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <StatusBadge active={category.is_active} />
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3 text-[#6F6B7D]">
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(category.id)}
-                            disabled={deletingId === category.id}
-                            className="transition hover:text-[#EA5455] disabled:opacity-50"
-                            title="Delete"
+                        return (
+                          <tr
+                            key={category.id}
+                            className={`border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA] ${
+                              depth > 0 ? "bg-[#FBFBFD]" : ""
+                            }`}
                           >
-                            {deletingId === category.id ? (
-                              <Loader2 size={20} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={20} />
-                            )}
-                          </button>
+                            <td className="px-6 py-4">
+                              <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
+                            </td>
 
-                          <button
-                            type="button"
-                            onClick={() => handleView(category)}
-                            className="transition hover:text-[#7367F0]"
-                            title="View Details"
-                          >
-                            <Eye size={20} />
-                          </button>
+                            <td className="px-6 py-4">
+                              <div
+                                className="flex items-center gap-4"
+                                style={depth > 0 ? { paddingLeft: `${depth * 32}px` } : undefined}
+                              >
+                                {depth > 0 && (
+                                  <span className="text-[15px] text-[#DBDADE]">↳</span>
+                                )}
+                                <CategoryAvatar category={category} size="sm" />
+                                <div className="min-w-0">
+                                  <p className="truncate text-[15px] font-semibold text-[#2F2B3D]">
+                                    {category.category_name || "-"}
+                                  </p>
+                                  <p className="truncate text-[13px] text-[#6F6B7D]">
+                                    ID: {category.id}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
 
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(category)}
-                            className="transition hover:text-[#00A6B7]"
-                            title="Edit"
-                          >
-                            <Edit2 size={20} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <td className="px-6 py-4">
+                              <span className="text-[14px] text-[#6F6B7D]">
+                                {parent?.category_name || "No Parent"}
+                              </span>
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <span
+                                className="inline-flex rounded px-3 py-1 text-[12px] font-semibold"
+                                style={{
+                                  color: primaryColor,
+                                  backgroundColor: `${primaryColor}18`,
+                                }}
+                              >
+                                {childrenCount}
+                              </span>
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <StatusBadge active={category.is_active} />
+                            </td>
+
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3 text-[#6F6B7D]">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(category.id)}
+                                  disabled={deletingId === category.id}
+                                  className="transition hover:text-[#EA5455] disabled:opacity-50"
+                                  title="Delete"
+                                >
+                                  {deletingId === category.id ? (
+                                    <Loader2 size={20} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={20} />
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleView(category)}
+                                  className="transition hover:text-[#7367F0]"
+                                  title="View Details"
+                                >
+                                  <Eye size={20} />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleEdit(category)}
+                                  className="transition hover:text-[#00A6B7]"
+                                  title="Edit"
+                                >
+                                  <Edit2 size={20} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
