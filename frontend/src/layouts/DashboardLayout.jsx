@@ -953,6 +953,19 @@ const DashboardLayout = () => {
     if (moduleKey && !canView(moduleKey)) {
       navigate("/", { replace: true });
     }
+    if (location.pathname === "/masters") {
+      const canViewMasters =
+        canView("outlets") ||
+        canView("categories") ||
+        canView("suppliers") ||
+        canView("outlet_vendors") ||
+        canView("raw_materials") ||
+        canView("menu_items") ||
+        canView("locations");
+      if (!canViewMasters) {
+        navigate("/", { replace: true });
+      }
+    }
   }, [location.pathname, dbPermissions]);
 
   const searchItems = useMemo(() => {
