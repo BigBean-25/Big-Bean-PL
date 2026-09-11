@@ -1,4 +1,4 @@
-import { query, getConnection } from '../config/database.js';
+import pool, { query, getConnection } from '../config/database.js';
 import { getUnit, getMaterialBaseUnit, convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
 import { allocateFEFO } from './warehouseBatchService.js';
 import { updatePOStatusAfterGRN } from './warehousePurchaseOrderService.js';
@@ -432,18 +432,22 @@ export const getGRNs = async (filters) => {
   // allowed to see, regardless of location_id above - see resolveScopedLocationIds
   // in warehouseMiddleware.js. undefined means the caller has full access.
   if (allowedLocationIds) {
-    whereSql += allowedLocationIds.length ? ' AND g.warehouse_location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) whereParams.push(allowedLocationIds);
+    if (allowedLocationIds.length) {
+      whereSql += ` AND g.warehouse_location_id IN (${allowedLocationIds.map(() => '?').join(',')})`;
+      whereParams.push(...allowedLocationIds);
+    } else {
+      whereSql += ' AND 1=0';
+    }
   }
 
-  const countRows = await query(`SELECT COUNT(*) as total FROM grn g ${whereSql}`, whereParams);
+  const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM grn g ${whereSql}`, whereParams);
   const total = countRows[0]?.total || 0;
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, parseInt(limit, 10) || 25);
   const offset = (pageNum - 1) * limitNum;
 
-  const rows = await query(
+  const [rows] = await pool.query(
     `SELECT g.*, s.supplier_name, l.location_name FROM grn g LEFT JOIN suppliers s ON s.id = g.supplier_id LEFT JOIN locations l ON l.id = g.warehouse_location_id ${whereSql} ORDER BY g.created_at DESC LIMIT ? OFFSET ?`,
     [...whereParams, limitNum, offset]
   );
@@ -526,8 +530,12 @@ export const getStockLedger = async (filters) => {
   // running balance below correct for a scoped caller: it must only ever
   // accumulate from rows they're actually allowed to see.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length ? ' AND sl.location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds);
+    if (allowedLocationIds.length) {
+      sql += ` AND sl.location_id IN (${allowedLocationIds.map(() => '?').join(',')})`;
+      params.push(...allowedLocationIds);
+    } else {
+      sql += ' AND 1=0';
+    }
   }
   sql += ' ORDER BY sl.transaction_date, sl.id';
   const rows = await query(sql, params);
@@ -613,20 +621,23 @@ export const getRequisitions = async (filters = {}) => {
     // allowedLocationIds is an array (possibly empty - e.g. a Warehouse
     // Admin when no Central Warehouse location is active) whenever the
     // caller is location-scoped; undefined means full access, no restriction.
-    whereSql += allowedLocationIds.length
-      ? ' AND (sr.from_location_id IN (?) OR sr.to_location_id IN (?))'
-      : ' AND 1=0';
-    if (allowedLocationIds.length) whereParams.push(allowedLocationIds, allowedLocationIds);
+    if (allowedLocationIds.length) {
+      const placeholders = allowedLocationIds.map(() => '?').join(',');
+      whereSql += ` AND (sr.from_location_id IN (${placeholders}) OR sr.to_location_id IN (${placeholders}))`;
+      whereParams.push(...allowedLocationIds, ...allowedLocationIds);
+    } else {
+      whereSql += ' AND 1=0';
+    }
   }
 
-  const countRows = await query(`SELECT COUNT(*) as total FROM stock_requisitions sr ${whereSql}`, whereParams);
+  const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM stock_requisitions sr ${whereSql}`, whereParams);
   const total = countRows[0]?.total || 0;
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, parseInt(limit, 10) || 25);
   const offset = (pageNum - 1) * limitNum;
 
-  const rows = await query(
+  const [rows] = await pool.query(
     `SELECT sr.*, fl.location_name as from_location, tl.location_name as to_location, u.full_name as created_by_name
     FROM stock_requisitions sr
     LEFT JOIN locations fl ON fl.id = sr.from_location_id
@@ -821,10 +832,13 @@ export const getTransfers = async (filters = {}) => {
   // See getRequisitions() above - confines a location-scoped caller to
   // transfers touching a location they're allowed to see.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length
-      ? ' AND (st.from_location_id IN (?) OR st.to_location_id IN (?))'
-      : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds, allowedLocationIds);
+    if (allowedLocationIds.length) {
+      const placeholders = allowedLocationIds.map(() => '?').join(',');
+      sql += ` AND (st.from_location_id IN (${placeholders}) OR st.to_location_id IN (${placeholders}))`;
+      params.push(...allowedLocationIds, ...allowedLocationIds);
+    } else {
+      sql += ' AND 1=0';
+    }
   }
   sql += ' ORDER BY st.created_at DESC';
   return query(sql, params);
