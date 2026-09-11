@@ -14,13 +14,13 @@ import WastageTab from "./tabs/WastageTab";
 import VarianceTab from "./tabs/VarianceTab";
 
 const tabs = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, moduleKey: "production_dashboard" },
-  { key: "requests", label: "Requests", icon: ClipboardList, moduleKey: "production_requests" },
-  { key: "plans", label: "Planning", icon: ChefHat, moduleKey: "production_planning" },
-  { key: "batches", label: "Batches", icon: Package, moduleKey: "production_batches" },
-  { key: "wastage", label: "Wastage", icon: Trash2, moduleKey: "production_wastage" },
-  { key: "variance", label: "Variance", icon: BarChart3, moduleKey: "production_variance" },
-  { key: "dispatches", label: "Dispatches", icon: Truck, moduleKey: "production_dispatch" },
+  { key: "dashboard", label: "Bakehouse Dashboard", icon: LayoutDashboard, moduleKey: "production_dashboard" },
+  { key: "requests", label: "Production Requests", icon: ClipboardList, moduleKey: "production_requests" },
+  { key: "plans", label: "Production Plans", icon: ChefHat, moduleKey: "production_planning" },
+  { key: "batches", label: "Production Batches", icon: Package, moduleKey: "production_batches" },
+  { key: "wastage", label: "Production Wastage", icon: Trash2, moduleKey: "production_wastage" },
+  { key: "variance", label: "Production Variance", icon: BarChart3, moduleKey: "production_variance" },
+  { key: "dispatches", label: "Outlet Dispatches", icon: Truck, moduleKey: "production_dispatch" },
 ];
 
 const Kpi = ({ label, value, isDark }) => (
@@ -799,7 +799,7 @@ export default function CentralKitchen() {
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden p-1">
       <PageHeader
-        title="Bakehouse"
+        title="Central Kitchen & Bakehouse"
         subtitle="Production planning, batch tracking and finished goods control"
         actions={
           <div className="flex flex-wrap items-center gap-2">

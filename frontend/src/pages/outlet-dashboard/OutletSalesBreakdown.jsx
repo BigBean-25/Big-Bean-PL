@@ -65,7 +65,7 @@ const OutletSalesBreakdown = () => {
     <div className="space-y-5" style={{ fontFamily: '"Public Sans", "Inter", system-ui, sans-serif' }}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className={`text-2xl font-bold ${mainCls}`}>Sales Breakdown</h1>
+          <h1 className={`text-2xl font-bold ${mainCls}`}>Sales Analysis</h1>
           <p className={`mt-1 text-[14px] ${mutedCls}`}>Gross, tax, discount and net sales for the selected range; commission and app collection are shown for the covered month (entered monthly, not daily).</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

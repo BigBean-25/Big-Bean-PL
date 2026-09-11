@@ -115,7 +115,7 @@ const OutletDashboardOverview = () => {
     <div className="space-y-5" style={{ fontFamily: '"Public Sans", "Inter", system-ui, sans-serif' }}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className={`text-2xl font-bold ${mainCls}`}>Outlet Dashboard</h1>
+          <h1 className={`text-2xl font-bold ${mainCls}`}>Outlet Sales Overview</h1>
           <p className={`mt-1 text-[14px] ${mutedCls}`}>Gross, net and target sales with period-over-period comparisons.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

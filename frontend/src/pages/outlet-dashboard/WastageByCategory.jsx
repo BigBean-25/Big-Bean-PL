@@ -52,7 +52,7 @@ const WastageByCategory = () => {
     <div className="space-y-5" style={{ fontFamily: '"Public Sans", "Inter", system-ui, sans-serif' }}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className={`text-2xl font-bold ${mainCls}`}>Wastage — Category Wise</h1>
+          <h1 className={`text-2xl font-bold ${mainCls}`}>Wastage by Category</h1>
           <p className={`mt-1 text-[14px] ${mutedCls}`}>Posted/approved warehouse wastage grouped by raw material category.</p>
         </div>
         <button type="button" onClick={fetchData} className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardCls}`}>

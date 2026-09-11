@@ -28,20 +28,20 @@ import WarehouseReports from "./WarehouseReports";
 import WarehouseSettings from "./WarehouseSettings";
 
 const tabs = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, moduleKey: "warehouse_dashboard" },
+  { key: "dashboard", label: "Warehouse Overview", icon: LayoutDashboard, moduleKey: "warehouse_dashboard" },
   { key: "current-stock", label: "Current Stock", icon: Package, moduleKey: "warehouse_stock" },
-  { key: "grn", label: "Goods Receipt", icon: ClipboardCheck, moduleKey: "grn" },
-  { key: "ledger", label: "Stock Ledger", icon: BookOpen, moduleKey: "warehouse_ledger" },
+  { key: "grn", label: "Goods Receipt Notes", icon: ClipboardCheck, moduleKey: "grn" },
+  { key: "ledger", label: "Stock Movement Ledger", icon: BookOpen, moduleKey: "warehouse_ledger" },
   { key: "requisitions", label: "Outlet Purchase Orders", icon: ClipboardList, moduleKey: "warehouse_requisitions" },
   { key: "transfers", label: "Transfers", icon: ArrowRightLeft, moduleKey: "warehouse_transfers" },
   { key: "physical-stock-counts", label: "Physical Stock Count", icon: Scale, moduleKey: "physical_stock_counts" },
   { key: "stock-adjustments", label: "Stock Adjustments", icon: SlidersHorizontal, moduleKey: "stock_adjustments" },
-  { key: "warehouse-wastage", label: "Wastage", icon: Trash2, moduleKey: "warehouse_wastage" },
+  { key: "warehouse-wastage", label: "Warehouse Wastage", icon: Trash2, moduleKey: "warehouse_wastage" },
   { key: "batch-expiry", label: "Batch & Expiry", icon: Scale, moduleKey: "warehouse_batch_expiry" },
   { key: "purchase-returns", label: "Purchase Returns", icon: Truck, moduleKey: "warehouse_purchase_returns" },
   { key: "purchase-orders", label: "Warehouse Purchase Orders", icon: FileText, moduleKey: "warehouse_purchase_orders" },
-  { key: "supplier-history", label: "Supplier History", icon: TrendingUp, moduleKey: "warehouse_supplier_history" },
-  { key: "low-stock-reorder", label: "Low Stock / Reorder", icon: AlertTriangle, moduleKey: "warehouse_reorder" },
+  { key: "supplier-history", label: "Supplier Transaction History", icon: TrendingUp, moduleKey: "warehouse_supplier_history" },
+  { key: "low-stock-reorder", label: "Low Stock & Reordering", icon: AlertTriangle, moduleKey: "warehouse_reorder" },
   { key: "reports", label: "Reports", icon: BookOpen, moduleKey: "warehouse_reports" },
   { key: "settings", label: "Settings", icon: Settings, moduleKey: "warehouse_settings" },
 ];
@@ -174,7 +174,7 @@ export default function Warehouse() {
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden p-1">
       <PageHeader
-        title="Warehouse"
+        title="Warehouse Overview"
         subtitle="Inventory & Stock Control — Manage receipts, stock movements, outlet purchase orders, transfers and inventory reconciliation."
         actions={headerActions}
         isDark={isDark}
