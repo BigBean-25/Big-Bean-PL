@@ -1,6 +1,6 @@
 import { query, getConnection } from '../config/database.js';
 import { getMaterialBaseUnit, convertToBase } from '../utils/uomUtils.js';
-import { getCurrentStock } from './warehouseService.js';
+import { getCurrentStock, getStockLedger } from './warehouseService.js';
 import { allocateFEFO, getAvailableBatches } from './warehouseBatchService.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
@@ -11,6 +11,31 @@ export async function getCentralKitchenLocations() {
 
 export async function getFinishedGoodsStock(centralKitchenId) {
   return getCurrentStock(centralKitchenId, { materialRole: 'Finished Good' });
+}
+
+export async function getProductionStockLedger(centralKitchenId, filters = {}) {
+  const locationId = Number(centralKitchenId);
+  if (!Number.isFinite(locationId) || locationId <= 0) {
+    throw new Error('Central Kitchen not found');
+  }
+
+  const [location] = await query(
+    `SELECT id
+     FROM locations
+     WHERE id = ? AND location_type = 'Central Kitchen' AND is_active = 1
+     LIMIT 1`,
+    [locationId]
+  );
+
+  if (!location) {
+    throw new Error('Central Kitchen not found');
+  }
+
+  return getStockLedger({
+    location_id: locationId,
+    from_date: filters.from_date,
+    to_date: filters.to_date,
+  });
 }
 
 export async function getProductionDashboard(centralKitchenId) {

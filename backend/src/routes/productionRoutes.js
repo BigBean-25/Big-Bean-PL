@@ -8,7 +8,7 @@ import {
   createProductionRequest, updateProductionRequestStatus, getProductionPlans, getProductionPlanById,
   createProductionPlan, updateProductionPlanStatus, getProductionBatches, getProductionBatchById, createProductionBatch,
   getRawMaterialAvailability, postProductionBatch, setProductionBatchMaterials, updateProductionBatchActualQty,
-  getFinishedGoodsStock,
+  getFinishedGoodsStock, getProductionStockLedger,
 } from '../services/productionService.js';
 import { 
   getProductionWastages, getProductionWastageById, createProductionWastage, updateProductionWastage,
@@ -113,6 +113,20 @@ router.get('/dashboard/:centralKitchenId', checkPermission('production_dashboard
 router.get('/finished-stock/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
   try { const data = await getFinishedGoodsStock(Number(req.params.centralKitchenId)); res.json({ success: true, data }); }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+router.get('/ledger/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
+  try {
+    const data = await getProductionStockLedger(Number(req.params.centralKitchenId), {
+      from_date: req.query.from_date,
+      to_date: req.query.to_date,
+    });
+    res.json({ success: true, data });
+  }
+  catch (error) {
+    const status = error.message === 'Central Kitchen not found' ? 404 : 500;
+    res.status(status).json({ success: false, message: error.message });
+  }
 });
 
 router.get('/requests', checkPermission('production_requests', 'can_view'), async (req, res) => {

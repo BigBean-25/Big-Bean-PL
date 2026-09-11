@@ -74,7 +74,6 @@ export default function CentralKitchen() {
   const planningPerms = getStoredPermissions()?.production_planning || {};
   const wastagePerms = getStoredPermissions()?.production_wastage || {};
   const dispatchPermissions = getStoredPermissions()?.production_dispatch || {};
-  const warehouseReportsPerms = getStoredPermissions()?.warehouse_reports || {};
   const canCreateDispatch = dispatchPermissions?.can_create || false;
   const canEditDispatch = dispatchPermissions?.can_edit || false;
   const canViewDispatch = dispatchPermissions?.can_view || false;
@@ -130,8 +129,8 @@ export default function CentralKitchen() {
     if (activeTab === "dashboard") {
       base.push(safe("variance KPIs", productionAPI.getWastageKPIs(kitchenId), (d) => setVarianceKPIs(d || {})));
       base.push(safe("current stock", productionAPI.getFinishedGoodsStock(kitchenId), (d) => setFinishedStock(d || [])));
-      if (warehouseReportsPerms.can_view) {
-        base.push(safe("ledger", warehouseAPI.getWarehouseReport("ledger", { location_id: kitchenId, from_date: profitFrom, to_date: profitTo }), (d) => setLedger(d || [])));
+      if (permissions.can_view) {
+        base.push(safe("ledger", productionAPI.getStockLedger(kitchenId, { from_date: profitFrom, to_date: profitTo }), (d) => setLedger(d || [])));
       }
     }
     if (activeTab === "dispatches") {
@@ -283,7 +282,7 @@ export default function CentralKitchen() {
         )}
       </SectionCard>
 
-      {warehouseReportsPerms.can_view && (
+      {permissions.can_view && (
         <SectionCard title="Ledger" subtitle="Stock movement in and out of this Bakehouse for the selected date range" isDark={isDark}>
           {ledger.length === 0 ? (
             <EmptyState isDark={isDark} title="No stock movement" subtitle="No stock ledger entries in this date range." />

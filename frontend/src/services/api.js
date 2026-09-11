@@ -663,6 +663,7 @@ export const productionAPI = {
   getCentralKitchens: () => api.get("/production/central-kitchens"),
   getDashboard: (id) => api.get(`/production/dashboard/${id}`),
   getFinishedGoodsStock: (id) => api.get(`/production/finished-stock/${id}`),
+  getStockLedger: (id, params) => api.get(`/production/ledger/${id}`, { params }),
   getProductionRequests: (id) => api.get("/production/requests", { params: { central_kitchen_id: id } }),
   getProductionRequest: (id) => api.get(`/production/requests/${id}`),
   createProductionRequest: (data) => api.post("/production/requests", data),
