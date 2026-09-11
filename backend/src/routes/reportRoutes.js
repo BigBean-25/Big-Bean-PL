@@ -31,13 +31,13 @@ const router = express.Router();
 // is meant to stay Accountant/leadership-level, unlike the rest.
 router.get('/monthly-pl', protect, applyOutletScope, checkPermission('monthly_pl', 'can_view'), getMonthlyOutletPL);
 router.post('/monthly-pl/finalize', protect, applyOutletScope, checkPermission('monthly_pl', 'can_lock'), finalizeMonthlyOutletPL);
-router.get('/outlet-comparison', protect, getOutletComparisonReport);
+router.get('/outlet-comparison', protect, checkPermission('monthly_pl', 'can_view'), getOutletComparisonReport);
 router.get('/actual-consumption', protect, applyOutletScope, checkPermission('reports', 'can_view'), getActualConsumptionReport);
 router.get('/theoretical-consumption', protect, applyOutletScope, checkPermission('reports', 'can_view'), getTheoreticalConsumptionReport);
 router.get('/daily-cashbook', protect, applyOutletScope, checkPermission('reports', 'can_view'), getDailyCashbookReport);
 router.get('/expenses', protect, applyOutletScope, checkPermission('reports', 'can_view'), getExpenseReport);
 router.get('/supplier-pending', protect, applyOutletScope, checkPermission('reports', 'can_view'), getSupplierPendingReport);
-router.get('/purchase-gst', protect, getPurchaseGSTReport);
+router.get('/purchase-gst', protect, checkPermission('reports', 'can_view'), getPurchaseGSTReport);
 router.get('/sales-gst', protect, applyOutletScope, checkPermission('reports', 'can_view'), getSalesGSTReport);
 router.get('/gstr1', protect, applyOutletScope, checkPermission('reports', 'can_view'), getGSTR1Report);
 

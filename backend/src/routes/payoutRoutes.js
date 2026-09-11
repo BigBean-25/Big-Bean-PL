@@ -21,7 +21,7 @@ function stripProtectedFields(body) {
 
 // ======================== ONLINE PAYOUTS ========================
 
-router.get('/online', protect, applyOutletScope, async (req, res) => {
+router.get('/online', protect, checkPermission('online_payouts', 'can_view'), applyOutletScope, async (req, res) => {
   try {
     const { month, year } = req.query;
     const scope = req.outletScope || { all: true };
@@ -256,7 +256,7 @@ router.post('/online/:id/reject', protect, applyOutletScope, checkPermission('on
 
 // ======================== DINE-IN PAYOUTS ========================
 
-router.get('/dine-in', protect, applyOutletScope, async (req, res) => {
+router.get('/dine-in', protect, checkPermission('dine_in_payouts', 'can_view'), applyOutletScope, async (req, res) => {
   try {
     const { month, year } = req.query;
     const scope = req.outletScope || { all: true };
