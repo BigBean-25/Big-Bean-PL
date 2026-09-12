@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, applyOutletScope } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { applyLocationScope, checkLocationAccess, isLocationAccessible, resolveScopedLocationId, resolveScopedLocationIds } from '../middleware/warehouseMiddleware.js';
 import { query } from '../config/database.js';
@@ -40,6 +40,7 @@ import {
   getReorderData, updateReorderSettings, createDraftPOFromReorder
 } from '../services/warehouseReorderService.js';
 import * as reportService from '../services/warehouseReportService.js';
+import * as reconciliationService from '../services/warehouseReconciliationService.js';
 import * as settingService from '../services/warehouseSettingService.js';
 
 const router = express.Router();
@@ -899,6 +900,35 @@ router.get('/reports/summary', checkPermission('warehouse_reports', 'can_view'),
   }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
+
+// Accounting reconciliation (read-only, per-outlet). Dedicated route kept
+// ahead of the generic /reports/:type dispatcher on purpose -
+// 'reconciliation' is deliberately NOT in that handlers map, so without this
+// route it would fall through to the dispatcher's 404. Unlike the other
+// reports it is keyed by outlet_id (not location_id) and needs both the
+// warehouse_reports and reports view permissions.
+router.get('/reports/reconciliation',
+  protect,
+  checkPermission('warehouse_reports', 'can_view'),
+  checkPermission('reports', 'can_view'),
+  applyLocationScope,
+  applyOutletScope,
+  async (req, res) => {
+    try {
+      const outletId = Number(req.query.outlet_id);
+      if (!outletId) return res.status(400).json({ success: false, message: 'outlet_id is required' });
+      if (!req.query.as_of_date) return res.status(400).json({ success: false, message: 'as_of_date is required' });
+      const data = await reconciliationService.getOutletReconciliation({
+        outletId,
+        asOfDate: req.query.as_of_date,
+        locationScope: req.locationScope,
+        outletScope: req.outletScope,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    }
+  });
 
 router.get('/reports/:type', checkPermission('warehouse_reports', 'can_view'), applyLocationScope, async (req, res) => {
   try {

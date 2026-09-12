@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { warehouseAPI, getStoredPermissions } from "../../services/api";
+import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader } from "../../components/ui";
 import { KpiCard, fmtQty, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Package, BookOpen, Truck, SlidersHorizontal, AlertTriangle, Trash2, ArrowRightLeft, ClipboardList, Download, Printer, RotateCcw, BarChart3, Receipt } from "lucide-react";
+import { Package, BookOpen, Truck, SlidersHorizontal, AlertTriangle, Trash2, ArrowRightLeft, ClipboardList, Download, Printer, RotateCcw, BarChart3, Receipt, Scale } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 
@@ -83,6 +83,13 @@ const groups = [
 ];
 
 const STRUCTURED_REPORTS = ["gstr3b", "purchase-return-gst"];
+const RECONCILIATION_KEY = "reconciliation";
+
+const accountingGroup = {
+  label: "Accounting",
+  icon: Scale,
+  reports: [{ key: RECONCILIATION_KEY, label: "Accounting Reconciliation" }],
+};
 
 export default function WarehouseReports({ locationId, materials, suppliers, categories, isDark }) {
   const [summary, setSummary] = useState(null);
@@ -94,6 +101,10 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
   const [packLoading, setPackLoading] = useState(false);
   const permissions = getStoredPermissions();
   const inputClass = getInputClass(isDark);
+  // Accounting Reconciliation needs BOTH warehouse_reports and reports view
+  // access - the option stays hidden unless the user holds both.
+  const canViewReconciliation = Boolean(permissions?.warehouse_reports?.can_view && permissions?.reports?.can_view);
+  const visibleGroups = canViewReconciliation ? [...groups, accountingGroup] : groups;
   const [filters, setFilters] = useState({
     from_date: "", to_date: "", material_id: "", supplier_id: "", category_id: "", status: "",
   });
@@ -103,6 +114,12 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
   }, [locationId]);
 
   const loadReport = async (key) => {
+    if (key === RECONCILIATION_KEY) {
+      setActive(key);
+      setData([]);
+      setStructuredData(null);
+      return;
+    }
     if (STRUCTURED_REPORTS.includes(key) && (!filters.from_date || !filters.to_date)) {
       toast.error("Select a From and To date first");
       setActive(key);
@@ -181,7 +198,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
     finally { setPackLoading(false); }
   };
 
-  const showFilters = active && !["current-stock", "low-stock", "out-of-stock"].includes(active);
+  const showFilters = active && !["current-stock", "low-stock", "out-of-stock", RECONCILIATION_KEY].includes(active);
 
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden">
@@ -216,7 +233,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
 
       {!active && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {groups.map(g => (
+          {visibleGroups.map(g => (
             <SectionCard key={g.label} isDark={isDark}>
               <div className="mb-3 flex items-center gap-2 font-semibold"><g.icon size={18} /> {g.label}</div>
               <div className="grid grid-cols-2 gap-2">
@@ -236,10 +253,10 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
           <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className="flex items-center gap-2">
               <button onClick={() => setActive("")} className="text-[#7367F0] text-[14px]">← Reports</button>
-              <span className="font-semibold">{active.replace(/-/g, ' ').toUpperCase()}</span>
+              <span className="font-semibold">{active === RECONCILIATION_KEY ? "ACCOUNTING RECONCILIATION" : active.replace(/-/g, ' ').toUpperCase()}</span>
             </div>
             <div className="flex gap-2">
-              {permissions?.warehouse_reports?.can_export && !STRUCTURED_REPORTS.includes(active) && (
+              {permissions?.warehouse_reports?.can_export && !STRUCTURED_REPORTS.includes(active) && active !== RECONCILIATION_KEY && (
                 <button onClick={exportToExcel} disabled={exporting} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
                   <Download size={16} /> {exporting ? "Exporting..." : "Export"}
                 </button>
@@ -266,7 +283,9 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
             </div>
           )}
 
-          {STRUCTURED_REPORTS.includes(active) ? (
+          {active === RECONCILIATION_KEY ? (
+            <ReconciliationView isDark={isDark} inputClass={inputClass} />
+          ) : STRUCTURED_REPORTS.includes(active) ? (
             loading ? (
               <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>
             ) : active === "gstr3b" ? (
@@ -398,3 +417,177 @@ const formatCell = (v) => {
   if (typeof v === 'string' && /\d{4}-\d{2}-\d{2}/.test(v)) return fmtDate(v);
   return String(v);
 };
+
+const RECON_STATUS_CLS = {
+  GREEN: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  AMBER: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  RED: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+};
+
+const RECON_MATERIAL_CLS = {
+  MATCH: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  DIFFERENCE: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  "N/A": "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+};
+
+function ReconciliationView({ isDark, inputClass }) {
+  const [outlets, setOutlets] = useState([]);
+  const [outletId, setOutletId] = useState("");
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    masterAPI.getOutlets().then((r) => setOutlets(r?.data?.data || r?.data || [])).catch(() => {});
+  }, []);
+
+  const run = async () => {
+    if (!outletId) { toast.error("Select an outlet"); return; }
+    if (!asOfDate) { toast.error("Select an as-of date"); return; }
+    setLoading(true);
+    try {
+      const res = await warehouseAPI.getReconciliation({ outlet_id: outletId, as_of_date: asOfDate });
+      setResult(res?.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load reconciliation");
+      setResult(null);
+    } finally { setLoading(false); }
+  };
+
+  const cov = result?.coverage;
+  const materials = result?.materials || [];
+  const movements = result?.movements || [];
+  const qtyCell = (v) => (v === null || v === undefined ? "N/A" : fmtQty(v));
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+        Read-only comparison of outlet accounting stock uploads and recorded physical inventory.
+      </p>
+
+      <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <select value={outletId} onChange={(e) => setOutletId(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}>
+            <option value="">Select Outlet</option>
+            {outlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}{o.outlet_code ? ` (${o.outlet_code})` : ""}</option>)}
+          </select>
+          <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} />
+          <button onClick={run} disabled={loading} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-70">
+            {loading ? "Generating..." : result ? "Refresh" : "Generate"}
+          </button>
+        </div>
+      </div>
+
+      {loading && <SectionCard isDark={isDark}><LoadingRows rows={5} cols={6} isDark={isDark} /></SectionCard>}
+
+      {!loading && result && (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className={`rounded-xl border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+              <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Coverage Status</p>
+              <p className="mt-2">
+                <span className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${RECON_STATUS_CLS[cov?.status] || RECON_STATUS_CLS.RED}`}>{cov?.status || "RED"}</span>
+              </p>
+              {cov?.physical_location && <p className={`mt-2 text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{cov.physical_location.location_name}</p>}
+            </div>
+            <KpiCard icon={Package} label="Accounting Closing Qty" value={qtyCell(result.summary?.accounting_closing_qty_base)} sub={result.summary?.accounting_total_complete === false && result.coverage?.closing_upload_exists ? "Incomplete - some rows not normalized" : undefined} isDark={isDark} />
+            <KpiCard icon={BookOpen} label="Physical Ledger Qty" value={qtyCell(result.summary?.physical_closing_qty_base)} isDark={isDark} />
+            <KpiCard icon={ClipboardList} label="Comparable Materials" value={result.summary?.comparable_materials ?? 0} isDark={isDark} />
+            <KpiCard icon={AlertTriangle} label="Non-comparable Materials" value={result.summary?.non_comparable_materials ?? 0} isDark={isDark} />
+          </div>
+
+          {(cov?.notes || []).length > 0 && (
+            <div className={`rounded-lg border p-3 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              {cov.notes.map((n, i) => <p key={i}>• {n}</p>)}
+            </div>
+          )}
+
+          {!cov?.physical_location_exists && (
+            <EmptyState isDark={isDark} title="No physical outlet location" subtitle="This outlet has no active, inventory-enabled Outlet location mapped." />
+          )}
+          {cov?.physical_location_exists && !cov?.ledger_activity_exists && (
+            <EmptyState isDark={isDark} title="No ledger activity" subtitle="No physical stock movements recorded for this location up to the as-of date." />
+          )}
+          {cov?.physical_location_exists && !cov?.closing_upload_exists && (
+            <EmptyState isDark={isDark} title="No completed closing stock upload" subtitle="No completed accounting closing stock upload exists for this outlet and period." />
+          )}
+
+          <SectionCard title="Closing Values" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <KpiCard icon={Package} label="Accounting Closing Value" value={result.values?.accounting_closing_value === null ? "N/A" : fmtCurrency(result.values?.accounting_closing_value)} isDark={isDark} />
+              <KpiCard icon={BookOpen} label="Physical Ledger Value" value={result.values?.physical_closing_value === null ? "N/A" : fmtCurrency(result.values?.physical_closing_value)} isDark={isDark} />
+            </div>
+            <p className={`mt-3 rounded-md border px-3 py-2 text-[12px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              {result.values?.cost_basis_warning || "Accounting and physical values use different cost bases."}
+            </p>
+          </SectionCard>
+
+          {result.opening && (
+            <div className={`rounded-lg border p-3 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              <span className={`mr-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${RECON_STATUS_CLS.AMBER}`}>{result.opening.status}</span>
+              Opening stock (diagnostic): accounting upload {result.opening.accounting_upload_exists ? `present (${result.opening.accounting_item_count} items)` : "not present"}, physical OPENING ledger entries: {result.opening.physical_opening_entries}{result.opening.physical_opening_qty_base === null ? "" : ` (net ${fmtQty(result.opening.physical_opening_qty_base)} base)`}.
+              <span className="block mt-1">{result.opening.note}</span>
+            </div>
+          )}
+
+          <SectionCard title="Material Reconciliation" isDark={isDark}>
+            <TableWrapper isDark={isDark}>
+              <table className="w-full border-collapse text-[13px]">
+                <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                  <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                    {["Material", "Base Unit", "Accounting Closing Qty", "Physical Qty", "Qty Difference", "Status / Note"].map((h) => <th key={h} className="px-3 py-3">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {materials.length === 0 ? (
+                    <tr><td colSpan={6} className="px-4 py-10"><EmptyState isDark={isDark} title="No comparable materials" subtitle="No accounting upload items or physical ledger activity for this outlet and period." /></td></tr>
+                  ) : materials.map((m, i) => (
+                    <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <td className="px-3 py-3 font-medium">{m.material_name}</td>
+                      <td className="px-3 py-3">{m.base_unit || "N/A"}</td>
+                      <td className="px-3 py-3">{qtyCell(m.accounting_qty_base)}</td>
+                      <td className="px-3 py-3">{qtyCell(m.physical_qty_base)}</td>
+                      <td className="px-3 py-3">{qtyCell(m.qty_difference)}</td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${RECON_MATERIAL_CLS[m.status] || RECON_MATERIAL_CLS["N/A"]}`}>{m.status}</span>
+                        {m.note && <span className={`ml-2 text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{m.note}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrapper>
+          </SectionCard>
+
+          <SectionCard title="Physical Movement Summary" isDark={isDark}>
+            <TableWrapper isDark={isDark}>
+              <table className="w-full border-collapse text-[13px]">
+                <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                  <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                    {["Transaction Type", "Qty In", "Qty Out", "Net Movement"].map((h) => <th key={h} className="px-3 py-3">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.length === 0 ? (
+                    <tr><td colSpan={4} className="px-4 py-10"><EmptyState isDark={isDark} title="No ledger activity" subtitle="No physical stock movements recorded for this location up to the as-of date." /></td></tr>
+                  ) : movements.map((m, i) => (
+                    <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <td className="px-3 py-3 font-medium">{m.transaction_type}</td>
+                      <td className="px-3 py-3">{fmtQty(m.qty_in)}</td>
+                      <td className="px-3 py-3">{fmtQty(m.qty_out)}</td>
+                      <td className="px-3 py-3">{fmtQty(m.net_qty)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrapper>
+          </SectionCard>
+        </>
+      )}
+
+      {!loading && !result && (
+        <EmptyState isDark={isDark} title="No data" subtitle="Select an outlet and as-of date, then click Generate." />
+      )}
+    </div>
+  );
+}
