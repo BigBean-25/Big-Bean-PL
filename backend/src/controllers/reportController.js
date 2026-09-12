@@ -320,6 +320,7 @@ export const getSupplierPendingReport = async (req, res) => {
           outletId: pair.outlet_id,
           supplierId: pair.supplier_id,
           date: asOfDate,
+          includeCredits: false,
         });
 
         return {

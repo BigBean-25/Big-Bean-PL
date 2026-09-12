@@ -88,7 +88,7 @@ const SupplierPendingReport = () => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className={`text-xl font-bold sm:text-2xl ${mainCls}`}>Supplier Outstanding Report</h1>
-          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Purchase value, payments and pending balance per supplier, per outlet</p>
+          <p className={`mt-1 text-[13px] sm:text-[14px] ${mutedCls}`}>Completed material purchases less supplier payments, by outlet</p>
         </div>
         {!loading && reportData.length > 0 && (
           <button onClick={handleExport} className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]" style={{ backgroundColor: primaryColor }}>

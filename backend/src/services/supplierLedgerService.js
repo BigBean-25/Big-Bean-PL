@@ -89,6 +89,7 @@ export const getSupplierLedgerSummary = async ({
   supplierId,
   date,
   excludeId = null,
+  includeCredits = true,
 }) => {
   if (!outletId || !supplierId || !date) {
     throw new Error('outlet_id, supplier_id and date are required');
@@ -98,7 +99,7 @@ export const getSupplierLedgerSummary = async ({
 
   const purchaseValue = await getCumulativePurchases(outletId, supplierId, date);
   const previousPaid = await getCumulativePayments(outletId, supplierId, date, excludeId);
-  const creditValue = await getCumulativeCredits(supplierId, date);
+  const creditValue = includeCredits ? await getCumulativeCredits(supplierId, date) : 0;
 
   const currentOutstanding = openingOutstanding + purchaseValue - previousPaid - creditValue;
 
