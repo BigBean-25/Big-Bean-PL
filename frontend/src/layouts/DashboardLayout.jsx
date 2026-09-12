@@ -946,7 +946,6 @@ const DashboardLayout = () => {
     "/reports/consumption-variance": "reports",
     "/reports/monthly-pl": "monthly_pl",
     "/reports/outlet-comparison": "monthly_pl",
-    "/reports": "reports",
     "/central-kitchen": "production_dashboard",
     "/central-kitchen-receive": "production_dispatch",
     "/warehouse": "warehouse_dashboard",
@@ -967,6 +966,12 @@ const DashboardLayout = () => {
         canView("menu_items") ||
         canView("locations");
       if (!canViewMasters) {
+        navigate("/", { replace: true });
+      }
+    }
+    if (location.pathname === "/reports") {
+      const canViewReports = canView("reports") || canView("monthly_pl");
+      if (!canViewReports) {
         navigate("/", { replace: true });
       }
     }

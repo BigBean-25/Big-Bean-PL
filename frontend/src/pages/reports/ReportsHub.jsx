@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getStoredPermissions } from "../../services/api";
 import {
   Search, Star, Receipt, Wallet, TrendingUp, Scale, FileText, BarChart3,
 } from "lucide-react";
@@ -8,17 +9,17 @@ const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_c
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
 
 const REPORTS = [
-  { title: "Monthly Outlet P&L", path: "/reports/monthly-pl", favourite: true },
-  { title: "Outlet Comparison Report", path: "/reports/outlet-comparison" },
-  { title: "Expense Report", path: "/reports/expense-report" },
-  { title: "Supplier Outstanding Report", path: "/reports/supplier-pending" },
-  { title: "Purchase GST Report", path: "/reports/purchase-gst", favourite: true },
-  { title: "Sales GST Report", path: "/reports/sales-gst", favourite: true },
-  { title: "GSTR-1 (Outward Supplies)", path: "/reports/gstr1", favourite: true },
-  { title: "Daily Cashbook Report", path: "/reports/daily-cashbook", favourite: true },
-  { title: "Actual Consumption Report", path: "/reports/actual-consumption" },
-  { title: "Theoretical Consumption Report", path: "/reports/theoretical-consumption" },
-  { title: "Consumption Variance Report", path: "/reports/consumption-variance" },
+  { title: "Monthly Outlet P&L", path: "/reports/monthly-pl", module: "monthly_pl", favourite: true },
+  { title: "Outlet Comparison Report", path: "/reports/outlet-comparison", module: "monthly_pl", needsAllOutlets: true },
+  { title: "Expense Report", path: "/reports/expense-report", module: "reports" },
+  { title: "Supplier Outstanding Report", path: "/reports/supplier-pending", module: "reports" },
+  { title: "Purchase GST Report", path: "/reports/purchase-gst", module: "reports", favourite: true },
+  { title: "Sales GST Report", path: "/reports/sales-gst", module: "reports", favourite: true },
+  { title: "GSTR-1 (Outward Supplies)", path: "/reports/gstr1", module: "reports", favourite: true },
+  { title: "Daily Cashbook Report", path: "/reports/daily-cashbook", module: "reports", favourite: true },
+  { title: "Actual Consumption Report", path: "/reports/actual-consumption", module: "reports" },
+  { title: "Theoretical Consumption Report", path: "/reports/theoretical-consumption", module: "reports" },
+  { title: "Consumption Variance Report", path: "/reports/consumption-variance", module: "reports" },
 ];
 
 const CATEGORIES = [
@@ -32,6 +33,15 @@ const ReportsHub = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
+  const permissions = getStoredPermissions();
+  const canView = (moduleKey) => Boolean(permissions?.[moduleKey]?.can_view);
+  const canAccessAllOutlets = Boolean(permissions?.canAccessAllOutlets);
+
+  const visibleReports = useMemo(
+    () => REPORTS.filter((r) => canView(r.module) && (!r.needsAllOutlets || canAccessAllOutlets)),
+    [permissions]
+  );
+
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
   const cardCls = isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white";
@@ -43,12 +53,16 @@ const ReportsHub = () => {
 
   const term = search.trim().toLowerCase();
   const categories = useMemo(() => {
-    if (!term) return CATEGORIES;
-    return CATEGORIES.map((cat) => ({
+    const base = CATEGORIES.map((cat) => ({
+      ...cat,
+      reports: cat.reports.filter((r) => visibleReports.some((v) => v.path === r.path)),
+    })).filter((cat) => cat.reports.length > 0);
+    if (!term) return base;
+    return base.map((cat) => ({
       ...cat,
       reports: cat.reports.filter((r) => r.title.toLowerCase().includes(term)),
     })).filter((cat) => cat.reports.length > 0);
-  }, [term]);
+  }, [term, visibleReports]);
 
   return (
     <div className="page-enter space-y-4 sm:space-y-6">
