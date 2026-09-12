@@ -32,6 +32,7 @@ import WastageByCategory from "./pages/outlet-dashboard/WastageByCategory";
 import Suppliers from "./pages/masters/Suppliers";
 import OutletVendors from "./pages/masters/OutletVendors";
 import VendorPurchases from "./pages/daily-accounts/VendorPurchases";
+import VendorLedgerPayments from "./pages/daily-accounts/VendorLedgerPayments";
 import RawMaterials from "./pages/masters/RawMaterials";
 import MenuItems from "./pages/masters/MenuItems";
 import LocationManagement from "./pages/masters/LocationManagement";
@@ -285,6 +286,7 @@ function App() {
             <Route path="day-closing" element={<DayClosing />} />
             <Route path="checklist" element={<DayClosingChecklist />} />
             <Route path="vendor-purchases" element={<VendorPurchases />} />
+            <Route path="vendor-ledger-payments" element={<VendorLedgerPayments />} />
           </Route>
 
           <Route path="outlet-dashboard">
