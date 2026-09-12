@@ -12,6 +12,7 @@ export default function BatchesTab({ batches, kitchenId, materials, units, recip
   const [availability, setAvailability] = useState([]);
   const [outputForm, setOutputForm] = useState({ actual_qty: "", gross_output_qty: "", rejected_output_qty: "", accepted_output_qty: "" });
   const [saving, setSaving] = useState(false);
+  const isBatchPosted = managing ? (managing.is_posted == 1 || managing.status === "Posted") : false;
   const [form, setForm] = useState({
     batch_no: "", recipe_id: "", finished_product_id: "", planned_qty: "", unit_id: "",
     batch_no_output: "", mfg_date: new Date().toISOString().split("T")[0], expiry_date: "",
@@ -242,13 +243,19 @@ export default function BatchesTab({ batches, kitchenId, materials, units, recip
               </SectionCard>
 
               <SectionCard title="Output Quantities" isDark={isDark}>
+                {isBatchPosted && (
+                  <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-[#28C76F]">
+                    <CheckCircle size={14} />
+                    <span>Posted to stock ledger — quantities are locked.</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <input type="number" placeholder="Actual Qty" value={outputForm.actual_qty} onChange={(e) => setOutputForm({ ...outputForm, actual_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <input type="number" placeholder="Gross Output" value={outputForm.gross_output_qty} onChange={(e) => setOutputForm({ ...outputForm, gross_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <input type="number" placeholder="Rejected" value={outputForm.rejected_output_qty} onChange={(e) => setOutputForm({ ...outputForm, rejected_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <input type="number" placeholder="Accepted" value={outputForm.accepted_output_qty} onChange={(e) => setOutputForm({ ...outputForm, accepted_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
+                  <input type="number" placeholder="Actual Qty" value={outputForm.actual_qty} disabled={isBatchPosted} onChange={(e) => setOutputForm({ ...outputForm, actual_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputClass}`} />
+                  <input type="number" placeholder="Gross Output" value={outputForm.gross_output_qty} disabled={isBatchPosted} onChange={(e) => setOutputForm({ ...outputForm, gross_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputClass}`} />
+                  <input type="number" placeholder="Rejected" value={outputForm.rejected_output_qty} disabled={isBatchPosted} onChange={(e) => setOutputForm({ ...outputForm, rejected_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputClass}`} />
+                  <input type="number" placeholder="Accepted" value={outputForm.accepted_output_qty} disabled={isBatchPosted} onChange={(e) => setOutputForm({ ...outputForm, accepted_output_qty: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputClass}`} />
                 </div>
-                <button onClick={saveOutput} disabled={saving} className="mt-3 h-9 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Saving…" : "Save Output"}</button>
+                <button onClick={saveOutput} disabled={saving || isBatchPosted} className="mt-3 h-9 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Saving…" : (isBatchPosted ? "Posted (locked)" : "Save Output")}</button>
               </SectionCard>
 
               <div className="flex justify-end gap-2">
