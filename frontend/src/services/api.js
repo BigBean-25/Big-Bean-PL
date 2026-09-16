@@ -655,6 +655,7 @@ export const warehouseAPI = {
   getWarehouseReport: (type, params) => api.get(`/warehouse/reports/${type}`, { params }),
   getReconciliation: (params) => api.get("/warehouse/reports/reconciliation", { params }),
   getProcurementSources: (params) => api.get("/warehouse/reports/procurement-sources", { params }),
+  getCoverageReadiness: (params) => api.get("/warehouse/reports/coverage-readiness", { params }),
   getWarehouseReportPack: (params) => api.get("/warehouse/reports/pack/export", { params, responseType: "blob" }),
 
   getWarehouseSettings: (locationId) => api.get("/warehouse/settings", { params: { location_id: locationId } }),

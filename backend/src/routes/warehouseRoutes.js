@@ -12,6 +12,7 @@ import {
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
 import { getProcurementSources } from '../services/warehouseProcurementDiagnosticsService.js';
+import { getCoverageReadiness } from '../services/warehouseCoverageReadinessService.js';
 import {
   getPhysicalStockCounts, getPhysicalStockCountById, createPhysicalStockCount, updatePhysicalStockCount,
   submitPhysicalStockCount, verifyPhysicalStockCount, approvePhysicalStockCount, postPhysicalStockCount, lockPhysicalStockCount, deletePhysicalStockCount,
@@ -933,6 +934,41 @@ router.get('/reports/procurement-sources',
         toDate,
         locationScope: req.locationScope,
         outletScope: req.outletScope,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    }
+  });
+
+// Coverage & readiness diagnostics (read-only). Dedicated route kept ahead of
+// the generic /reports/:type dispatcher on purpose - 'coverage-readiness' is
+// deliberately NOT in that handlers map, so without this route it would fall
+// through to the dispatcher's 404.
+router.get('/reports/coverage-readiness',
+  protect,
+  checkPermission('warehouse_reports', 'can_view'),
+  checkPermission('reports', 'can_view'),
+  applyLocationScope,
+  applyOutletScope,
+  async (req, res) => {
+    try {
+      const outletId = Number(req.query.outlet_id);
+      const asOfDate = String(req.query.as_of_date || '').trim();
+      const hasValidAsOfDate = /^\d{4}-\d{2}-\d{2}$/.test(asOfDate)
+        && (() => {
+          const date = new Date(`${asOfDate}T00:00:00Z`);
+          return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === asOfDate;
+        })();
+      if (!Number.isInteger(outletId) || outletId <= 0) return res.status(400).json({ success: false, message: 'outlet_id is required' });
+      if (!asOfDate) return res.status(400).json({ success: false, message: 'as_of_date is required' });
+      if (!hasValidAsOfDate) return res.status(400).json({ success: false, message: 'as_of_date must be a valid YYYY-MM-DD date' });
+      const data = await getCoverageReadiness({
+        outletId,
+        asOfDate,
+        locationScope: req.locationScope,
+        outletScope: req.outletScope,
+        roleId: req.user.role_id,
       });
       res.json({ success: true, data });
     } catch (error) {

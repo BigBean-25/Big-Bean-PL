@@ -434,12 +434,269 @@ function ReconciliationView({ isDark, inputClass, canViewProcurement }) {
             <Truck size={16} /> Procurement Sources
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setSection("coverage")}
+          className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${section === "coverage" ? "border-[#7367F0] bg-[#7367F0] text-white" : isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}
+        >
+          <ClipboardList size={16} /> Coverage &amp; Readiness
+        </button>
       </div>
 
       {section === "stock" ? (
         <StockReconciliationView isDark={isDark} inputClass={inputClass} />
-      ) : (
+      ) : section === "procurement" ? (
         <ProcurementSourcesView isDark={isDark} inputClass={inputClass} />
+      ) : (
+        <CoverageReadinessView isDark={isDark} inputClass={inputClass} />
+      )}
+    </div>
+  );
+}
+
+function CoverageReadinessView({ isDark, inputClass }) {
+  const [outlets, setOutlets] = useState([]);
+  const [outletId, setOutletId] = useState("");
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    masterAPI.getOutlets()
+      .then((res) => {
+        if (!alive) return;
+        setOutlets(res?.data?.data || res?.data || []);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const run = async () => {
+    if (!outletId) { toast.error("Select an outlet"); return; }
+    if (!asOfDate) { toast.error("Select an as-of date"); return; }
+    setLoading(true);
+    try {
+      const res = await warehouseAPI.getCoverageReadiness({ outlet_id: outletId, as_of_date: asOfDate });
+      setResult(res?.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load coverage readiness");
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const presenceLabel = (node) => {
+    if (!node || !node.allowed) return "No Access";
+    return node.present ? "Present" : "Not Present";
+  };
+
+  const mapLabel = (node) => {
+    if (!node || !node.allowed) return "No Access";
+    const total = node.total_rows ?? 0;
+    return `${node.mapped_rows ?? 0} of ${total} rows mapped`;
+  };
+
+  const uomLabel = (node) => {
+    if (!node || !node.allowed) return "No Access";
+    return `${node.rows_with_valid_base_unit_conversion ?? 0} convertible rows`;
+  };
+
+  const textCell = (v) => (v === null || v === undefined ? "N/A" : v);
+  const qtyCell = (v) => (v === null || v === undefined ? "N/A" : fmtQty(v));
+  const moneyCell = (v) => (v === null || v === undefined ? "N/A" : fmtCurrency(v));
+  const source = result?.source_presence || {};
+  const mapping = result?.mapping || {};
+  const uom = result?.uom || {};
+  const physical = result?.physical || {};
+  const continuity = result?.continuity || {};
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+        Factual read-only diagnostics for accounting source presence, inventory mapping coverage and physical context.
+      </p>
+
+      <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <select value={outletId} onChange={(e) => setOutletId(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}>
+            <option value="">Select Outlet</option>
+            {outlets.map((outlet) => (
+              <option key={outlet.id} value={outlet.id}>{outlet.outlet_name}{outlet.outlet_code ? ` (${outlet.outlet_code})` : ""}</option>
+            ))}
+          </select>
+          <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} />
+          <button onClick={run} disabled={loading} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-70">
+            {loading ? "Generating..." : result ? "Refresh" : "Generate"}
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <SectionCard isDark={isDark}>
+          <div className={`flex min-h-[120px] items-center justify-center rounded-lg border ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+            <div className="flex items-center gap-3 text-sm font-medium">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span>Loading coverage readiness…</span>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {!loading && result && (
+        <>
+          <SectionCard title="Accounting Source Presence" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {[
+                { title: "Opening Stock", node: source.opening_stock },
+                { title: "Closing Stock", node: source.closing_stock },
+                { title: "Material Purchase", node: source.material_purchase },
+                { title: "Approved Sales", node: source.sales },
+                { title: "Previous Closing", node: source.previous_closing },
+              ].map((item) => (
+                <div key={item.title} className={`rounded-xl border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+                  <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{item.title}</p>
+                  <p className="mt-2 text-[14px] font-semibold">{presenceLabel(item.node)}</p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Mapping Coverage" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              {[
+                { title: "Opening Stock", node: mapping.opening_stock },
+                { title: "Closing Stock", node: mapping.closing_stock },
+                { title: "Material Purchase", node: mapping.material_purchase },
+              ].map((item) => (
+                <div key={item.title} className={`rounded-xl border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{item.title}</p>
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${isDark ? "border-[#3B405A] text-[#D0D2D6]" : "border-[#D8D6DE] text-[#2F2B3D]"}`}>{item.node?.allowed ? "Allowed" : "No Access"}</span>
+                  </div>
+                  <p className="mt-2 text-[14px] font-semibold">{mapLabel(item.node)}</p>
+                  <p className={`mt-1 text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+                    {item.node?.allowed ? `${item.node.unmapped_rows ?? 0} unmapped` : "Hidden until source permission is granted"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="UOM Coverage" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              {[
+                { title: "Opening Stock", node: uom.opening_stock },
+                { title: "Closing Stock", node: uom.closing_stock },
+                { title: "Material Purchase", node: uom.material_purchase },
+              ].map((item) => (
+                <div key={item.title} className={`rounded-xl border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+                  <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{item.title}</p>
+                  <p className="mt-2 text-[14px] font-semibold">{uomLabel(item.node)}</p>
+                  <p className={`mt-1 text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+                    {item.node?.allowed ? `${item.node.rows_without_conversion ?? 0} missing conversion · ${item.node.distinct_materials_missing_conversion ?? 0} materials` : "Hidden until source permission is granted"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Physical Context" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <KpiCard icon={ClipboardList} label="Inventory Location" value={physical.allowed ? (physical.location ? (physical.location.location_name || physical.location.location_code || "Selected") : "None") : "No Access"} isDark={isDark} />
+              <KpiCard icon={Scale} label="Location State" value={physical.allowed ? (physical.location_status || "N/A") : "No Access"} isDark={isDark} />
+              <KpiCard icon={BookOpen} label="Ledger Activity" value={physical.allowed ? (physical.location_status === "UNIQUE" ? (physical.ledger_activity?.has_activity ? "Present" : "No activity") : "N/A") : "No Access"} isDark={isDark} />
+              <KpiCard icon={ArrowRightLeft} label="Latest Movement" value={physical.allowed ? (physical.location_status === "UNIQUE" ? textCell(physical.ledger_activity?.latest_movement_date ? fmtDate(physical.ledger_activity.latest_movement_date) : null) : "N/A") : "No Access"} isDark={isDark} />
+              <KpiCard icon={ClipboardList} label="Latest Posted Count" value={physical.latest_physical_count?.allowed ? (physical.location_status === "UNIQUE" ? textCell(physical.latest_physical_count?.exists ? fmtDate(physical.latest_physical_count.count_date) : null) : "N/A") : "No Access"} isDark={isDark} />
+            </div>
+
+            {physical.allowed && physical.location_status === "AMBIGUOUS" && (
+              <div className="mt-4">
+                <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Candidate Inventory Locations</p>
+                <TableWrapper isDark={isDark}>
+                  <table className="w-full border-collapse text-[13px]">
+                    <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                      <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                        <th className="px-3 py-3">ID</th>
+                        <th className="px-3 py-3">Code</th>
+                        <th className="px-3 py-3">Name</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!physical.candidates?.length ? (
+                        <tr><td colSpan={3} className="px-4 py-10"><EmptyState isDark={isDark} title="No accessible candidates" subtitle="More than one active inventory location exists, but none are in the current scope." /></td></tr>
+                      ) : physical.candidates.map((candidate) => (
+                        <tr key={candidate.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                          <td className="px-3 py-3">{candidate.id}</td>
+                          <td className="px-3 py-3">{candidate.location_code || "N/A"}</td>
+                          <td className="px-3 py-3 font-medium">{candidate.location_name || "N/A"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrapper>
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Opening / Previous Closing" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className={`rounded-xl border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+                <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Current Opening Upload</p>
+                <p className="mt-2 text-[14px] font-semibold">{presenceLabel(source.current_opening)}</p>
+                <p className={`mt-1 text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+                  {source.current_opening?.allowed ? `${continuity.comparable_rows ?? 0} comparable rows when paired with previous closing` : "Hidden until opening-stock permission is granted"}
+                </p>
+              </div>
+              <div className={`rounded-xl border p-4 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+                <p className={`text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Previous Closing Upload</p>
+                <p className="mt-2 text-[14px] font-semibold">{presenceLabel(source.previous_closing)}</p>
+                <p className={`mt-1 text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+                  {source.previous_closing?.allowed ? `${continuity.non_comparable_rows ?? 0} non-comparable rows in the side-by-side set` : "Hidden until closing-stock permission is granted"}
+                </p>
+              </div>
+            </div>
+
+            {source.current_opening?.allowed && source.previous_closing?.allowed && continuity.materials?.length > 0 && (
+              <div className="mt-4">
+                <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Side-by-Side Quantities and Values</p>
+                <TableWrapper isDark={isDark}>
+                  <table className="w-full border-collapse text-[13px]">
+                    <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                      <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                        <th className="px-3 py-3">Material</th>
+                        <th className="px-3 py-3">Base Unit</th>
+                        <th className="px-3 py-3">Previous Closing Qty</th>
+                        <th className="px-3 py-3">Current Opening Qty</th>
+                        <th className="px-3 py-3">Previous Closing Value</th>
+                        <th className="px-3 py-3">Current Opening Value</th>
+                        <th className="px-3 py-3">Comparable</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {continuity.materials.map((row) => (
+                        <tr key={row.key} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                          <td className="px-3 py-3 font-medium">{row.material_name}</td>
+                          <td className="px-3 py-3">{row.base_unit || "N/A"}</td>
+                          <td className="px-3 py-3">{qtyCell(row.previous_closing_qty_base)}</td>
+                          <td className="px-3 py-3">{qtyCell(row.current_opening_qty_base)}</td>
+                          <td className="px-3 py-3">{moneyCell(row.previous_closing_value)}</td>
+                          <td className="px-3 py-3">{moneyCell(row.current_opening_value)}</td>
+                          <td className="px-3 py-3">{row.comparable ? "Yes" : "No"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableWrapper>
+              </div>
+            )}
+          </SectionCard>
+        </>
+      )}
+
+      {!loading && !result && (
+        <EmptyState isDark={isDark} title="No data" subtitle="Select an outlet and as-of date, then click Generate." />
       )}
     </div>
   );
@@ -778,7 +1035,16 @@ function StockReconciliationView({ isDark, inputClass }) {
         </div>
       </div>
 
-      {loading && <SectionCard isDark={isDark}><LoadingRows rows={5} cols={6} isDark={isDark} /></SectionCard>}
+      {loading && (
+        <SectionCard isDark={isDark}>
+          <div className={`flex min-h-[120px] items-center justify-center rounded-lg border ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+            <div className="flex items-center gap-3 text-sm font-medium">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span>Loading reconciliation…</span>
+            </div>
+          </div>
+        </SectionCard>
+      )}
 
       {!loading && result && (
         <>
