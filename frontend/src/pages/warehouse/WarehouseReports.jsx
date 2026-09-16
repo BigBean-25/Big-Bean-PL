@@ -84,6 +84,7 @@ const groups = [
 
 const STRUCTURED_REPORTS = ["gstr3b", "purchase-return-gst"];
 const RECONCILIATION_KEY = "reconciliation";
+const PROPOSED_CLOSING_STOCK_KEY = "proposed-closing-stock";
 
 const accountingGroup = {
   label: "Accounting",
@@ -436,6 +437,13 @@ function ReconciliationView({ isDark, inputClass, canViewProcurement }) {
         )}
         <button
           type="button"
+          onClick={() => setSection(PROPOSED_CLOSING_STOCK_KEY)}
+          className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${section === PROPOSED_CLOSING_STOCK_KEY ? "border-[#7367F0] bg-[#7367F0] text-white" : isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}
+        >
+          <ClipboardList size={16} /> Proposed Closing Stock
+        </button>
+        <button
+          type="button"
           onClick={() => setSection("coverage")}
           className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${section === "coverage" ? "border-[#7367F0] bg-[#7367F0] text-white" : isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}
         >
@@ -447,8 +455,264 @@ function ReconciliationView({ isDark, inputClass, canViewProcurement }) {
         <StockReconciliationView isDark={isDark} inputClass={inputClass} />
       ) : section === "procurement" ? (
         <ProcurementSourcesView isDark={isDark} inputClass={inputClass} />
+      ) : section === PROPOSED_CLOSING_STOCK_KEY ? (
+        <ProposedClosingStockView isDark={isDark} inputClass={inputClass} />
       ) : (
         <CoverageReadinessView isDark={isDark} inputClass={inputClass} />
+      )}
+    </div>
+  );
+}
+
+function ProposedClosingStockView({ isDark, inputClass }) {
+  const [outlets, setOutlets] = useState([]);
+  const [outletId, setOutletId] = useState("");
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    masterAPI.getOutlets()
+      .then((res) => {
+        if (!alive) return;
+        setOutlets(res?.data?.data || res?.data || []);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const run = async () => {
+    if (!outletId) { toast.error("Select an outlet"); return; }
+    if (!asOfDate) { toast.error("Select an as-of date"); return; }
+    setLoading(true);
+    try {
+      const res = await warehouseAPI.getProposedClosingStock({ outlet_id: outletId, as_of_date: asOfDate });
+      setResult(res?.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load proposed closing stock");
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const textCell = (v) => (v === null || v === undefined ? "N/A" : v);
+  const qtyCell = (v) => (v === null || v === undefined ? "N/A" : fmtQty(v));
+  const moneyCell = (v) => (v === null || v === undefined ? "N/A" : fmtCurrency(v));
+  const summary = result?.summary || {};
+  const physical = result?.physical || {};
+  const accounting = result?.accounting || {};
+  const comparisonRows = result?.comparison_rows || [];
+  const warnings = result?.warnings || [];
+  const comparisonStateCls = {
+    MATCH: isDark ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-emerald-200 bg-emerald-50 text-emerald-700",
+    DIFFERENCE: isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700",
+    "N/A": isDark ? "border-slate-500/40 bg-slate-500/10 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700",
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+        Read-only proposed closing-stock preview for a selected outlet and month-end date.
+      </p>
+
+      <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <select value={outletId} onChange={(e) => setOutletId(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}>
+            <option value="">Select Outlet</option>
+            {outlets.map((outlet) => (
+              <option key={outlet.id} value={outlet.id}>{outlet.outlet_name}{outlet.outlet_code ? ` (${outlet.outlet_code})` : ""}</option>
+            ))}
+          </select>
+          <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} />
+          <button onClick={run} disabled={loading} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-70">
+            {loading ? "Generating..." : result ? "Refresh" : "Generate"}
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <SectionCard isDark={isDark}>
+          <div className={`flex min-h-[120px] items-center justify-center rounded-lg border ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+            <div className="flex items-center gap-3 text-sm font-medium">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span>Loading proposed closing stock…</span>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {!loading && result && (
+        <>
+          <div className={`rounded-lg border px-4 py-3 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+            {warnings.map((warning, index) => <p key={index}>• {warning}</p>)}
+          </div>
+
+          <SectionCard title="Summary" isDark={isDark}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+              <KpiCard
+                icon={ClipboardList}
+                label="Inventory Location"
+                value={physical.location_status === "UNIQUE" ? (physical.location ? (physical.location.location_name || physical.location.location_code || "Selected") : "Selected") : physical.location_status === "AMBIGUOUS" ? "Ambiguous" : "None"}
+                isDark={isDark}
+              />
+              <KpiCard icon={Scale} label="Location State" value={physical.location_status || "N/A"} isDark={isDark} />
+              <KpiCard icon={BookOpen} label="Physical Materials" value={textCell(summary.physical_material_count)} isDark={isDark} />
+              <KpiCard
+                icon={ClipboardList}
+                label="Accounting Closing Upload"
+                value={accounting.allowed ? (accounting.completed_upload_present ? (accounting.upload?.batch_id || `Upload #${accounting.upload?.id}`) : "No completed upload") : "No Access"}
+                sub={accounting.allowed && accounting.upload ? `${accounting.upload.month}/${accounting.upload.year}` : undefined}
+                isDark={isDark}
+              />
+              <KpiCard icon={ClipboardList} label="Comparable Materials" value={textCell(summary.comparable_material_count)} isDark={isDark} />
+              <KpiCard
+                icon={AlertTriangle}
+                label="One-sided / Non-comparable"
+                value={textCell(summary.non_comparable_material_count)}
+                sub={summary.physical_only_count !== null ? `Physical only: ${summary.physical_only_count ?? 0} · Accounting only: ${summary.accounting_only_count ?? 0} · Missing conversion: ${summary.conversion_missing_count ?? 0}` : undefined}
+                isDark={isDark}
+              />
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Physical Closing Preview" isDark={isDark}>
+            {physical.location_status === "AMBIGUOUS" ? (
+              <div className="space-y-4">
+                <EmptyState isDark={isDark} title="Ambiguous physical location" subtitle="More than one active inventory-enabled Outlet location exists for this outlet. No physical rows were selected." />
+                <div>
+                  <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Candidate Inventory Locations</p>
+                  <TableWrapper isDark={isDark}>
+                    <table className="w-full border-collapse text-[13px]">
+                      <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                        <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                          <th className="px-3 py-3">ID</th>
+                          <th className="px-3 py-3">Code</th>
+                          <th className="px-3 py-3">Name</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!physical.candidates?.length ? (
+                          <tr><td colSpan={3} className="px-4 py-10"><EmptyState isDark={isDark} title="No accessible candidates" subtitle="No candidate locations are available within the current scope." /></td></tr>
+                        ) : physical.candidates.map((candidate) => (
+                          <tr key={candidate.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                            <td className="px-3 py-3">{candidate.id}</td>
+                            <td className="px-3 py-3">{candidate.location_code || "N/A"}</td>
+                            <td className="px-3 py-3 font-medium">{candidate.location_name || "N/A"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </TableWrapper>
+                </div>
+              </div>
+            ) : physical.location_status === "NONE" ? (
+              <EmptyState isDark={isDark} title="No physical outlet location" subtitle="This outlet has no active, inventory-enabled Outlet location mapped." />
+            ) : !physical.rows?.length ? (
+              <EmptyState isDark={isDark} title="No ledger activity" subtitle="No physical stock movements were recorded up to the selected date." />
+            ) : (
+              <TableWrapper isDark={isDark}>
+                <table className="w-full border-collapse text-[13px]">
+                  <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                    <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                      <th className="px-3 py-3">Material</th>
+                      <th className="px-3 py-3">Base Unit</th>
+                      <th className="px-3 py-3">Physical Qty</th>
+                      <th className="px-3 py-3">Diagnostic Ledger Value</th>
+                      <th className="px-3 py-3">Latest Movement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {physical.rows.map((row) => (
+                      <tr key={row.raw_material_id ?? row.material_name} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                        <td className="px-3 py-3 font-medium">{row.material_name || "N/A"}</td>
+                        <td className="px-3 py-3">{row.base_unit_name || "N/A"}</td>
+                        <td className="px-3 py-3">{qtyCell(row.physical_qty_base)}</td>
+                        <td className="px-3 py-3">{moneyCell(row.physical_ledger_value)}</td>
+                        <td className="px-3 py-3">{textCell(row.latest_movement_date ? fmtDate(row.latest_movement_date) : null)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrapper>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Existing Accounting Closing Stock" isDark={isDark}>
+            {!accounting.allowed ? (
+              <EmptyState isDark={isDark} title="No Access" subtitle="closing_stock.can_view is required to see accounting closing-stock detail." />
+            ) : !accounting.completed_upload_present ? (
+              <EmptyState isDark={isDark} title="No completed closing-stock upload" subtitle="No Completed closing-stock upload exists for the selected outlet and month." />
+            ) : !accounting.rows?.length ? (
+              <EmptyState isDark={isDark} title="No closing-stock rows" subtitle="The completed upload contains no rows." />
+            ) : (
+              <TableWrapper isDark={isDark}>
+                <table className="w-full border-collapse text-[13px]">
+                  <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                    <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                      <th className="px-3 py-3">Material</th>
+                      <th className="px-3 py-3">Qty</th>
+                      <th className="px-3 py-3">Unit</th>
+                      <th className="px-3 py-3">Rate</th>
+                      <th className="px-3 py-3">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accounting.rows.map((row) => (
+                      <tr key={`${row.raw_material_id ?? row.raw_material_name}-${row.qty}-${row.unit_id || "u"}`} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                        <td className="px-3 py-3 font-medium">{row.raw_material_name || "N/A"}</td>
+                        <td className="px-3 py-3">{qtyCell(row.qty)}</td>
+                        <td className="px-3 py-3">{row.unit_name || "N/A"}</td>
+                        <td className="px-3 py-3">{moneyCell(row.rate)}</td>
+                        <td className="px-3 py-3">{moneyCell(row.value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrapper>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Material Comparison" isDark={isDark}>
+            {!comparisonRows.length ? (
+              <EmptyState isDark={isDark} title="No rows to compare" subtitle="The preview could not build a comparison set for the selected outlet and date." />
+            ) : (
+              <TableWrapper isDark={isDark}>
+                <table className="w-full border-collapse text-[13px]">
+                  <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                    <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                      <th className="px-3 py-3">Material</th>
+                      <th className="px-3 py-3">Physical Qty (Base)</th>
+                      <th className="px-3 py-3">Accounting Qty</th>
+                      <th className="px-3 py-3">Accounting Unit</th>
+                      <th className="px-3 py-3">Accounting Qty (Base)</th>
+                      <th className="px-3 py-3">State</th>
+                      <th className="px-3 py-3">Quantity Delta</th>
+                      <th className="px-3 py-3">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonRows.map((row) => (
+                      <tr key={row.key} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                        <td className="px-3 py-3 font-medium">{row.material_name || "N/A"}</td>
+                        <td className="px-3 py-3">{qtyCell(row.physical_qty_base)}</td>
+                        <td className="px-3 py-3">{qtyCell(row.accounting_qty_original)}</td>
+                        <td className="px-3 py-3">{row.accounting_unit_name || "N/A"}</td>
+                        <td className="px-3 py-3">{qtyCell(row.accounting_qty_base)}</td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${comparisonStateCls[row.state] || comparisonStateCls["N/A"]}`}>{row.state}</span>
+                        </td>
+                        <td className="px-3 py-3">{row.comparable ? qtyCell(row.quantity_difference) : "N/A"}</td>
+                        <td className="px-3 py-3">{row.non_comparable_reason || "N/A"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrapper>
+            )}
+          </SectionCard>
+        </>
       )}
     </div>
   );

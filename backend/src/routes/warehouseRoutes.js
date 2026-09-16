@@ -43,6 +43,7 @@ import {
 } from '../services/warehouseReorderService.js';
 import * as reportService from '../services/warehouseReportService.js';
 import * as reconciliationService from '../services/warehouseReconciliationService.js';
+import * as proposedClosingStockService from '../services/warehouseProposedClosingStockService.js';
 import * as settingService from '../services/warehouseSettingService.js';
 
 const router = express.Router();
@@ -998,6 +999,37 @@ router.get('/reports/reconciliation',
         asOfDate: req.query.as_of_date,
         locationScope: req.locationScope,
         outletScope: req.outletScope,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    }
+  });
+
+router.get('/reports/proposed-closing-stock',
+  protect,
+  checkPermission('warehouse_reports', 'can_view'),
+  checkPermission('reports', 'can_view'),
+  applyLocationScope,
+  applyOutletScope,
+  async (req, res) => {
+    try {
+      const outletId = Number(req.query.outlet_id);
+      const asOfDate = String(req.query.as_of_date || '').trim();
+      const hasValidAsOfDate = /^\d{4}-\d{2}-\d{2}$/.test(asOfDate)
+        && (() => {
+          const date = new Date(`${asOfDate}T00:00:00Z`);
+          return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === asOfDate;
+        })();
+      if (!Number.isInteger(outletId) || outletId <= 0) return res.status(400).json({ success: false, message: 'outlet_id is required' });
+      if (!asOfDate) return res.status(400).json({ success: false, message: 'as_of_date is required' });
+      if (!hasValidAsOfDate) return res.status(400).json({ success: false, message: 'as_of_date must be a valid YYYY-MM-DD date' });
+      const data = await proposedClosingStockService.getProposedClosingStock({
+        outletId,
+        asOfDate,
+        locationScope: req.locationScope,
+        outletScope: req.outletScope,
+        closingStockAllowed: Boolean(req.user.permissions_object?.closing_stock?.can_view),
       });
       res.json({ success: true, data });
     } catch (error) {
