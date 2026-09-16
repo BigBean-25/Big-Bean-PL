@@ -11,6 +11,7 @@ import {
   approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer,
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
+import { getProcurementSources } from '../services/warehouseProcurementDiagnosticsService.js';
 import {
   getPhysicalStockCounts, getPhysicalStockCountById, createPhysicalStockCount, updatePhysicalStockCount,
   submitPhysicalStockCount, verifyPhysicalStockCount, approvePhysicalStockCount, postPhysicalStockCount, lockPhysicalStockCount, deletePhysicalStockCount,
@@ -900,6 +901,44 @@ router.get('/reports/summary', checkPermission('warehouse_reports', 'can_view'),
   }
   catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
+
+// Procurement sources diagnostics (read-only). Dedicated route kept ahead of
+// the generic /reports/:type dispatcher on purpose - 'procurement-sources' is
+// deliberately NOT in that handlers map, so without this route it would fall
+// through to the dispatcher's 404. It is scoped independently by warehouse
+// location and outlet because the two source populations are not
+// transaction-matched.
+router.get('/reports/procurement-sources',
+  protect,
+  checkPermission('warehouse_reports', 'can_view'),
+  checkPermission('reports', 'can_view'),
+  checkPermission('grn', 'can_view'),
+  checkPermission('material_purchase', 'can_view'),
+  applyLocationScope,
+  applyOutletScope,
+  async (req, res) => {
+    try {
+      const locationId = Number(req.query.location_id);
+      const outletId = Number(req.query.outlet_id);
+      const fromDate = String(req.query.from_date || '').trim();
+      const toDate = String(req.query.to_date || '').trim();
+      if (!locationId) return res.status(400).json({ success: false, message: 'location_id is required' });
+      if (!outletId) return res.status(400).json({ success: false, message: 'outlet_id is required' });
+      if (!fromDate) return res.status(400).json({ success: false, message: 'from_date is required' });
+      if (!toDate) return res.status(400).json({ success: false, message: 'to_date is required' });
+      const data = await getProcurementSources({
+        locationId,
+        outletId,
+        fromDate,
+        toDate,
+        locationScope: req.locationScope,
+        outletScope: req.outletScope,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    }
+  });
 
 // Accounting reconciliation (read-only, per-outlet). Dedicated route kept
 // ahead of the generic /reports/:type dispatcher on purpose -

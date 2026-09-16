@@ -104,6 +104,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
   // Accounting Reconciliation needs BOTH warehouse_reports and reports view
   // access - the option stays hidden unless the user holds both.
   const canViewReconciliation = Boolean(permissions?.warehouse_reports?.can_view && permissions?.reports?.can_view);
+  const canViewProcurement = Boolean(canViewReconciliation && permissions?.grn?.can_view && permissions?.material_purchase?.can_view);
   const visibleGroups = canViewReconciliation ? [...groups, accountingGroup] : groups;
   const [filters, setFilters] = useState({
     from_date: "", to_date: "", material_id: "", supplier_id: "", category_id: "", status: "",
@@ -284,7 +285,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
           )}
 
           {active === RECONCILIATION_KEY ? (
-            <ReconciliationView isDark={isDark} inputClass={inputClass} />
+            <ReconciliationView isDark={isDark} inputClass={inputClass} canViewProcurement={canViewProcurement} />
           ) : STRUCTURED_REPORTS.includes(active) ? (
             loading ? (
               <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>
@@ -407,6 +408,305 @@ function PurchaseReturnGSTView({ data, isDark }) {
   );
 }
 
+function ReconciliationView({ isDark, inputClass, canViewProcurement }) {
+  const [section, setSection] = useState("stock");
+
+  useEffect(() => {
+    if (section === "procurement" && !canViewProcurement) setSection("stock");
+  }, [canViewProcurement, section]);
+
+  return (
+    <div className="space-y-4">
+      <div className={`flex flex-wrap items-center gap-2 rounded-lg border p-3 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+        <button
+          type="button"
+          onClick={() => setSection("stock")}
+          className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${section === "stock" ? "border-[#7367F0] bg-[#7367F0] text-white" : isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}
+        >
+          <BookOpen size={16} /> Stock Reconciliation
+        </button>
+        {canViewProcurement && (
+          <button
+            type="button"
+            onClick={() => setSection("procurement")}
+            className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${section === "procurement" ? "border-[#7367F0] bg-[#7367F0] text-white" : isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}
+          >
+            <Truck size={16} /> Procurement Sources
+          </button>
+        )}
+      </div>
+
+      {section === "stock" ? (
+        <StockReconciliationView isDark={isDark} inputClass={inputClass} />
+      ) : (
+        <ProcurementSourcesView isDark={isDark} inputClass={inputClass} />
+      )}
+    </div>
+  );
+}
+
+function ProcurementSourcesView({ isDark, inputClass }) {
+  const [locations, setLocations] = useState([]);
+  const [outlets, setOutlets] = useState([]);
+  const [filters, setFilters] = useState({ location_id: "", outlet_id: "", from_date: "", to_date: "" });
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      warehouseAPI.getLocations({ scope: "all" }),
+      masterAPI.getOutlets(),
+    ])
+      .then(([locRes, outletRes]) => {
+        if (!alive) return;
+        const locRows = (locRes?.data?.data || locRes?.data || []).filter((loc) => loc.location_type === "Central Warehouse" && Number(loc.is_active) === 1);
+        setLocations(locRows);
+        setOutlets(outletRes?.data?.data || outletRes?.data || []);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const run = async () => {
+    if (!filters.location_id) { toast.error("Select a warehouse location"); return; }
+    if (!filters.outlet_id) { toast.error("Select an outlet"); return; }
+    if (!filters.from_date || !filters.to_date) { toast.error("Select a date range"); return; }
+    setLoading(true);
+    try {
+      const res = await warehouseAPI.getProcurementSources(filters);
+      setResult(res?.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load procurement sources");
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const warehouse = result?.warehouse_grn || null;
+  const purchases = result?.outlet_direct_purchase || null;
+  const trend = result?.monthly_trend || [];
+  const moneyCell = (v) => (v === null || v === undefined ? "N/A" : fmtCurrency(v));
+  const countCell = (v) => (v === null || v === undefined ? "N/A" : v);
+  const warehouseHasData = warehouse?.has_data ?? ((warehouse?.grn_count ?? 0) > 0);
+  const purchaseHasData = purchases?.has_data ?? ((purchases?.upload_count ?? 0) > 0);
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+        Read-only view of warehouse GRN receipts and outlet direct purchase uploads. These sources are not transaction-matched.
+      </p>
+
+      <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
+          <select value={filters.location_id} onChange={(e) => setFilters({ ...filters, location_id: e.target.value })} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}>
+            <option value="">Warehouse Location</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>{loc.location_name}{loc.location_code ? ` (${loc.location_code})` : ""}</option>
+            ))}
+          </select>
+          <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}>
+            <option value="">Outlet</option>
+            {outlets.map((outlet) => (
+              <option key={outlet.id} value={outlet.id}>{outlet.outlet_name}{outlet.outlet_code ? ` (${outlet.outlet_code})` : ""}</option>
+            ))}
+          </select>
+          <input type="date" value={filters.from_date} onChange={(e) => setFilters({ ...filters, from_date: e.target.value })} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} />
+          <input type="date" value={filters.to_date} onChange={(e) => setFilters({ ...filters, to_date: e.target.value })} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} />
+          <button onClick={run} disabled={loading} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-70">
+            {loading ? "Generating..." : result ? "Refresh" : "Generate"}
+          </button>
+        </div>
+      </div>
+
+      <div className={`rounded-lg border px-4 py-3 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+        Warehouse GRNs and outlet direct purchases are separate source populations. Values are shown side by side only and must not be interpreted as a purchase variance.
+      </div>
+
+      {loading && <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>}
+
+      {!loading && result && (
+        <>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <SectionCard title="Warehouse GRN" isDark={isDark}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiCard icon={Package} label="GRN Value" value={moneyCell(warehouse?.value)} isDark={isDark} />
+                <KpiCard icon={ClipboardList} label="GRN Count" value={countCell(warehouse?.grn_count)} isDark={isDark} />
+                <KpiCard icon={Truck} label="Suppliers" value={countCell(warehouse?.supplier_count)} isDark={isDark} />
+                <KpiCard icon={BookOpen} label="Materials" value={countCell(warehouse?.material_count)} isDark={isDark} />
+              </div>
+
+              {warehouseHasData ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Supplier Breakdown</p>
+                    <TableWrapper isDark={isDark}>
+                      <table className="w-full border-collapse text-[13px]">
+                        <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                          <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                            <th className="px-3 py-3">Supplier</th>
+                            <th className="px-3 py-3">GRNs</th>
+                            <th className="px-3 py-3">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!warehouse?.suppliers?.length ? (
+                            <tr><td colSpan={3} className="px-4 py-10"><EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." /></td></tr>
+                          ) : warehouse.suppliers.map((row, i) => (
+                            <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                              <td className="px-3 py-3 font-medium">{row.supplier_name || "Unknown supplier"}</td>
+                              <td className="px-3 py-3">{row.grn_count}</td>
+                              <td className="px-3 py-3">{fmtCurrency(row.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrapper>
+                  </div>
+
+                  <div>
+                    <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Material Breakdown</p>
+                    <TableWrapper isDark={isDark}>
+                      <table className="w-full border-collapse text-[13px]">
+                        <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                          <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                            <th className="px-3 py-3">Material</th>
+                            <th className="px-3 py-3">Quantity</th>
+                            <th className="px-3 py-3">Unit</th>
+                            <th className="px-3 py-3">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!warehouse?.materials?.length ? (
+                            <tr><td colSpan={4} className="px-4 py-10"><EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." /></td></tr>
+                          ) : warehouse.materials.map((row, i) => (
+                            <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                              <td className="px-3 py-3 font-medium">{row.material_name || "Unknown material"}</td>
+                              <td className="px-3 py-3">{fmtQty(row.quantity)}</td>
+                              <td className="px-3 py-3">{row.unit || "N/A"}</td>
+                              <td className="px-3 py-3">{fmtCurrency(row.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrapper>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." />
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard title="Outlet Direct Purchase" isDark={isDark}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <KpiCard icon={Package} label="Purchase Upload Value" value={moneyCell(purchases?.value)} isDark={isDark} />
+                <KpiCard icon={ClipboardList} label="Upload Count" value={countCell(purchases?.upload_count)} isDark={isDark} />
+                <KpiCard icon={ClipboardList} label="Item Count" value={countCell(purchases?.item_count)} isDark={isDark} />
+                <KpiCard icon={Truck} label="Suppliers" value={countCell(purchases?.supplier_count)} isDark={isDark} />
+                <KpiCard icon={BookOpen} label="Materials" value={countCell(purchases?.material_count)} isDark={isDark} />
+              </div>
+
+              {purchaseHasData ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Supplier Breakdown</p>
+                    <TableWrapper isDark={isDark}>
+                      <table className="w-full border-collapse text-[13px]">
+                        <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                          <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                            <th className="px-3 py-3">Supplier</th>
+                            <th className="px-3 py-3">Items</th>
+                            <th className="px-3 py-3">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!purchases?.suppliers?.length ? (
+                            <tr><td colSpan={3} className="px-4 py-10"><EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." /></td></tr>
+                          ) : purchases.suppliers.map((row, i) => (
+                            <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                              <td className="px-3 py-3 font-medium">{row.supplier_name || "Unknown supplier"}</td>
+                              <td className="px-3 py-3">{row.item_count}</td>
+                              <td className="px-3 py-3">{fmtCurrency(row.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrapper>
+                  </div>
+
+                  <div>
+                    <p className={`mb-2 text-[13px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Material Breakdown</p>
+                    <TableWrapper isDark={isDark}>
+                      <table className="w-full border-collapse text-[13px]">
+                        <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                          <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                            <th className="px-3 py-3">Material</th>
+                            <th className="px-3 py-3">Quantity</th>
+                            <th className="px-3 py-3">Unit</th>
+                            <th className="px-3 py-3">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!purchases?.materials?.length ? (
+                            <tr><td colSpan={4} className="px-4 py-10"><EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." /></td></tr>
+                          ) : purchases.materials.map((row, i) => (
+                            <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                              <td className="px-3 py-3 font-medium">{row.material_name || "Unknown material"}</td>
+                              <td className="px-3 py-3">{fmtQty(row.quantity)}</td>
+                              <td className="px-3 py-3">{row.unit || "N/A"}</td>
+                              <td className="px-3 py-3">{fmtCurrency(row.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrapper>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." />
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          <SectionCard title="Monthly Trend" isDark={isDark}>
+            <TableWrapper isDark={isDark}>
+              <table className="w-full border-collapse text-[13px]">
+                <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+                  <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                    <th className="px-3 py-3">Month</th>
+                    <th className="px-3 py-3">Warehouse GRN Value</th>
+                    <th className="px-3 py-3">Outlet Direct Purchase Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!trend.length ? (
+                    <tr><td colSpan={3} className="px-4 py-10"><EmptyState isDark={isDark} title="No data for this source and selected scope." subtitle="Adjust the filters and generate again." /></td></tr>
+                  ) : trend.map((row) => (
+                    <tr key={row.month} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <td className="px-3 py-3 font-medium">{row.month}</td>
+                      <td className="px-3 py-3">{fmtCurrency(row.warehouse_grn_value)}</td>
+                      <td className="px-3 py-3">{fmtCurrency(row.outlet_direct_purchase_value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrapper>
+          </SectionCard>
+        </>
+      )}
+
+      {!loading && !result && (
+        <EmptyState isDark={isDark} title="No data" subtitle="Select a warehouse location, outlet and date range, then click Generate." />
+      )}
+    </div>
+  );
+}
+
 function EmptyRow2({ colSpan, isDark }) {
   return <tr><td colSpan={colSpan} className="px-4 py-10"><EmptyState isDark={isDark} message="No data" subMessage="No records in this date range" /></td></tr>;
 }
@@ -430,7 +730,7 @@ const RECON_MATERIAL_CLS = {
   "N/A": "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 
-function ReconciliationView({ isDark, inputClass }) {
+function StockReconciliationView({ isDark, inputClass }) {
   const [outlets, setOutlets] = useState([]);
   const [outletId, setOutletId] = useState("");
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
