@@ -403,6 +403,7 @@ export const getPurchaseGSTReport = async (req, res) => {
 };
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+const isUsableGstRate = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 
 // GSTR-1 reports OUTWARD taxable supplies. For this business that's outlet
 // sales (from approved PetPooja uploads), not warehouse purchases or internal
@@ -433,7 +434,7 @@ export const getGSTR1Report = async (req, res) => {
     }
 
     const items = await query(
-      `SELECT psi.item_name, psi.quantity, psi.net_sales, psi.total_tax, psi.gross_sales, psi.outlet_id,
+      `SELECT u.id AS upload_id, psi.item_name, psi.quantity, psi.net_sales, psi.total_tax, psi.gross_sales, psi.outlet_id,
         mi.id as menu_item_id, mi.hsn_code, mi.gst_rate
        FROM petpooja_sales_items psi
        INNER JOIN petpooja_sales_uploads u ON u.id = psi.upload_id
@@ -457,6 +458,68 @@ export const getGSTR1Report = async (req, res) => {
       if (!(u.outlet_id in preciseUploadByOutlet)) preciseUploadByOutlet[u.outlet_id] = u.id; // most recent wins
     }
     const preciseOutletIds = Object.keys(preciseUploadByOutlet).map(Number);
+    let preciseItems = [];
+
+    if (preciseOutletIds.length > 0) {
+      const uploadIds = Object.values(preciseUploadByOutlet);
+      preciseItems = await query(
+        `SELECT iti.item_name, iti.quantity, iti.net_amount, iti.cgst, iti.sgst, iti.total_tax, iti.tax_rate,
+                mi.hsn_code
+         FROM petpooja_item_tax_items iti
+         LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(iti.item_name))
+         WHERE iti.upload_id IN (${uploadIds.map(() => '?').join(',')})`,
+        uploadIds
+      );
+    }
+
+    const approvedUploadCountRows = await query(
+      `SELECT COUNT(DISTINCT u.id) AS approved_upload_count
+       FROM petpooja_sales_uploads u
+       WHERE ${where}`,
+      params
+    );
+    const approvedUploadCount = Number(approvedUploadCountRows[0]?.approved_upload_count || 0);
+    const approvedSalesRowCount = items.length;
+    const mappedSalesRowCount = items.filter((it) => Boolean(it.menu_item_id)).length;
+    const unmappedSalesRowCount = approvedSalesRowCount - mappedSalesRowCount;
+    const estimatedSourceRows = items.filter((it) => !preciseOutletIds.includes(Number(it.outlet_id)));
+    const estimatedMappedRows = estimatedSourceRows.filter((it) => Boolean(it.menu_item_id));
+    const missingGstRateRowCount = estimatedMappedRows.filter((it) => !isUsableGstRate(it.gst_rate)).length;
+    const estimatedGroupedRowCount = estimatedMappedRows.filter((it) => isUsableGstRate(it.gst_rate)).length;
+    const preciseGroupedRowCount = preciseItems.length;
+    const qualifyingGroupedRowCount = preciseGroupedRowCount + estimatedGroupedRowCount;
+    const exactItemTaxUploadCount = preciseUploads.length;
+    const exactItemTaxUploadPresent = exactItemTaxUploadCount > 0;
+    const calculationMode = qualifyingGroupedRowCount === 0
+      ? 'NO_QUALIFYING_DATA'
+      : preciseGroupedRowCount > 0 && estimatedGroupedRowCount === 0
+        ? 'PRECISE_ITEM_TAX'
+        : 'ESTIMATED_MENU_MASTER';
+
+    const warnings = [];
+    if (approvedSalesRowCount > 0 && !exactItemTaxUploadPresent) {
+      warnings.push('Exact Item Wise Tax Report coverage was not found for the selected range. GSTR-1 grouping is using the current Menu Item GST rate and HSN mapping.');
+    }
+    if (unmappedSalesRowCount > 0) {
+      warnings.push('Some approved sales items could not be matched to Menu Items by exact item name.');
+    }
+    if (missingGstRateRowCount > 0) {
+      warnings.push('Some mapped Menu Items do not have a GST rate and are excluded from GST rate and HSN summaries.');
+    }
+
+    const dataState = qualifyingGroupedRowCount === 0
+      ? approvedUploadCount === 0
+        ? 'NO_APPROVED_UPLOADS'
+        : approvedSalesRowCount === 0
+          ? 'NO_SALES_ROWS'
+          : mappedSalesRowCount === 0
+            ? 'ALL_ITEMS_UNMAPPED'
+            : missingGstRateRowCount > 0
+              ? 'GST_RATE_MISSING'
+              : 'NO_GROUPED_OUTPUT'
+      : calculationMode === 'PRECISE_ITEM_TAX'
+        ? 'PRECISE'
+        : 'ESTIMATED';
 
     const byRate = {};
     const byHsn = {};
@@ -468,7 +531,7 @@ export const getGSTR1Report = async (req, res) => {
 
       const taxable = num(it.net_sales);
       const tax = num(it.total_tax);
-      if (!it.menu_item_id || it.gst_rate === null || it.gst_rate === undefined) {
+      if (!it.menu_item_id || !isUsableGstRate(it.gst_rate)) {
         unmappedValue += taxable;
         unmappedTax += tax;
         unmappedCount += 1;
@@ -490,36 +553,24 @@ export const getGSTR1Report = async (req, res) => {
     }
 
     // Precise path - real CGST/SGST/rate per item, straight from PetPooja.
-    if (preciseOutletIds.length > 0) {
-      const uploadIds = Object.values(preciseUploadByOutlet);
-      const preciseItems = await query(
-        `SELECT iti.item_name, iti.quantity, iti.net_amount, iti.cgst, iti.sgst, iti.total_tax, iti.tax_rate,
-                mi.hsn_code
-         FROM petpooja_item_tax_items iti
-         LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(iti.item_name))
-         WHERE iti.upload_id IN (${uploadIds.map(() => '?').join(',')})`,
-        uploadIds
-      );
+    for (const it of preciseItems) {
+      const taxable = num(it.net_amount);
+      const cgst = num(it.cgst);
+      const sgst = num(it.sgst);
+      const tax = num(it.total_tax);
+      const rate = Number(it.tax_rate) || 0;
+      const rKey = rate.toFixed(2);
+      if (!byRate[rKey]) byRate[rKey] = { rate, taxable_value: 0, cgst: 0, sgst: 0, total_tax: 0 };
+      byRate[rKey].taxable_value += taxable;
+      byRate[rKey].cgst += cgst;
+      byRate[rKey].sgst += sgst;
+      byRate[rKey].total_tax += tax;
 
-      for (const it of preciseItems) {
-        const taxable = num(it.net_amount);
-        const cgst = num(it.cgst);
-        const sgst = num(it.sgst);
-        const tax = num(it.total_tax);
-        const rate = Number(it.tax_rate) || 0;
-        const rKey = rate.toFixed(2);
-        if (!byRate[rKey]) byRate[rKey] = { rate, taxable_value: 0, cgst: 0, sgst: 0, total_tax: 0 };
-        byRate[rKey].taxable_value += taxable;
-        byRate[rKey].cgst += cgst;
-        byRate[rKey].sgst += sgst;
-        byRate[rKey].total_tax += tax;
-
-        const hKey = it.hsn_code || 'Not Mapped';
-        if (!byHsn[hKey]) byHsn[hKey] = { hsn_code: hKey, description: it.item_name, uqc: 'NOS', quantity: 0, taxable_value: 0, rate, tax_amount: 0 };
-        byHsn[hKey].quantity += num(it.quantity);
-        byHsn[hKey].taxable_value += taxable;
-        byHsn[hKey].tax_amount += tax;
-      }
+      const hKey = it.hsn_code || 'Not Mapped';
+      if (!byHsn[hKey]) byHsn[hKey] = { hsn_code: hKey, description: it.item_name, uqc: 'NOS', quantity: 0, taxable_value: 0, rate, tax_amount: 0 };
+      byHsn[hKey].quantity += num(it.quantity);
+      byHsn[hKey].taxable_value += taxable;
+      byHsn[hKey].tax_amount += tax;
     }
 
     const b2cOthers = Object.values(byRate).sort((a, b) => a.rate - b.rate);
@@ -540,6 +591,19 @@ export const getGSTR1Report = async (req, res) => {
         b2c_others: b2cOthers,
         hsn_summary: hsnSummary,
         unmapped: { taxable_value: unmappedValue, tax: unmappedTax, row_count: unmappedCount },
+        diagnostics: {
+          approved_upload_count: approvedUploadCount,
+          approved_sales_row_count: approvedSalesRowCount,
+          mapped_sales_row_count: mappedSalesRowCount,
+          unmapped_sales_row_count: unmappedSalesRowCount,
+          missing_gst_rate_row_count: missingGstRateRowCount,
+          qualifying_grouped_row_count: qualifyingGroupedRowCount,
+          exact_item_tax_upload_present: exactItemTaxUploadPresent,
+          exact_item_tax_upload_count: exactItemTaxUploadCount,
+          calculation_mode: calculationMode,
+          data_state: dataState,
+          warnings,
+        },
         tax_data_quality: {
           precise_outlet_ids: preciseOutletIds,
           estimated_outlet_ids: estimatedOutletIds,

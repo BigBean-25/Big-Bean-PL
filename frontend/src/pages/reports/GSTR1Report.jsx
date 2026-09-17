@@ -11,6 +11,49 @@ const fmtINR = (n = 0) => "₹" + Number(n || 0).toLocaleString("en-IN", { minim
 
 const firstOfMonth = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); };
 const today = () => new Date().toISOString().slice(0, 10);
+const formatCount = (value = 0) => Number(value || 0).toLocaleString("en-IN");
+
+const EMPTY_STATE_META = {
+  NO_APPROVED_UPLOADS: {
+    title: "No approved sales uploads found",
+    description: "No approved PetPooja sales uploads were found for the selected outlet and date range.",
+  },
+  NO_SALES_ROWS: {
+    title: "No sales rows found",
+    description: "Approved sales uploads exist, but they contain no sales rows for this report.",
+  },
+  ALL_ITEMS_UNMAPPED: {
+    title: "Sales found, but Menu Item mapping is missing",
+    description: "Approved sales exist, but the sold item names could not be matched to Menu Items used by the GSTR-1 report.",
+  },
+  GST_RATE_MISSING: {
+    title: "Sales found, but GST rates are missing",
+    description: "Approved sales items are mapped to Menu Items, but GST rates are missing for the rows required by this report.",
+  },
+  NO_GROUPED_OUTPUT: {
+    title: "No qualifying GSTR-1 rows",
+    description: "Approved sales data exists, but no rows qualify for the current GST rate and HSN summaries.",
+  },
+};
+
+const CALCULATION_MODE_META = {
+  PRECISE_ITEM_TAX: {
+    label: "Precise Item Tax",
+    support: "Tax components are sourced from the matching Item Wise Tax Report for this exact date range.",
+    tone: "positive",
+  },
+  ESTIMATED_MENU_MASTER: {
+    label: "Estimated from Menu Master",
+    support: "Exact Item Wise Tax Report coverage was not found for this date range. Current Menu Item GST rate and HSN mappings are being used.",
+    warning: "Estimated historical results use the current Menu Item GST rate and HSN mapping. Changes to Menu Item master data can change results for past periods.",
+    tone: "warning",
+  },
+  NO_QUALIFYING_DATA: {
+    label: "No Qualifying Data",
+    support: "Approved sales data exists, but no rows qualify for the current GST rate and HSN summaries.",
+    tone: "neutral",
+  },
+};
 
 const GSTR1Report = () => {
   const [outlets, setOutlets] = useState([]);
@@ -52,6 +95,23 @@ const GSTR1Report = () => {
   };
 
   const hasData = report && (report.b2c_others?.length > 0 || report.hsn_summary?.length > 0);
+  const diagnostics = report?.diagnostics || {};
+  const dataState = diagnostics.data_state || (hasData ? "ESTIMATED" : "NO_GROUPED_OUTPUT");
+  const calculationMode = diagnostics.calculation_mode || (hasData ? "ESTIMATED_MENU_MASTER" : "NO_QUALIFYING_DATA");
+  const modeMeta = CALCULATION_MODE_META[calculationMode] || CALCULATION_MODE_META.NO_QUALIFYING_DATA;
+  const stateMeta = EMPTY_STATE_META[dataState] || EMPTY_STATE_META.NO_GROUPED_OUTPUT;
+  const diagnosticsWarnings = diagnostics.warnings || [];
+  const unmappedRowCount = Number(diagnostics.unmapped_sales_row_count || report?.unmapped?.row_count || 0);
+  const coverageMetrics = report
+    ? [
+        { label: "Approved Uploads", value: formatCount(diagnostics.approved_upload_count) },
+        { label: "Sales Rows", value: formatCount(diagnostics.approved_sales_row_count) },
+        { label: "Mapped Rows", value: formatCount(diagnostics.mapped_sales_row_count) },
+        { label: "Unmapped Rows", value: formatCount(diagnostics.unmapped_sales_row_count) },
+        { label: "Missing GST Rate", value: formatCount(diagnostics.missing_gst_rate_row_count) },
+        { label: "Calculation Mode", value: modeMeta.label },
+      ]
+    : [];
 
   const outletName = (id) => outlets.find((o) => Number(o.id) === Number(id))?.outlet_name || `Outlet #${id}`;
   const preciseIds = report?.tax_data_quality?.precise_outlet_ids || [];
@@ -160,6 +220,43 @@ const GSTR1Report = () => {
         </div>
       </div>
 
+      {report && (
+        <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
+          <div className={`flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-6 ${borderCls}`}>
+            <div>
+              <h3 className={`text-[15px] font-semibold ${mainCls}`}>Report Data Coverage</h3>
+              <p className={`mt-1 text-[13px] ${mutedCls}`}>{modeMeta.support}</p>
+            </div>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${calculationMode === "PRECISE_ITEM_TAX"
+                ? (isDark ? "bg-[#E9F9EF] text-[#28C76F]" : "bg-[#DDF6E8] text-[#28C76F]")
+                : calculationMode === "ESTIMATED_MENU_MASTER"
+                  ? (isDark ? "bg-[#3A2E1D] text-[#FF9F43]" : "bg-[#FFF4E5] text-[#FF9F43]")
+                  : (isDark ? "bg-[#3B405A] text-[#A5A8B6]" : "bg-[#EEF0F6] text-[#6F6B7D]")}`}
+            >
+              {modeMeta.label}
+            </span>
+          </div>
+          <div className="space-y-4 p-4 sm:p-5">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              {coverageMetrics.map((metric) => (
+                <div key={metric.label} className={`rounded-lg border px-3 py-3 ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#FAFAFC]"}`}>
+                  <p className={`text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>{metric.label}</p>
+                  <p className={`mt-1 text-[15px] font-semibold ${metric.label === "Calculation Mode" ? mainCls : mainCls}`}>{metric.value}</p>
+                </div>
+              ))}
+            </div>
+            {diagnosticsWarnings.length > 0 && (
+              <div className={`rounded-md border px-4 py-3 text-[13px] ${isDark ? "border-[#FF9F43]/40 bg-[#3A2E1D]/25 text-[#FFD9A8]" : "border-[#FFF0D9] bg-[#FFFCF7] text-[#C88212]"}`}>
+                <div className="space-y-1">
+                  {diagnosticsWarnings.map((warning) => <p key={warning}>{warning}</p>)}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading && (
         <div className={`flex items-center justify-center gap-3 rounded-md border py-12 ${cardCls}`}>
           <Loader2 size={22} className="animate-spin" style={{ color: primaryColor }} />
@@ -204,12 +301,12 @@ const GSTR1Report = () => {
         </div>
       )}
 
-      {!loading && report?.unmapped?.row_count > 0 && (
+      {!loading && unmappedRowCount > 0 && (
         <div className={`flex items-start gap-3 rounded-md border p-4 ${isDark ? "border-[#FF9F43]/40 bg-[#FF9F43]/10" : "border-[#FF9F43]/40 bg-[#FFF4E5]"}`}>
           <AlertTriangle size={18} className="mt-0.5 flex-shrink-0 text-[#FF9F43]" />
           <div>
-            <p className={`text-[14px] font-semibold ${mainCls}`}>{report.unmapped.row_count} sold item{report.unmapped.row_count === 1 ? "" : "s"} could not be matched to a Menu Item</p>
-            <p className={`mt-0.5 text-[13px] ${mutedCls}`}>₹{fmtINR(report.unmapped.taxable_value)} taxable value (₹{fmtINR(report.unmapped.tax)} tax) is excluded from the tables below because those items have no GST rate/HSN on record. Map them in Masters → Menu Items for a complete return.</p>
+            <p className={`text-[14px] font-semibold ${mainCls}`}>Some approved sales items could not be matched to Menu Items</p>
+            <p className={`mt-0.5 text-[13px] ${mutedCls}`}>They are excluded from GST rate and HSN summaries because exact item-name mapping failed. ₹{fmtINR(report.unmapped.taxable_value)} taxable value (₹{fmtINR(report.unmapped.tax)} tax) is excluded from the grouped tables below.</p>
           </div>
         </div>
       )}
@@ -284,10 +381,14 @@ const GSTR1Report = () => {
       {!loading && hasGenerated && !hasData && (
         <div className={`flex flex-col items-center justify-center rounded-md border py-14 px-4 text-center ${cardCls}`}>
           <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-full ${isDark ? "bg-[#3B405A]" : "bg-[#EBE9F1]"}`}>
-            <AlertCircle size={26} className={mutedCls} />
+            {dataState === "NO_APPROVED_UPLOADS" ? (
+              <AlertCircle size={26} className={mutedCls} />
+            ) : (
+              <AlertTriangle size={26} className={mutedCls} />
+            )}
           </div>
-          <p className={`text-[16px] font-semibold ${mainCls}`}>No approved sales found</p>
-          <p className={`mt-1 text-[13px] ${mutedCls}`}>No approved sales matched to a Menu Item's GST rate were found in this date range</p>
+          <p className={`text-[16px] font-semibold ${mainCls}`}>{stateMeta.title}</p>
+          <p className={`mt-1 text-[13px] ${mutedCls}`}>{stateMeta.description}</p>
         </div>
       )}
 
