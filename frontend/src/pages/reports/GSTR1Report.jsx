@@ -104,7 +104,9 @@ const GSTR1Report = () => {
   const unmappedRowCount = Number(diagnostics.unmapped_sales_row_count || report?.unmapped?.row_count || 0);
   const coverageMetrics = report
     ? [
-        { label: "Approved Uploads", value: formatCount(diagnostics.approved_upload_count) },
+        { label: "Approved Sales Uploads", value: formatCount(diagnostics.approved_upload_count) },
+        { label: "Exact Item Tax Uploads", value: formatCount(diagnostics.exact_item_tax_upload_count) },
+        { label: "Exact Item Tax Rows", value: formatCount(diagnostics.exact_item_tax_row_count) },
         { label: "Sales Rows", value: formatCount(diagnostics.approved_sales_row_count) },
         { label: "Mapped Rows", value: formatCount(diagnostics.mapped_sales_row_count) },
         { label: "Unmapped Rows", value: formatCount(diagnostics.unmapped_sales_row_count) },
@@ -238,7 +240,7 @@ const GSTR1Report = () => {
             </span>
           </div>
           <div className="space-y-4 p-4 sm:p-5">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
               {coverageMetrics.map((metric) => (
                 <div key={metric.label} className={`rounded-lg border px-3 py-3 ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#FAFAFC]"}`}>
                   <p className={`text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>{metric.label}</p>

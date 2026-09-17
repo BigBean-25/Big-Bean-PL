@@ -490,6 +490,7 @@ export const getGSTR1Report = async (req, res) => {
     const qualifyingGroupedRowCount = preciseGroupedRowCount + estimatedGroupedRowCount;
     const exactItemTaxUploadCount = preciseUploads.length;
     const exactItemTaxUploadPresent = exactItemTaxUploadCount > 0;
+    const exactItemTaxRowCount = preciseItems.length;
     const calculationMode = qualifyingGroupedRowCount === 0
       ? 'NO_QUALIFYING_DATA'
       : preciseGroupedRowCount > 0 && estimatedGroupedRowCount === 0
@@ -600,6 +601,7 @@ export const getGSTR1Report = async (req, res) => {
           qualifying_grouped_row_count: qualifyingGroupedRowCount,
           exact_item_tax_upload_present: exactItemTaxUploadPresent,
           exact_item_tax_upload_count: exactItemTaxUploadCount,
+          exact_item_tax_row_count: exactItemTaxRowCount,
           calculation_mode: calculationMode,
           data_state: dataState,
           warnings,
