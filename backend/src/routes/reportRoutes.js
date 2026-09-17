@@ -16,6 +16,7 @@ import {
 } from '../controllers/reportController.js';
 import { saveConsumptionVarianceRun } from '../services/consumptionVarianceService.js';
 import { getConsumptionVarianceDiagnostics } from '../services/consumptionVarianceDiagnosticsService.js';
+import { getOutletWastageByCategoryReport } from '../services/outletWastageByCategoryService.js';
 
 const router = express.Router();
 
@@ -67,6 +68,20 @@ router.get('/consumption-variance-diagnostics', protect, applyOutletScope, check
   } catch (error) {
     console.error('Get consumption variance diagnostics error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating consumption variance diagnostics' });
+  }
+});
+
+router.get('/wastage-by-category', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, from_date, to_date } = req.query;
+    if (!outlet_id || !from_date || !to_date) {
+      return res.status(400).json({ success: false, message: 'Outlet, from date, and to date are required' });
+    }
+    const data = await getOutletWastageByCategoryReport({ outletId: outlet_id, fromDate: from_date, toDate: to_date, outletScope: req.outletScope });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get wastage by category report error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating wastage by category report' });
   }
 });
 

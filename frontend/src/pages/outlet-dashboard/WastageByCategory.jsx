@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, Trash2, Loader2 } from "lucide-react";
+import { RefreshCw, Trash2, Loader2, MapPin, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
-import { warehouseAPI } from "../../services/api";
+import { reportAPI } from "../../services/api";
 
 const getPrimaryColor = () => {
   try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; }
@@ -15,13 +15,14 @@ const getThemeMode = () => {
 };
 
 const fmtINR = (n = 0) => "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtQty = (n = 0) => Number(n || 0).toFixed(3);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const startOfMonthISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
 
 const WastageByCategory = () => {
   const [from, setFrom] = useState(startOfMonthISO());
   const [to, setTo] = useState(todayISO());
-  const [rows, setRows] = useState([]);
+  const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const primaryColor = getPrimaryColor();
@@ -35,10 +36,11 @@ const WastageByCategory = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await warehouseAPI.getWarehouseReport("wastage-by-category", { from_date: from, to_date: to });
-      setRows(res?.data?.data || []);
+      const res = await reportAPI.getWastageByCategory({ from_date: from, to_date: to });
+      setReport(res?.data?.data || res?.data || null);
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load wastage by category");
+      setReport(null);
     } finally {
       setLoading(false);
     }
@@ -46,14 +48,20 @@ const WastageByCategory = () => {
 
   useEffect(() => { fetchData(); }, [from, to]);
 
-  const totalValue = rows.reduce((sum, r) => sum + Number(r.total_value || 0), 0);
+  const rows = report?.rows || [];
+  const totalValue = Number(report?.total_value || 0);
+  const locationState = report?.location_state || "NONE";
+  const resolvedLocation = report?.resolved_location || null;
+  const warnings = report?.warnings || [];
+  const locationCandidates = report?.location_candidates || [];
+  const dataLimited = locationState !== "UNIQUE";
 
   return (
     <div className="space-y-5" style={{ fontFamily: '"Public Sans", "Inter", system-ui, sans-serif' }}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className={`text-2xl font-bold ${mainCls}`}>Wastage by Category</h1>
-          <p className={`mt-1 text-[14px] ${mutedCls}`}>Posted/approved warehouse wastage grouped by raw material category.</p>
+          <p className={`mt-1 text-[14px] ${mutedCls}`}>Posted outlet inventory wastage grouped by raw material category.</p>
         </div>
         <button type="button" onClick={fetchData} className={`flex items-center gap-2 rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardCls}`}>
           <RefreshCw size={18} /> Refresh
@@ -76,23 +84,75 @@ const WastageByCategory = () => {
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
+        <div className={`border-b px-4 py-3 sm:px-6 ${borderCls}`}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className={`text-[16px] font-semibold ${mainCls}`}>Outlet Inventory Context</h3>
+              <p className={`mt-1 text-[13px] ${mutedCls}`}>Resolved physical inventory location and range used for this report.</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${locationState === "UNIQUE" ? "bg-[#DDF6E8] text-[#28C76F]" : locationState === "AMBIGUOUS" ? "bg-[#FFF4E5] text-[#FF9F43]" : "bg-[#FCE7E7] text-[#EA5455]"}`}>
+              {locationState}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4 sm:p-6">
+          {resolvedLocation ? (
+            <div className={`rounded-md border p-4 ${cardCls}`}>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-md" style={{ backgroundColor: `${primaryColor}18`, color: primaryColor }}>
+                  <MapPin size={18} />
+                </div>
+                <div>
+                  <p className={`text-[14px] font-semibold ${mainCls}`}>Resolved Physical Inventory Location</p>
+                  <p className={`mt-1 text-[13px] ${mutedCls}`}>{resolvedLocation.location_name}</p>
+                  <p className={`mt-0.5 text-[12px] ${mutedCls}`}>{resolvedLocation.location_code || ""}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {warnings.length > 0 && (
+            <div className={`rounded-md border px-4 py-3 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  {warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                  {locationCandidates.length > 0 && (
+                    <p>Candidate locations: {locationCandidates.map((candidate) => candidate.location_name).join(', ')}.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
         {loading ? (
           <div className="flex min-h-[200px] items-center justify-center">
             <Loader2 size={28} className="animate-spin" style={{ color: primaryColor }} />
           </div>
+        ) : dataLimited ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 px-4 text-center">
+            <Trash2 size={28} className={mutedCls} />
+            <p className={`text-[14px] font-semibold ${mainCls}`}>Report data is limited</p>
+            <p className={`max-w-xl text-[13px] ${mutedCls}`}>A single physical inventory location could not be resolved for this outlet, so category wastage values are not shown.</p>
+          </div>
         ) : rows.length === 0 ? (
-          <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 text-center">
+          <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-center">
             <Trash2 size={28} className={mutedCls} />
             <p className={`text-[14px] ${mutedCls}`}>No wastage recorded for this range.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] border-collapse">
+            <table className="w-full min-w-[780px] border-collapse">
               <thead>
                 <tr className={`border-b ${borderCls}`}>
                   <th className={`px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Category</th>
                   <th className={`px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Wastage Entries</th>
-                  <th className={`px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Total Qty</th>
+                  <th className={`px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Materials</th>
+                  <th className={`px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Quantity</th>
                   <th className={`px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide ${mutedCls}`}>Total Value</th>
                 </tr>
               </thead>
@@ -101,7 +161,14 @@ const WastageByCategory = () => {
                   <tr key={row.category_name} className={`border-b last:border-b-0 ${borderCls}`}>
                     <td className={`px-4 py-3 text-[14px] font-medium ${mainCls}`}>{row.category_name}</td>
                     <td className={`px-4 py-3 text-right text-[14px] ${mainCls}`}>{row.wastage_count}</td>
-                    <td className={`px-4 py-3 text-right text-[14px] ${mainCls}`}>{Number(row.total_qty).toFixed(3)}</td>
+                    <td className={`px-4 py-3 text-right text-[14px] ${mainCls}`}>{row.material_count}</td>
+                    <td className={`px-4 py-3 text-right text-[14px] ${mainCls}`}>
+                      {row.quantity_state === "COMPARABLE"
+                        ? `${fmtQty(row.total_qty)} ${row.unit_name || ''}`.trim()
+                        : row.quantity_state === "MIXED_UNITS"
+                          ? 'Mixed units'
+                          : '—'}
+                    </td>
                     <td className={`px-4 py-3 text-right text-[14px] font-semibold ${mainCls}`}>{fmtINR(row.total_value)}</td>
                   </tr>
                 ))}
