@@ -32,6 +32,7 @@ const OutletSalesBreakdown = () => {
   const [to, setTo] = useState(todayISO());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -44,12 +45,15 @@ const OutletSalesBreakdown = () => {
   const hasOutlet = selectedOutletId && selectedOutletId !== "all";
 
   const fetchData = async () => {
-    if (!hasOutlet) { setData(null); setLoading(false); return; }
+    if (!hasOutlet) { setData(null); setError(null); setLoading(false); return; }
     setLoading(true);
+    setError(null);
     try {
       const res = await outletDashboardAPI.getSalesBreakdown({ outlet_id: selectedOutletId, from, to });
       setData(res?.data?.data || null);
     } catch (error) {
+      setData(null);
+      setError(error.response?.data?.message || "Failed to load sales breakdown");
       toast.error(error.response?.data?.message || "Failed to load sales breakdown");
     } finally {
       setLoading(false);
@@ -92,6 +96,12 @@ const OutletSalesBreakdown = () => {
           <AlertCircle size={32} className={mutedCls} />
           <p className={`text-[15px] font-semibold ${mainCls}`}>Select a specific outlet</p>
           <p className={`text-[13px] ${mutedCls}`}>Choose an outlet from the top bar to view its sales breakdown.</p>
+        </div>
+      ) : error ? (
+        <div className={`flex min-h-[240px] flex-col items-center justify-center gap-2 rounded-md border p-8 text-center ${cardCls}`}>
+          <AlertCircle size={32} className={mutedCls} />
+          <p className={`text-[15px] font-semibold ${mainCls}`}>Failed to load sales analysis</p>
+          <p className={`text-[13px] ${mutedCls}`}>{error}</p>
         </div>
       ) : loading ? (
         <div className="flex min-h-[240px] items-center justify-center">
