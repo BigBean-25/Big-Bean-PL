@@ -498,6 +498,7 @@ export const reportAPI = {
   getExpenseReport: (params) => api.get("/reports/expenses", { params }),
   getSupplierPending: (params) => api.get("/reports/supplier-pending", { params }),
   getConsumptionVariance: (params) => api.get("/reports/consumption-variance", { params }),
+  getConsumptionVarianceDiagnostics: (params) => api.get("/reports/consumption-variance-diagnostics", { params }),
   getPurchaseGST: (params) => api.get("/reports/purchase-gst", { params }),
   getSalesGST: (params) => api.get("/reports/sales-gst", { params }),
   getGSTR1: (params) => api.get("/reports/gstr1", { params }),

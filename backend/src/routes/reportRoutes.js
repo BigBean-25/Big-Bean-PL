@@ -15,6 +15,7 @@ import {
   getGSTR1Report
 } from '../controllers/reportController.js';
 import { saveConsumptionVarianceRun } from '../services/consumptionVarianceService.js';
+import { getConsumptionVarianceDiagnostics } from '../services/consumptionVarianceDiagnosticsService.js';
 
 const router = express.Router();
 
@@ -52,6 +53,20 @@ router.get('/consumption-variance', protect, applyOutletScope, checkPermission('
   } catch (error) {
     console.error('Get consumption variance report error:', error);
     res.status(500).json({ success: false, message: 'Error generating consumption variance report' });
+  }
+});
+
+router.get('/consumption-variance-diagnostics', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, month, year } = req.query;
+    if (!outlet_id || !month || !year) {
+      return res.status(400).json({ success: false, message: 'Outlet, month, and year are required' });
+    }
+    const data = await getConsumptionVarianceDiagnostics({ outletId: outlet_id, month, year, outletScope: req.outletScope });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get consumption variance diagnostics error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating consumption variance diagnostics' });
   }
 });
 
