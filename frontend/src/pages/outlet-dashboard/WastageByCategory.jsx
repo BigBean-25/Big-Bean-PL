@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Trash2, Loader2, MapPin, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
 import { reportAPI } from "../../services/api";
+import { useSelectedOutlet } from "../../hooks/useSelectedOutlet";
 
 const getPrimaryColor = () => {
   try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; }
@@ -20,10 +21,15 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const startOfMonthISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
 
 const WastageByCategory = () => {
+  const { selectedOutletId } = useSelectedOutlet();
+  const selectedOutletIdValue = String(selectedOutletId || "all");
+  const hasNumericOutlet = selectedOutletIdValue !== "all" && Number.isInteger(Number(selectedOutletIdValue)) && Number(selectedOutletIdValue) > 0;
+  const outletGuardMessage = "Select a specific outlet to view outlet wastage by category.";
   const [from, setFrom] = useState(startOfMonthISO());
   const [to, setTo] = useState(todayISO());
   const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(hasNumericOutlet);
+  const requestSeqRef = useRef(0);
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -34,26 +40,42 @@ const WastageByCategory = () => {
   const borderCls = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
 
   const fetchData = async () => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+
+    if (!hasNumericOutlet) {
+      setReport(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await reportAPI.getWastageByCategory({ from_date: from, to_date: to });
+      const res = await reportAPI.getWastageByCategory({
+        outlet_id: Number(selectedOutletIdValue),
+        from_date: from,
+        to_date: to,
+      });
+      if (requestSeqRef.current !== requestSeq) return;
       setReport(res?.data?.data || res?.data || null);
     } catch (error) {
+      if (requestSeqRef.current !== requestSeq) return;
       toast.error(error.response?.data?.message || "Failed to load wastage by category");
       setReport(null);
     } finally {
-      setLoading(false);
+      if (requestSeqRef.current === requestSeq) setLoading(false);
     }
   };
 
-  useEffect(() => { fetchData(); }, [from, to]);
+  useEffect(() => { fetchData(); }, [from, to, selectedOutletIdValue]);
 
-  const rows = report?.rows || [];
-  const totalValue = Number(report?.total_value || 0);
-  const locationState = report?.location_state || "NONE";
-  const resolvedLocation = report?.resolved_location || null;
-  const warnings = report?.warnings || [];
-  const locationCandidates = report?.location_candidates || [];
+  const displayReport = hasNumericOutlet ? report : null;
+  const rows = displayReport?.rows || [];
+  const totalValue = Number(displayReport?.total_value || 0);
+  const locationState = displayReport?.location_state || "NONE";
+  const resolvedLocation = displayReport?.resolved_location || null;
+  const warnings = displayReport?.warnings || [];
+  const locationCandidates = displayReport?.location_candidates || [];
   const dataLimited = locationState !== "UNIQUE";
 
   return (
@@ -129,7 +151,12 @@ const WastageByCategory = () => {
       </div>
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
-        {loading ? (
+        {!hasNumericOutlet ? (
+          <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 px-4 text-center">
+            <MapPin size={28} className={mutedCls} />
+            <p className={`text-[14px] font-semibold ${mainCls}`}>{outletGuardMessage}</p>
+          </div>
+        ) : loading ? (
           <div className="flex min-h-[200px] items-center justify-center">
             <Loader2 size={28} className="animate-spin" style={{ color: primaryColor }} />
           </div>
