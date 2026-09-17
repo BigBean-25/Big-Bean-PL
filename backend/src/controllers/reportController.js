@@ -438,7 +438,7 @@ export const getGSTR1Report = async (req, res) => {
         mi.id as menu_item_id, mi.hsn_code, mi.gst_rate
        FROM petpooja_sales_items psi
        INNER JOIN petpooja_sales_uploads u ON u.id = psi.upload_id
-       LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(psi.item_name))
+       LEFT JOIN menu_items mi ON CONVERT(LOWER(TRIM(mi.item_name)) USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(LOWER(TRIM(psi.item_name)) USING utf8mb4) COLLATE utf8mb4_unicode_ci
        WHERE ${where}`,
       params
     );
@@ -466,7 +466,7 @@ export const getGSTR1Report = async (req, res) => {
         `SELECT iti.item_name, iti.quantity, iti.net_amount, iti.cgst, iti.sgst, iti.total_tax, iti.tax_rate,
                 mi.hsn_code
          FROM petpooja_item_tax_items iti
-         LEFT JOIN menu_items mi ON LOWER(TRIM(mi.item_name)) = LOWER(TRIM(iti.item_name))
+         LEFT JOIN menu_items mi ON CONVERT(LOWER(TRIM(mi.item_name)) USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(LOWER(TRIM(iti.item_name)) USING utf8mb4) COLLATE utf8mb4_unicode_ci
          WHERE iti.upload_id IN (${uploadIds.map(() => '?').join(',')})`,
         uploadIds
       );
