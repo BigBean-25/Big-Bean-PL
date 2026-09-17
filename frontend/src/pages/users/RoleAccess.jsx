@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Plus, RotateCcw, Save, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
+import { AlertCircle, Check, Plus, RotateCcw, Save, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { roleAPI, roleAccessAPI } from "../../services/api";
 import useAuthStore from "../../store/authStore";
@@ -90,6 +90,7 @@ const RoleAccess = () => {
   const [permissions, setPermissions] = useState([]);
   const [originalPermissions, setOriginalPermissions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
@@ -103,6 +104,7 @@ const RoleAccess = () => {
   );
 
   const loadRoles = async () => {
+    setLoadError("");
     try {
       const response = await roleAccessAPI.getRoles();
       const rows = response.data?.data || response.data?.roles || [];
@@ -111,6 +113,11 @@ const RoleAccess = () => {
         setSelectedRoleId(String(rows[0].id));
       }
     } catch (error) {
+      setRoles([]);
+      setSelectedRoleId("");
+      setPermissions([]);
+      setOriginalPermissions([]);
+      setLoadError(error.response?.data?.message || "Failed to load roles");
       toast.error(error.response?.data?.message || "Failed to load roles");
     }
   };
@@ -118,12 +125,16 @@ const RoleAccess = () => {
   const loadPermissions = async (roleId) => {
     if (!roleId) return;
     setLoading(true);
+    setLoadError("");
     try {
       const response = await roleAccessAPI.getPermissions(roleId);
       const rows = response.data?.data?.permissions || [];
       setPermissions(rows);
       setOriginalPermissions(rows);
     } catch (error) {
+      setPermissions([]);
+      setOriginalPermissions([]);
+      setLoadError(error.response?.data?.message || "Failed to load permissions");
       toast.error(error.response?.data?.message || "Failed to load permissions");
     } finally {
       setLoading(false);
@@ -366,46 +377,54 @@ const RoleAccess = () => {
           ))}
         </div>
 
-        <div className="max-w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
-          <table className="w-full min-w-[1180px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-              <tr>
-                <th className="sticky left-0 z-10 bg-slate-50 px-4 py-4 dark:bg-slate-800">Module</th>
-                {actions.map((action) => (
-                  <th key={action.key} className="px-3 py-4 text-center">{action.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loading ? (
-                <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">Loading permissions...</td></tr>
-              ) : permissions.map((row) => (
-                <tr key={row.module_key} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/70">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-3 font-bold text-slate-800 dark:bg-slate-900 dark:text-slate-100">
-                    <div>{row.module_name}</div>
-                    <div className="text-xs font-medium text-slate-400 dark:text-slate-500">{row.module_key}</div>
-                  </td>
+        {loadError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+            <AlertCircle size={32} className="mx-auto" />
+            <p className="mt-3 text-base font-bold">Failed to load roles and permissions</p>
+            <p className="mt-1 text-sm">{loadError}</p>
+          </div>
+        ) : (
+          <div className="max-w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full min-w-[1180px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                <tr>
+                  <th className="sticky left-0 z-10 bg-slate-50 px-4 py-4 dark:bg-slate-800">Module</th>
                   {actions.map((action) => (
-                    <td key={action.key} className="px-3 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => togglePermission(row.module_key, action.key)}
-                        className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition ${
-                          row[action.key]
-                            ? "border-violet-500 bg-violet-600 text-white shadow-sm shadow-violet-200"
-                            : "border-slate-200 bg-white text-transparent hover:border-violet-300 dark:border-slate-700 dark:bg-slate-800"
-                        }`}
-                        title={`${row.module_name} - ${action.label}`}
-                      >
-                        <Check size={15} />
-                      </button>
-                    </td>
+                    <th key={action.key} className="px-3 py-4 text-center">{action.label}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {loading ? (
+                  <tr><td colSpan={13} className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">Loading permissions...</td></tr>
+                ) : permissions.map((row) => (
+                  <tr key={row.module_key} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/70">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-3 font-bold text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                      <div>{row.module_name}</div>
+                      <div className="text-xs font-medium text-slate-400 dark:text-slate-500">{row.module_key}</div>
+                    </td>
+                    {actions.map((action) => (
+                      <td key={action.key} className="px-3 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => togglePermission(row.module_key, action.key)}
+                          className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition ${
+                            row[action.key]
+                              ? "border-violet-500 bg-violet-600 text-white shadow-sm shadow-violet-200"
+                              : "border-slate-200 bg-white text-transparent hover:border-violet-300 dark:border-slate-700 dark:bg-slate-800"
+                          }`}
+                          title={`${row.module_name} - ${action.label}`}
+                        >
+                          <Check size={15} />
+                        </button>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {selectedRole && (
           <p className="mt-4 text-sm text-slate-500 dark:text-slate-300">

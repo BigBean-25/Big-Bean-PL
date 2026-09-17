@@ -660,7 +660,7 @@ const DashboardLayout = () => {
         show: canView("users", permissions.canManageUsers) || canView("role_access", false),
         submenu: [
           ...(canView("users", permissions.canManageUsers) ? [{ title: t.users, path: "/users" }] : []),
-          ...(canView("role_access", roleName === "Super Admin" || roleName === "Technical Admin") ? [{ title: "Roles & Permissions", path: "/role-access" }] : []),
+          ...(canView("role_access", false) ? [{ title: "Roles & Permissions", path: "/role-access" }] : []),
         ],
       },
       {

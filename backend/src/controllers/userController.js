@@ -277,6 +277,15 @@ export const createUser = async (req, res) => {
   }
 };
 
+const redactUserAuditData = (data) => {
+  if (!data) return data;
+  const safe = Array.isArray(data) ? [...data] : { ...data };
+  if (!Array.isArray(safe) && Object.prototype.hasOwnProperty.call(safe, 'password')) {
+    delete safe.password;
+  }
+  return safe;
+};
+
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -389,7 +398,15 @@ export const updateUser = async (req, res) => {
       }
     }
 
-    await logAudit(req.user.id, 'UPDATE', 'users', id, existing[0], req.body, 'Updated user');
+    await logAudit(
+      req.user.id,
+      'UPDATE',
+      'users',
+      id,
+      redactUserAuditData(existing[0]),
+      redactUserAuditData(req.body),
+      'Updated user'
+    );
 
     res.status(200).json({
       success: true,
@@ -552,7 +569,15 @@ export const deleteUser = async (req, res) => {
       throw error;
     }
 
-    await logAudit(req.user.id, 'DELETE', 'users', userId, existing[0], null, 'Deleted user permanently');
+    await logAudit(
+      req.user.id,
+      'DELETE',
+      'users',
+      userId,
+      redactUserAuditData(existing[0]),
+      null,
+      'Deleted user permanently'
+    );
 
     res.status(200).json({
       success: true,

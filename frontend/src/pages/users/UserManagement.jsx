@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Edit2,
@@ -298,6 +298,7 @@ const UserManagement = () => {
   const [formData, setFormData] = useState(emptyForm);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
@@ -307,6 +308,9 @@ const UserManagement = () => {
   const [outletFilter, setOutletFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedTopbarOutletId, setSelectedTopbarOutletId] = useState(
+    localStorage.getItem("bbc_selected_outlet_id") || "all"
+  );
+  const lastFetchedTopbarOutletIdRef = useRef(
     localStorage.getItem("bbc_selected_outlet_id") || "all"
   );
 
@@ -366,10 +370,13 @@ const UserManagement = () => {
   };
 
   const fetchUsers = async () => {
+    setLoadError("");
     try {
       const response = await userAPI.getUsers();
       setUsers(getRows(response, "users"));
     } catch (error) {
+      setUsers([]);
+      setLoadError(error.response?.data?.message || "Failed to fetch users");
       toast.error(error.response?.data?.message || "Failed to fetch users");
     }
   };
@@ -382,6 +389,12 @@ const UserManagement = () => {
       toast.error(error.response?.data?.message || "Failed to fetch roles");
     }
   };
+
+  useEffect(() => {
+    if (lastFetchedTopbarOutletIdRef.current === String(selectedTopbarOutletId || "all")) return;
+    lastFetchedTopbarOutletIdRef.current = String(selectedTopbarOutletId || "all");
+    fetchUsers();
+  }, [selectedTopbarOutletId]);
 
   const fetchOutlets = async () => {
     try {
@@ -1705,6 +1718,14 @@ const UserManagement = () => {
                 style={{ color: primaryColor }}
               />
               <p className={`mt-3 text-[14px] ${mutedClass}`}>Loading users...</p>
+            </div>
+          </div>
+        ) : loadError ? (
+          <div className="flex min-h-[300px] items-center justify-center px-6 text-center">
+            <div>
+              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>Failed to load users</p>
+              <p className={`mt-1 text-[14px] ${mutedClass}`}>{loadError}</p>
             </div>
           </div>
         ) : filteredUsers.length === 0 ? (
