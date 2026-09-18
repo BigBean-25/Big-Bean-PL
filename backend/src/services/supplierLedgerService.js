@@ -27,8 +27,8 @@ const getCumulativePurchases = async (outletId, supplierId, asOfDate) => {
 };
 
 /**
- * Cumulative sum of all supplier payments for an outlet+supplier, from all
- * time up to and including asOfDate, excluding the row currently being
+ * Cumulative sum of all VERIFIED supplier payments for an outlet+supplier,
+ * from all time up to and including asOfDate, excluding the row currently being
  * edited (if any). This is always recomputed from source rows rather than
  * chained off a previous row's stored balance_pending, so it cannot go
  * stale when an older payment is edited.
@@ -36,7 +36,7 @@ const getCumulativePurchases = async (outletId, supplierId, asOfDate) => {
 const getCumulativePayments = async (outletId, supplierId, asOfDate, excludeId = null) => {
   let sql = `SELECT COALESCE(SUM(paid_amount), 0) AS total
              FROM supplier_payments
-             WHERE outlet_id = ? AND supplier_id = ? AND date <= ? AND status <> 'Rejected'`;
+             WHERE outlet_id = ? AND supplier_id = ? AND date <= ? AND status = 'Verified'`;
   const params = [outletId, supplierId, asOfDate];
 
   if (excludeId) {

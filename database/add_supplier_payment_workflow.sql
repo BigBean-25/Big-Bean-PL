@@ -105,15 +105,19 @@ PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 -- Existing rows represent already-recorded payments that feed the supplier
 -- ledger. They are marked Verified (the terminal "recorded" state) rather
 -- than Draft, so ledger totals are preserved exactly and legacy rows become
--- immutable as intended. verified_by/verified_at reuse created_by/created_at
--- as the best available attestation metadata.
+-- immutable as intended.
+--
+-- verified_by / verified_at are deliberately left NULL: the pre-workflow
+-- system had no verification step, so there is no genuine historical
+-- evidence of a verifier. Copying created_by would fabricate one. The UI
+-- displays such rows as legacy records.
 --
 -- The guard `status IS NULL` is what makes this permanently re-run safe:
 -- rows created AFTER this migration always carry a non-NULL status ('Draft'
 -- on insert), so only pre-workflow rows can ever match.
 -- ---------------------------------------------------------------------------
 UPDATE supplier_payments
-SET status = 'Verified', verified_by = created_by, verified_at = created_at
+SET status = 'Verified'
 WHERE status IS NULL;
 
 -- Now that every row has a status, tighten the column to NOT NULL so all

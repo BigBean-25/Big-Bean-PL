@@ -61,7 +61,7 @@ export const getSupplierHistorySummary = async ({
       locationId ? [s.id, locationId] : [s.id]
     );
     const payments = await query(
-      `SELECT COALESCE(SUM(paid_amount), 0) AS v FROM supplier_payments WHERE supplier_id = ? AND status <> 'Rejected'`,
+      `SELECT COALESCE(SUM(paid_amount), 0) AS v FROM supplier_payments WHERE supplier_id = ? AND status = 'Verified'`,
       [s.id]
     );
     let outstanding = 0;
@@ -150,7 +150,7 @@ export const getSupplierHistoryDetail = async (supplierId, locationId) => {
   );
 
   const paymentHistory = await query(
-    `SELECT sp.id, sp.reference_no as payment_no, sp.date, sp.paid_amount, pm.mode_name as payment_mode, sp.remarks
+    `SELECT sp.id, sp.reference_no as payment_no, sp.date, sp.paid_amount, sp.status, pm.mode_name as payment_mode, sp.remarks
      FROM supplier_payments sp
      LEFT JOIN payment_modes pm ON pm.id = sp.payment_mode_id
      WHERE sp.supplier_id = ?
@@ -180,7 +180,7 @@ export const getSupplierHistoryDetail = async (supplierId, locationId) => {
       po_value: poHistory.reduce((s, r) => s + num(r.total_amount), 0),
       grn_value: grnHistory.reduce((s, r) => s + num(r.total_amount), 0),
       return_credit: returnHistory.reduce((s, r) => s + num(r.credit_amount), 0),
-      payments: paymentHistory.reduce((s, r) => s + num(r.paid_amount), 0),
+      payments: paymentHistory.filter((r) => r.status === 'Verified').reduce((s, r) => s + num(r.paid_amount), 0),
       outstanding: num(outstanding),
       outstanding_unavailable: outstandingUnavailable,
     },

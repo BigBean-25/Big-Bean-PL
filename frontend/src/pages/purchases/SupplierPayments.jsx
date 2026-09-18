@@ -933,7 +933,14 @@ const SupplierPayments = () => {
             </div>
             <div className="rounded-md bg-[#F8F7FA] p-5">
               <DetailItem label="Submitted By:" value={selectedPayment.submitted_by_name} />
-              <DetailItem label="Verified By:" value={selectedPayment.verified_by_name} />
+              <DetailItem
+                label="Verified By:"
+                value={
+                  selectedPayment.status === "Verified" && !selectedPayment.verified_by_name
+                    ? "Legacy record"
+                    : selectedPayment.verified_by_name
+                }
+              />
             </div>
             {selectedPayment.status === "Rejected" && (
               <div className="rounded-md bg-[#FCEAEA] p-5">
