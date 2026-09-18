@@ -16,8 +16,11 @@ import {
   Store,
   Calendar,
   IndianRupee,
+  Send,
+  Ban,
 } from "lucide-react";
-import { uploadAPI, masterAPI } from "../../services/api";
+import { uploadAPI, masterAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
 
 const getRows = (response) => {
@@ -228,12 +231,26 @@ const MaterialPurchaseUpload = () => {
   const [downloadKey, setDownloadKey] = useState(null);
   const [templateDownloading, setTemplateDownloading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [verifyId, setVerifyId] = useState(null);
+  const [rejectId, setRejectId] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [outletFilter, setOutletFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [pageSize, setPageSize] = useState(10);
+
+  const { user } = useAuthStore();
+  const permissions = useMemo(() => getStoredPermissions()?.material_purchase || {}, []);
+  const can = (action) => Boolean(permissions[action]);
+  const isOwn = (record) =>
+    record &&
+    (Number(record.uploaded_by) === Number(user?.id) ||
+      Number(record.submitted_by) === Number(user?.id));
+  const isDeletable = (record) =>
+    record && (record.status !== "Completed" || ["Draft", "Rejected"].includes(record.approval_status));
 
   const isDark = getThemeMode() === "dark";
   const primaryColor = getPrimaryColor();
@@ -522,6 +539,73 @@ const MaterialPurchaseUpload = () => {
     }
   };
 
+  const runWorkflowAction = async (id, action, body = {}) => {
+    setActionLoading(`${action}-${id}`);
+    try {
+      await uploadAPI[`${action}StockUpload`]("material_purchase", id, body);
+      const labels = { submit: "submitted for verification", verify: "verified", reject: "rejected" };
+      toast.success(`Material purchase upload ${labels[action] || action}`);
+      if (selectedUpload?.id === id) setSelectedUpload(null);
+      await fetchUploads();
+    } catch (error) {
+      toast.error(error.response?.data?.message || `Failed to ${action} upload`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const WorkflowButtons = ({ record, variant = "icon" }) => {
+    if (!record) return null;
+    const isModal = variant === "modal";
+    const btn = isModal
+      ? "inline-flex h-10 items-center justify-center gap-2 rounded-md px-4 text-[14px] font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+      : "flex h-8 w-8 items-center justify-center rounded-md transition disabled:cursor-not-allowed disabled:opacity-50";
+    const iconSize = isModal ? 16 : 17;
+    const spinner = <Loader2 size={iconSize} className="animate-spin" />;
+
+    return (
+      <>
+        {record.status === "Completed" && ["Draft", "Rejected"].includes(record.approval_status) && can("can_submit") && (
+          <button
+            type="button"
+            disabled={actionLoading === `submit-${record.id}`}
+            onClick={() => runWorkflowAction(record.id, "submit")}
+            className={`${btn} ${isModal ? "bg-[#00CFE8]" : "hover:bg-[#E6FAFD] hover:text-[#00CFE8]"}`}
+            title={record.approval_status === "Rejected" ? "Resubmit for verification" : "Submit for verification"}
+          >
+            {actionLoading === `submit-${record.id}` ? spinner : <Send size={iconSize} />}
+            {isModal && (record.approval_status === "Rejected" ? "Resubmit" : "Submit")}
+          </button>
+        )}
+
+        {record.status === "Completed" && record.approval_status === "Submitted" && can("can_verify") && !isOwn(record) && (
+          <button
+            type="button"
+            disabled={actionLoading === `verify-${record.id}`}
+            onClick={() => setVerifyId(record.id)}
+            className={`${btn} ${isModal ? "bg-[#28C76F]" : "hover:bg-[#E9F9EF] hover:text-[#28C76F]"}`}
+            title="Verify upload"
+          >
+            {actionLoading === `verify-${record.id}` ? spinner : <CheckCircle2 size={iconSize} />}
+            {isModal && "Verify"}
+          </button>
+        )}
+
+        {record.status === "Completed" && record.approval_status === "Submitted" && can("can_reject") && !isOwn(record) && (
+          <button
+            type="button"
+            onClick={() => { setRejectId(record.id); setRejectReason(""); }}
+            className={`${btn} ${isModal ? "bg-[#EA5455]" : "hover:bg-[#FCEAEA] hover:text-[#EA5455]"}`}
+            title="Reject upload"
+          >
+            <Ban size={iconSize} />
+            {isModal && "Reject"}
+          </button>
+        )}
+      </>
+    );
+  };
+
   const filteredUploads = useMemo(() => {
     return uploads.filter((upload) => {
       const text = `${getOutletName(upload)} ${upload.file_name || ""} ${
@@ -635,6 +719,10 @@ const MaterialPurchaseUpload = () => {
       Processing: "bg-[#FFF4E5] text-[#FF9F43]",
       Completed: "bg-[#E9F9EF] text-[#28C76F]",
       Failed: "bg-[#FCEAEA] text-[#EA5455]",
+      Draft: "bg-[#F3F2F7] text-[#6F6B7D]",
+      Submitted: "bg-[#E6FAFD] text-[#00CFE8]",
+      Verified: "bg-[#E9F9EF] text-[#28C76F]",
+      Rejected: "bg-[#FCEAEA] text-[#EA5455]",
     };
 
     return (
@@ -1010,6 +1098,10 @@ const MaterialPurchaseUpload = () => {
             <div className="rounded-md bg-[#F8F7FA] p-5">
               <DetailItem label="File Name:" value={selectedUpload.file_name} />
               <DetailItem label="Status:" value={selectedUpload.status || "Pending"} />
+              <DetailItem
+                label="Approval Status:"
+                value={selectedUpload.status === "Completed" ? selectedUpload.approval_status || "Draft" : "-"}
+              />
               <DetailItem label="Total Rows:" value={selectedUpload.total_rows || 0} />
               <DetailItem
                 label="Total Amount:"
@@ -1021,13 +1113,26 @@ const MaterialPurchaseUpload = () => {
               <DetailItem label="Success Rows:" value={selectedUpload.success_rows || 0} />
               <DetailItem label="Failed Rows:" value={selectedUpload.failed_rows || 0} />
               <DetailItem
-                label="Processing:"
+                label="Submitted At:"
                 value={
-                  selectedUpload.status === "Completed"
-                    ? "Completed"
-                    : selectedUpload.status || "Pending"
+                  selectedUpload.submitted_at
+                    ? formatDate(selectedUpload.submitted_at, true)
+                    : "-"
                 }
               />
+              <DetailItem
+                label="Verified At:"
+                value={
+                  selectedUpload.verified_at
+                    ? formatDate(selectedUpload.verified_at, true)
+                    : selectedUpload.approval_status === "Verified"
+                    ? "Legacy record"
+                    : "-"
+                }
+              />
+              {selectedUpload.rejection_reason && (
+                <DetailItem label="Rejection Reason:" value={selectedUpload.rejection_reason} />
+              )}
             </div>
           </div>
 
@@ -1047,24 +1152,97 @@ const MaterialPurchaseUpload = () => {
               compact={false}
             />
 
-            <button
-              type="button"
-              onClick={() => handleDeleteUpload(selectedUpload)}
-              disabled={deletingId === selectedUpload.id}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 text-[14px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {deletingId === selectedUpload.id ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 size={16} />
-                  Delete
-                </>
-              )}
-            </button>
+            <WorkflowButtons record={selectedUpload} variant="modal" />
+
+            {isDeletable(selectedUpload) && (
+              <button
+                type="button"
+                onClick={() => handleDeleteUpload(selectedUpload)}
+                disabled={deletingId === selectedUpload.id}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 text-[14px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingId === selectedUpload.id ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    Delete
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {verifyId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-md rounded-md border p-6 ${cardClass}`}>
+            <h3 className={`text-[18px] font-semibold ${mainTextClass}`}>Verify Material Purchase Upload</h3>
+            <p className={`mt-2 text-[14px] ${mutedClass}`}>
+              Verify this material purchase upload? Once verified, its purchases will be included in accounting and it cannot be edited, rejected or deleted.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setVerifyId(null)}
+                className="inline-flex h-10 items-center rounded-md bg-[#F3F2F7] px-4 text-[14px] font-semibold text-[#6F6B7D]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading === `verify-${verifyId}`}
+                onClick={async () => { await runWorkflowAction(verifyId, "verify"); setVerifyId(null); }}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#28C76F] px-4 text-[14px] font-semibold text-white disabled:opacity-60"
+              >
+                {actionLoading === `verify-${verifyId}` && <Loader2 size={16} className="animate-spin" />}
+                Confirm Verify
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-md rounded-md border p-6 ${cardClass}`}>
+            <h3 className={`text-[18px] font-semibold ${mainTextClass}`}>Reject Material Purchase Upload</h3>
+            <p className={`mt-2 text-[14px] ${mutedClass}`}>
+              Rejected uploads have no accounting effect and can be resubmitted after correction.
+            </p>
+            <textarea
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              rows={3}
+              placeholder="Rejection reason (required)"
+              className={`mt-4 w-full rounded-md border px-4 py-3 text-[14px] outline-none ${inputClass}`}
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setRejectId(null); setRejectReason(""); }}
+                className="inline-flex h-10 items-center rounded-md bg-[#F3F2F7] px-4 text-[14px] font-semibold text-[#6F6B7D]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!rejectReason.trim() || actionLoading === `reject-${rejectId}`}
+                onClick={async () => {
+                  await runWorkflowAction(rejectId, "reject", { reason: rejectReason.trim() });
+                  setRejectId(null);
+                  setRejectReason("");
+                }}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#EA5455] px-4 text-[14px] font-semibold text-white disabled:opacity-60"
+              >
+                {actionLoading === `reject-${rejectId}` && <Loader2 size={16} className="animate-spin" />}
+                Confirm Reject
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1269,7 +1447,12 @@ const MaterialPurchaseUpload = () => {
                     </td>
 
                     <td className="px-6 py-4">
-                      <StatusBadge status={upload.status} />
+                      <div className="flex flex-col items-start gap-1">
+                        <StatusBadge status={upload.status} />
+                        {upload.status === "Completed" && upload.approval_status && (
+                          <StatusBadge status={upload.approval_status} />
+                        )}
+                      </div>
                     </td>
 
                     <td
@@ -1298,19 +1481,23 @@ const MaterialPurchaseUpload = () => {
                           compact
                         />
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteUpload(upload)}
-                          disabled={deletingId === upload.id}
-                          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#FCEAEA] hover:text-[#EA5455] disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Delete Upload"
-                        >
-                          {deletingId === upload.id ? (
-                            <Loader2 size={17} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={18} />
-                          )}
-                        </button>
+                        <WorkflowButtons record={upload} />
+
+                        {isDeletable(upload) && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUpload(upload)}
+                            disabled={deletingId === upload.id}
+                            className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#FCEAEA] hover:text-[#EA5455] disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Delete Upload"
+                          >
+                            {deletingId === upload.id ? (
+                              <Loader2 size={17} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={18} />
+                            )}
+                          </button>
+                        )}
 
                         {upload.status === "Processing" && (
                           <Clock size={18} className="ml-1 text-[#FF9F43]" />

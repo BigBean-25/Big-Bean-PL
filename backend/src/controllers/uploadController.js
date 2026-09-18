@@ -741,7 +741,8 @@ export const uploadMaterialPurchase = async (req, res) => {
           `SELECT u.id, u.batch_id
            FROM material_purchase_uploads u
            INNER JOIN material_purchase_items i ON i.upload_id = u.id
-           WHERE u.outlet_id = ? AND u.status IN ('Processing', 'Completed') AND u.id != ?
+           WHERE u.outlet_id = ? AND u.id != ?
+             AND (u.status = 'Processing' OR (u.status = 'Completed' AND u.approval_status <> 'Rejected'))
              AND i.date BETWEEN ? AND ?
            GROUP BY u.id, u.batch_id
            LIMIT 1`,
@@ -1115,13 +1116,14 @@ export const deleteUpload = async (req, res) => {
       }
     }
 
-    // Workflow immutability (Phase 5D2B1): for the stock uploads, Submitted
-    // and Verified approval states can never be hard-deleted - Verified is
-    // financially effective and Submitted is under checker review. Draft and
-    // Rejected stay deletable (subject to the period lock below), and a
-    // Failed upload never had accounting effect. Verified corrections must
-    // go through a future controlled reversal flow, not ordinary delete.
-    if ((type === 'opening_stock' || type === 'closing_stock')
+    // Workflow immutability (Phase 5D2B1/5D2B2): for the accounting uploads
+    // with an approval workflow, Submitted and Verified approval states can
+    // never be hard-deleted - Verified is financially effective and Submitted
+    // is under checker review. Draft and Rejected stay deletable (subject to
+    // the period lock below), and a Failed upload never had accounting
+    // effect. Verified corrections must go through a future controlled
+    // reversal flow, not ordinary delete.
+    if (UPLOAD_WORKFLOW_TYPES.includes(type)
         && ['Submitted', 'Verified'].includes(record.approval_status)) {
       await connection.rollback();
       connection.release();
@@ -2398,8 +2400,8 @@ export const downloadMaterialPurchaseTemplate = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 5D2B1: maker-checker approval workflow for opening_stock_uploads and
-// closing_stock_uploads.
+// Phase 5D2B1/5D2B2: maker-checker approval workflow for the accounting
+// uploads (opening_stock, closing_stock, material_purchase).
 //
 // `status` stays the technical import status; `approval_status` carries the
 // business state. A row is financially effective only when BOTH hold:
@@ -2408,6 +2410,14 @@ export const downloadMaterialPurchaseTemplate = async (req, res) => {
 // Verified is terminal: no reject, no resubmit, no delete, no backward move.
 // Corrections to a Verified upload require a future controlled reversal flow.
 // ---------------------------------------------------------------------------
+
+const UPLOAD_WORKFLOW_TYPES = ['opening_stock', 'closing_stock', 'material_purchase'];
+
+const UPLOAD_WORKFLOW_LABEL = {
+  opening_stock: 'An opening stock upload',
+  closing_stock: 'A closing stock upload',
+  material_purchase: 'A material purchase upload',
+};
 
 const transitionStockUpload = async (req, res, action) => {
   try {
@@ -2423,12 +2433,21 @@ const transitionStockUpload = async (req, res, action) => {
       });
     }
 
-    await assertMonthEditable(
-      record.outlet_id,
-      record.month,
-      record.year,
-      type === 'opening_stock' ? 'An opening stock upload' : 'A closing stock upload'
-    );
+    // Period lock is re-checked on every transition: the period can be
+    // finalized after upload but before verify/reject. Stock uploads are
+    // month/year buckets; material_purchase rows carry their own dates, so
+    // its guard runs over the item date range.
+    if (type === 'material_purchase') {
+      const [range] = await query(
+        `SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM ${config.itemsTable} WHERE upload_id = ?`,
+        [req.params.id]
+      );
+      if (range?.min_date) {
+        await assertDateRangeEditable(record.outlet_id, range.min_date, range.max_date, UPLOAD_WORKFLOW_LABEL[type]);
+      }
+    } else {
+      await assertMonthEditable(record.outlet_id, record.month, record.year, UPLOAD_WORKFLOW_LABEL[type]);
+    }
 
     if (action === 'submit') {
       if (!['Draft', 'Rejected'].includes(record.approval_status)) {

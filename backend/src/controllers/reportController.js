@@ -290,7 +290,7 @@ export const getSupplierPendingReport = async (req, res) => {
        SELECT mpi.outlet_id, mpi.supplier_id
        FROM material_purchase_items mpi
        INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-       WHERE mpu.status = 'Completed' AND mpi.supplier_id IS NOT NULL
+       WHERE mpu.status = 'Completed' AND mpu.approval_status = 'Verified' AND mpi.supplier_id IS NOT NULL
          ${outlet_id && outlet_id !== 'all' ? 'AND mpi.outlet_id = ?' : ''}
          ${supplier_id && supplier_id !== 'all' ? 'AND mpi.supplier_id = ?' : ''}`,
       [...scopeParams, ...scopeParams]

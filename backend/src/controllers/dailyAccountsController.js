@@ -1183,11 +1183,18 @@ export const approveDailyCashExpense = async (req, res) => {
               const qty = Number(existing.material_qty);
               const rate = Math.round((Number(existing.amount) / qty) * 100) / 100;
 
+              // Phase 5D2B2: this synthetic upload is created inside the
+              // approved cash-expense flow, so it is financially effective
+              // immediately - approval_status='Verified'. req.user is the
+              // user who just approved the expense, i.e. the genuine checker
+              // for this purchase record, so verified_by is real (not the
+              // maker/fabricated). submitted_by is intentionally left NULL:
+              // the synthetic upload never went through a submit step.
               const [uploadResult] = await conn.execute(
                 `INSERT INTO material_purchase_uploads
-                 (batch_id, outlet_id, file_name, file_path, total_rows, success_rows, failed_rows, status, uploaded_by, created_at)
-                 VALUES (?, ?, NULL, NULL, 1, 1, 0, 'Completed', ?, NOW())`,
-                [batchId, existing.outlet_id, req.user.id]
+                 (batch_id, outlet_id, file_name, file_path, total_rows, success_rows, failed_rows, status, approval_status, uploaded_by, verified_by, verified_at, created_at)
+                 VALUES (?, ?, NULL, NULL, 1, 1, 0, 'Completed', 'Verified', ?, ?, NOW(), NOW())`,
+                [batchId, existing.outlet_id, req.user.id, req.user.id]
               );
               const uploadId = uploadResult.insertId;
 

@@ -205,7 +205,7 @@ const loadMaterialPurchaseRows = async ({ outletId, startDate, endDate }) => que
    INNER JOIN material_purchase_items mpi ON mpi.upload_id = mpu.id
    LEFT JOIN raw_materials rm ON rm.id = mpi.raw_material_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE mpu.outlet_id = ? AND mpu.status = 'Completed'
+   WHERE mpu.outlet_id = ? AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
      AND mpi.date BETWEEN ? AND ?`,
   [outletId, startDate, endDate]
 );

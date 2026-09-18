@@ -55,7 +55,7 @@ export async function getActualConsumption({ outletId, month, year }) {
      FROM material_purchase_items mpi
      INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
      WHERE mpi.outlet_id = ? AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed'
+     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
      GROUP BY mpi.raw_material_id`,
     [outletId, startDate, endDateStr]
   );

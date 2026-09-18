@@ -19,7 +19,7 @@ const getCumulativePurchases = async (outletId, supplierId, asOfDate) => {
      INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
      WHERE mpi.outlet_id = ?
        AND mpi.supplier_id = ?
-       AND mpu.status = 'Completed'
+       AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
        AND mpi.date <= ?`,
     [outletId, supplierId, asOfDate]
   );

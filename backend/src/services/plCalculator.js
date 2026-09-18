@@ -102,7 +102,7 @@ export const getOutletPL = async ({ outletId, month, year }) => {
      FROM material_purchase_items mpi
      INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
      WHERE ${mpiOutlet.sql} AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed'`,
+     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'`,
     [...mpiOutlet.params, startDate, endDate]
   );
 

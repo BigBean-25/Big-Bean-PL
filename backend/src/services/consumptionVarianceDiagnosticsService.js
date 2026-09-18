@@ -60,7 +60,7 @@ const loadPurchaseCoverage = async ({ outletId, startDate, endDate }) => {
      FROM material_purchase_items mpi
      INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
      WHERE mpi.outlet_id = ? AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed'`,
+     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'`,
     [outletId, startDate, endDate]
   );
   const row = rows[0] || {};
@@ -94,7 +94,7 @@ const loadPurchaseRows = async ({ outletId, startDate, endDate }) => query(
    LEFT JOIN raw_materials rm ON rm.id = mpi.raw_material_id
    LEFT JOIN units u ON u.id = mpi.unit_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE mpu.outlet_id = ? AND mpu.status = 'Completed'
+   WHERE mpu.outlet_id = ? AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
      AND mpi.date BETWEEN ? AND ?
    ORDER BY mpi.id`,
   [outletId, startDate, endDate]

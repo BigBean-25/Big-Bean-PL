@@ -300,7 +300,7 @@ export const getProcurementSources = async ({
             mpi.unit_id, u.unit_name, mpi.total_amount AS item_value,
             DATE_FORMAT(mpi.date, '%Y-%m') AS month_key
      FROM material_purchase_items mpi
-     INNER JOIN material_purchase_uploads mpu ON mpu.id = mpi.upload_id AND mpu.status = 'Completed'
+     INNER JOIN material_purchase_uploads mpu ON mpu.id = mpi.upload_id AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
      LEFT JOIN units u ON u.id = mpi.unit_id
      WHERE mpi.outlet_id = ?
        AND mpu.outlet_id = ?
