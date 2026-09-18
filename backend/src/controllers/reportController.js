@@ -445,10 +445,14 @@ export const getGSTR1Report = async (req, res) => {
 
     // Outlets whose exact [from_date, to_date] period has a real Item Tax
     // Report on file - their rows use that data instead of the estimate.
+    // Phase 5D2B4: only Verified uploads may be a precise-tax source; Draft,
+    // Submitted and Rejected uploads have zero GSTR-1 effect, so a newer
+    // unverified upload can never displace an older Verified one.
     const preciseUploads = await query(
       `SELECT itu.id, itu.outlet_id
        FROM petpooja_item_tax_uploads itu
        WHERE itu.upload_date_from = ? AND itu.upload_date_to = ?
+         AND itu.approval_status = 'Verified'
          ${outlet_id && outlet_id !== 'all' ? 'AND itu.outlet_id = ?' : ''}
        ORDER BY itu.created_at DESC`,
       outlet_id && outlet_id !== 'all' ? [from_date, to_date, outlet_id] : [from_date, to_date]

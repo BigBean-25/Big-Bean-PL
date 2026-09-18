@@ -9,7 +9,10 @@ import {
   uploadItemTaxReport,
   getItemTaxUploads,
   getItemTaxUploadById,
-  deleteItemTaxUpload
+  deleteItemTaxUpload,
+  submitItemTaxUpload,
+  verifyItemTaxUpload,
+  rejectItemTaxUpload
 } from '../controllers/petpoojaItemTaxController.js';
 
 const router = express.Router();
@@ -41,5 +44,11 @@ router.post('/item-tax-upload', protect, applyOutletScope, checkPermission('item
 router.get('/item-tax-uploads', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_view'), getItemTaxUploads);
 router.get('/item-tax-uploads/:id', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_view'), getItemTaxUploadById);
 router.delete('/item-tax-uploads/:id', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_delete'), deleteItemTaxUpload);
+
+// Phase 5D2B4: maker-checker workflow. Verified is terminal - there is
+// intentionally no route that moves a Verified upload anywhere.
+router.post('/item-tax-uploads/:id/submit', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_submit'), submitItemTaxUpload);
+router.post('/item-tax-uploads/:id/verify', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_verify'), verifyItemTaxUpload);
+router.post('/item-tax-uploads/:id/reject', protect, applyOutletScope, checkPermission('item_sales_tax', 'can_reject'), rejectItemTaxUpload);
 
 export default router;

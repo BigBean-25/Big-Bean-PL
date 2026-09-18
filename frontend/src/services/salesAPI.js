@@ -84,4 +84,13 @@ export const salesAPI = {
 
   deleteItemTaxUpload: (id) =>
     api.delete(`/sales/item-tax-uploads/${id}`),
+
+  submitItemTaxUpload: (id, body = {}) =>
+    api.post(`/sales/item-tax-uploads/${id}/submit`, body),
+
+  verifyItemTaxUpload: (id, body = {}) =>
+    api.post(`/sales/item-tax-uploads/${id}/verify`, body),
+
+  rejectItemTaxUpload: (id, body = {}) =>
+    api.post(`/sales/item-tax-uploads/${id}/reject`, body),
 };

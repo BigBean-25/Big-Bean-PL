@@ -12,6 +12,8 @@ import {
   ShieldCheck,
   IndianRupee,
   Percent,
+  Send,
+  Ban,
 } from "lucide-react";
 import {
   PageHeader,
@@ -54,6 +56,24 @@ const formatDateTime = (value) => {
   return d.toLocaleString("en-IN");
 };
 
+const StatusBadge = ({ status = "" }) => {
+  const styles = {
+    Draft: "bg-[#F3F2F7] text-[#6F6B7D]",
+    Submitted: "bg-[#E6FAFD] text-[#00CFE8]",
+    Verified: "bg-[#E9F9EF] text-[#28C76F]",
+    Rejected: "bg-[#FCEAEA] text-[#EA5455]",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+        styles[status] || "bg-[#F3F2F7] text-[#6F6B7D]"
+      }`}
+    >
+      {status || "Draft"}
+    </span>
+  );
+};
+
 const ItemTaxUpload = () => {
   const outletContext = useOutletContext() || {};
   const { selectedOutletId = "all", availableOutlets = [] } = outletContext;
@@ -69,12 +89,14 @@ const ItemTaxUpload = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const [outletId, setOutletId] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [file, setFile] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || {};
@@ -85,6 +107,16 @@ const ItemTaxUpload = () => {
   };
   const canUpload = hasPermission("item_sales_tax", "can_upload");
   const canDelete = hasPermission("item_sales_tax", "can_delete");
+  const canSubmit = hasPermission("item_sales_tax", "can_submit");
+  const canVerify = hasPermission("item_sales_tax", "can_verify");
+  const canReject = hasPermission("item_sales_tax", "can_reject");
+
+  const isOwn = (record) =>
+    record &&
+    (Number(record.uploaded_by) === Number(user?.id) ||
+      Number(record.submitted_by) === Number(user?.id));
+  const isDeletable = (record) =>
+    record && ["Draft", "Rejected"].includes(record.approval_status);
 
   const isOutletLocked = selectedOutletId !== "all";
 
@@ -179,11 +211,73 @@ const ItemTaxUpload = () => {
     try {
       await salesAPI.deleteItemTaxUpload(row.id);
       toast.success("Item tax report deleted");
-      setConfirmDelete(null);
+      setConfirmAction(null);
       await fetchUploads();
     } catch (error) {
       toast.error(error.response?.data?.message || "Delete failed");
     }
+  };
+
+  const runWorkflowAction = async (id, action, body = {}) => {
+    setActionLoading(`${action}-${id}`);
+    try {
+      await salesAPI[`${action}ItemTaxUpload`](id, body);
+      const labels = { submit: "submitted for verification", verify: "verified", reject: "rejected" };
+      toast.success(`Item tax upload ${labels[action] || action}`);
+      setConfirmAction(null);
+      setRejectReason("");
+      await fetchUploads();
+    } catch (error) {
+      toast.error(error.response?.data?.message || `Failed to ${action} upload`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const workflowActions = (row) => {
+    if (!row) return [];
+    const actions = [];
+    const busy = (a) => actionLoading === `${a}-${row.id}`;
+    if (["Draft", "Rejected"].includes(row.approval_status) && canSubmit) {
+      actions.push({
+        key: "submit",
+        title: row.approval_status === "Rejected" ? "Resubmit for verification" : "Submit for verification",
+        icon: Send,
+        loading: busy("submit"),
+        className: "text-[#00CFE8] hover:bg-[#E6FAFD]",
+        onClick: () => runWorkflowAction(row.id, "submit"),
+      });
+    }
+    if (row.approval_status === "Submitted" && canVerify && !isOwn(row)) {
+      actions.push({
+        key: "verify",
+        title: "Verify",
+        icon: CheckCircle2,
+        loading: busy("verify"),
+        className: "text-[#28C76F] hover:bg-[#E9F9EF]",
+        onClick: () =>
+          setConfirmAction({
+            type: "verify",
+            row,
+            message:
+              "Verify this item tax upload? Once verified, it becomes the precise CGST/SGST source for GSTR-1 on this outlet and period, and it cannot be edited, rejected or deleted.",
+          }),
+      });
+    }
+    if (row.approval_status === "Submitted" && canReject && !isOwn(row)) {
+      actions.push({
+        key: "reject",
+        title: "Reject",
+        icon: Ban,
+        loading: busy("reject"),
+        className: "text-[#EA5455] hover:bg-[#FCEAEA]",
+        onClick: () => {
+          setRejectReason("");
+          setConfirmAction({ type: "reject", row });
+        },
+      });
+    }
+    return actions;
   };
 
   const summary = useMemo(() => {
@@ -374,12 +468,12 @@ const ItemTaxUpload = () => {
             <table className="w-full min-w-[900px] border-collapse">
               <thead>
                 <tr className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-                  {["Period", "Outlet", "Items", "Net Amount", "CGST", "SGST", "Total Tax", "Uploaded", ""].map((h) => (
+                  {["Period", "Outlet", "Items", "Net Amount", "CGST", "SGST", "Total Tax", "Status", "Uploaded", ""].map((h) => (
                     <th key={h} className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody><LoadingRows rows={4} cols={9} isDark={isDark} /></tbody>
+              <tbody><LoadingRows rows={4} cols={10} isDark={isDark} /></tbody>
             </table>
           </TableWrapper>
         ) : uploads.length === 0 ? (
@@ -401,6 +495,7 @@ const ItemTaxUpload = () => {
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>CGST</th>
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>SGST</th>
                   <th className={`px-4 py-3 text-right text-[12px] font-semibold uppercase tracking-wide ${main}`}>Total Tax</th>
+                  <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>Status</th>
                   <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}>Uploaded</th>
                   <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${main}`}></th>
                 </tr>
@@ -418,18 +513,33 @@ const ItemTaxUpload = () => {
                     <td className="px-4 py-3 text-right text-[14px] text-[#6F6B7D]">{formatINR(row.total_cgst)}</td>
                     <td className="px-4 py-3 text-right text-[14px] text-[#6F6B7D]">{formatINR(row.total_sgst)}</td>
                     <td className="px-4 py-3 text-right text-[14px] font-medium text-[#28C76F]">{formatINR(row.total_tax)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={row.approval_status} /></td>
                     <td className="px-4 py-3 text-[13px] text-[#6F6B7D]">{formatDateTime(row.created_at)}</td>
                     <td className="px-4 py-3">
-                      {canDelete && (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDelete(row)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#EA5455] transition hover:bg-[#FCEAEA]"
-                          title="Delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {workflowActions(row).map((action) => (
+                          <button
+                            key={action.key}
+                            type="button"
+                            disabled={action.loading}
+                            onClick={action.onClick}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition disabled:opacity-50 ${action.className}`}
+                            title={action.title}
+                          >
+                            {action.loading ? <Loader2 size={15} className="animate-spin" /> : <action.icon size={16} />}
+                          </button>
+                        ))}
+                        {canDelete && isDeletable(row) && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAction({ type: "delete", row })}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#EA5455] transition hover:bg-[#FCEAEA]"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -439,16 +549,57 @@ const ItemTaxUpload = () => {
         )}
       </SectionCard>
 
-      {confirmDelete && (
+      {confirmAction && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${getCardClass(isDark)}`}>
-            <h3 className={`text-lg font-bold ${main}`}>Delete Item Tax Report?</h3>
+            <h3 className={`text-lg font-bold ${main}`}>
+              {confirmAction.type === "delete"
+                ? "Delete Item Tax Report?"
+                : confirmAction.type === "verify"
+                ? "Verify Item Tax Upload?"
+                : "Reject Item Tax Upload?"}
+            </h3>
             <p className={`mt-2 text-[14px] ${muted}`}>
-              This removes the upload and its item rows for {getOutletName(confirmDelete)}, {formatDate(confirmDelete.upload_date_from)} to {formatDate(confirmDelete.upload_date_to)}. GSTR-1 for that period will fall back to the estimated split. This cannot be undone.
+              {confirmAction.type === "delete"
+                ? `This removes the upload and its item rows for ${getOutletName(confirmAction.row)}, ${formatDate(confirmAction.row.upload_date_from)} to ${formatDate(confirmAction.row.upload_date_to)}. GSTR-1 for that period will fall back to the estimated split. This cannot be undone.`
+                : confirmAction.type === "verify"
+                ? confirmAction.message
+                : `Reject the item tax upload for ${getOutletName(confirmAction.row)}, ${formatDate(confirmAction.row.upload_date_from)} to ${formatDate(confirmAction.row.upload_date_to)}? It will have no GSTR-1 effect and can be resubmitted after correction.`}
             </p>
+            {confirmAction.type === "reject" && (
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Rejection reason (required)"
+                rows={3}
+                className={`mt-4 w-full rounded-lg border px-3 py-2 text-[14px] outline-none ${getInputClass(isDark)}`}
+              />
+            )}
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setConfirmDelete(null)} className={`h-10 rounded-lg border px-4 text-[14px] font-medium transition ${getCardClass(isDark)}`}>Cancel</button>
-              <button type="button" onClick={() => handleDelete(confirmDelete)} className="h-10 rounded-lg bg-[#EA5455] px-4 text-[14px] font-semibold text-white transition hover:bg-[#D14545]">Delete</button>
+              <button
+                type="button"
+                onClick={() => { setConfirmAction(null); setRejectReason(""); }}
+                className={`h-10 rounded-lg border px-4 text-[14px] font-medium transition ${getCardClass(isDark)}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  (confirmAction.type === "reject" && !rejectReason.trim()) ||
+                  actionLoading === `${confirmAction.type}-${confirmAction.row.id}`
+                }
+                onClick={() => {
+                  if (confirmAction.type === "delete") handleDelete(confirmAction.row);
+                  else if (confirmAction.type === "verify") runWorkflowAction(confirmAction.row.id, "verify");
+                  else runWorkflowAction(confirmAction.row.id, "reject", { rejection_reason: rejectReason.trim() });
+                }}
+                className={`h-10 rounded-lg px-4 text-[14px] font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  confirmAction.type === "verify" ? "bg-[#28C76F] hover:bg-[#1FA85C]" : "bg-[#EA5455] hover:bg-[#D14545]"
+                }`}
+              >
+                {confirmAction.type === "delete" ? "Delete" : confirmAction.type === "verify" ? "Verify" : "Reject"}
+              </button>
             </div>
           </div>
         </div>

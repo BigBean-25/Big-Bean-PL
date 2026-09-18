@@ -3,10 +3,15 @@ import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
 import { assertDateRangeEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
+import { logAudit } from '../utils/logger.js';
 
 const generateBatchNumber = () => {
   const now = new Date();
-  return `PPT${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  // Millisecond + random suffix: the timestamp alone has second resolution,
+  // so two uploads in the same second collided on the UNIQUE batch_number
+  // and surfaced as a 500.
+  return `PPT${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}${Math.floor(Math.random() * 1000)}`;
 };
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -50,6 +55,10 @@ export const downloadItemTaxTemplate = async (req, res) => {
   }
 };
 
+// Phase 5D2B4: an active candidate (Draft, Submitted or Verified) blocks
+// another upload covering the same range; a Rejected upload no longer has
+// any report effect, so it must not block its own replacement - it stays
+// on file purely for audit.
 const checkOverlap = async (outletId, from, to) => {
   const rows = await query(
     `SELECT id, batch_number,
@@ -57,6 +66,7 @@ const checkOverlap = async (outletId, from, to) => {
             DATE_FORMAT(upload_date_to, '%Y-%m-%d') AS upload_date_to
      FROM petpooja_item_tax_uploads
      WHERE outlet_id = ?
+       AND approval_status <> 'Rejected'
        AND upload_date_from <= ? AND upload_date_to >= ?
      LIMIT 1`,
     [outletId, to, from]
@@ -222,10 +232,18 @@ export const getItemTaxUploads = async (req, res) => {
               DATE_FORMAT(itu.upload_date_to, '%Y-%m-%d') AS upload_date_to,
               itu.file_name, itu.total_items, itu.total_net_amount, itu.total_cgst,
               itu.total_sgst, itu.total_tax, itu.total_amount, itu.created_at,
-              u.full_name AS uploaded_by_name
+              itu.approval_status, itu.submitted_at, itu.verified_at, itu.rejected_at,
+              itu.rejection_reason, itu.uploaded_by,
+              u.full_name AS uploaded_by_name,
+              su.full_name AS submitted_by_name,
+              vu.full_name AS verified_by_name,
+              ru.full_name AS rejected_by_name
        FROM petpooja_item_tax_uploads itu
        JOIN outlets o ON o.id = itu.outlet_id
        LEFT JOIN users u ON u.id = itu.uploaded_by
+       LEFT JOIN users su ON su.id = itu.submitted_by
+       LEFT JOIN users vu ON vu.id = itu.verified_by
+       LEFT JOIN users ru ON ru.id = itu.rejected_by
        WHERE ${where}
        ORDER BY itu.created_at DESC`,
       params
@@ -275,7 +293,7 @@ export const deleteItemTaxUpload = async (req, res) => {
   try {
     const { id } = req.params;
     const uploads = await query(
-      `SELECT id, outlet_id, file_path,
+      `SELECT id, outlet_id, file_path, approval_status,
               DATE_FORMAT(upload_date_from, '%Y-%m-%d') AS upload_date_from,
               DATE_FORMAT(upload_date_to, '%Y-%m-%d') AS upload_date_to
        FROM petpooja_item_tax_uploads WHERE id = ?`,
@@ -286,6 +304,17 @@ export const deleteItemTaxUpload = async (req, res) => {
     const outletScope = req.outletScope;
     if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(uploads[0].outlet_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
+    }
+
+    // Phase 5D2B4: Submitted is under checker review and Verified is the
+    // active precise-tax source - neither can be hard-deleted. Draft and
+    // Rejected stay deletable subject to the period lock. Corrections to a
+    // Verified upload require a future controlled reversal flow.
+    if (['Submitted', 'Verified'].includes(uploads[0].approval_status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete an upload with approval status "${uploads[0].approval_status}".`
+      });
     }
 
     await assertDateRangeEditable(uploads[0].outlet_id, uploads[0].upload_date_from, uploads[0].upload_date_to, 'An item tax upload');
@@ -316,3 +345,118 @@ export const deleteItemTaxUpload = async (req, res) => {
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error deleting item tax upload' });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5D2B4: maker-checker approval workflow for item tax uploads.
+//
+// Unlike the uploadController upload types, item tax uploads have no
+// technical status column - a row only exists after a fully parsed insert,
+// so every upload is workflow-eligible and approval_status alone gates the
+// precise-tax effect. Verified is terminal; corrections need a future
+// controlled reversal flow, not ordinary delete/reject.
+// ---------------------------------------------------------------------------
+
+const transitionItemTaxUpload = async (req, res, action) => {
+  try {
+    const { id } = req.params;
+    const uploads = await query(
+      `SELECT id, outlet_id, uploaded_by, approval_status,
+              DATE_FORMAT(upload_date_from, '%Y-%m-%d') AS upload_date_from,
+              DATE_FORMAT(upload_date_to, '%Y-%m-%d') AS upload_date_to
+       FROM petpooja_item_tax_uploads WHERE id = ?`,
+      [id]
+    );
+    if (uploads.length === 0) return res.status(404).json({ success: false, message: 'Upload not found' });
+    const record = uploads[0];
+
+    const outletScope = req.outletScope;
+    if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(record.outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
+    }
+
+    // The period can be finalized after upload but before the checker acts,
+    // so the range lock is re-checked on every transition.
+    await assertDateRangeEditable(record.outlet_id, record.upload_date_from, record.upload_date_to, 'An item tax upload');
+
+    if (action === 'submit') {
+      if (!['Draft', 'Rejected'].includes(record.approval_status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot submit an upload with approval status "${record.approval_status}". Only Draft or Rejected uploads can be submitted.`
+        });
+      }
+
+      const result = await query(
+        `UPDATE petpooja_item_tax_uploads
+         SET approval_status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
+             rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL
+         WHERE id = ? AND approval_status IN ('Draft', 'Rejected')`,
+        [req.user.id, id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(400).json({ success: false, message: 'Upload could not be submitted in its current state' });
+      }
+
+      await logAudit(req.user.id, 'SUBMIT', 'petpooja_item_tax_uploads', id, record, { approval_status: 'Submitted', submitted_by: req.user.id }, 'Submitted item tax upload for verification');
+      return res.status(200).json({ success: true, message: 'Upload submitted for verification' });
+    }
+
+    if (record.approval_status !== 'Submitted') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot ${action} an upload with approval status "${record.approval_status}". Only Submitted uploads can be ${action === 'verify' ? 'verified' : 'rejected'}.`
+      });
+    }
+
+    if (isOwnDocument(record, req.user.id, 'uploaded_by')) {
+      return res.status(403).json({
+        success: false,
+        message: `You cannot ${action} your own upload (maker-checker rule).`
+      });
+    }
+
+    if (action === 'verify') {
+      const result = await query(
+        `UPDATE petpooja_item_tax_uploads
+         SET approval_status = 'Verified', verified_by = ?, verified_at = NOW()
+         WHERE id = ? AND approval_status = 'Submitted'`,
+        [req.user.id, id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(400).json({ success: false, message: 'Upload could not be verified in its current state' });
+      }
+
+      await logAudit(req.user.id, 'VERIFY', 'petpooja_item_tax_uploads', id, record, { approval_status: 'Verified', verified_by: req.user.id }, 'Verified item tax upload');
+      return res.status(200).json({ success: true, message: 'Upload verified' });
+    }
+
+    // reject
+    const { rejection_reason } = req.body || {};
+    if (!rejection_reason || !String(rejection_reason).trim()) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+    }
+
+    const result = await query(
+      `UPDATE petpooja_item_tax_uploads
+       SET approval_status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?
+       WHERE id = ? AND approval_status = 'Submitted'`,
+      [req.user.id, String(rejection_reason).trim(), id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Upload could not be rejected in its current state' });
+    }
+
+    await logAudit(req.user.id, 'REJECT', 'petpooja_item_tax_uploads', id, record, { approval_status: 'Rejected', rejected_by: req.user.id, rejection_reason: String(rejection_reason).trim() }, 'Rejected item tax upload');
+    return res.status(200).json({ success: true, message: 'Upload rejected' });
+  } catch (error) {
+    console.error(`${action} item tax upload error:`, error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || `Error during ${action}` });
+  }
+};
+
+export const submitItemTaxUpload = (req, res) => transitionItemTaxUpload(req, res, 'submit');
+export const verifyItemTaxUpload = (req, res) => transitionItemTaxUpload(req, res, 'verify');
+export const rejectItemTaxUpload = (req, res) => transitionItemTaxUpload(req, res, 'reject');
