@@ -2,6 +2,7 @@ import { query, getConnection } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { notifyUser, notifyAdmins } from '../utils/notificationService.js';
 import { assertDateRangeEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 import ExcelJS from 'exceljs';
 import path from 'path';
 import fs from 'fs';
@@ -1139,7 +1140,7 @@ export const approveSalesUpload = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
     }
 
-    if (Number(reconciliation[0].uploaded_by) === Number(req.user.id)) {
+    if (isOwnDocument(reconciliation[0], req.user.id, 'uploaded_by')) {
       return res.status(403).json({ success: false, message: 'Users cannot approve their own sales upload' });
     }
 
@@ -1252,7 +1253,7 @@ export const rejectSalesUpload = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
     }
 
-    if (Number(reconciliation[0].uploaded_by) === Number(req.user.id)) {
+    if (isOwnDocument(reconciliation[0], req.user.id, 'uploaded_by')) {
       return res.status(403).json({ success: false, message: 'Users cannot reject their own sales upload' });
     }
 

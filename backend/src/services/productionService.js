@@ -2,6 +2,7 @@ import { query, getConnection } from '../config/database.js';
 import { getMaterialBaseUnit, convertToBase } from '../utils/uomUtils.js';
 import { getCurrentStock, getStockLedger } from './warehouseService.js';
 import { allocateFEFO, getAvailableBatches } from './warehouseBatchService.js';
+import { assertNotOwnDocument } from '../utils/makerChecker.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -164,11 +165,7 @@ export async function updateProductionRequestStatus(id, status, userId, reasons 
     }
 
     const checkerAction = PRODUCTION_REQUEST_CHECKER_ACTIONS[status];
-    if (checkerAction && Number(current.created_by) === Number(userId)) {
-      const err = new Error(`You cannot ${checkerAction} a production request you created. Another authorised user must review it.`);
-      err.statusCode = 403;
-      throw err;
-    }
+    if (checkerAction) assertNotOwnDocument(current, userId, 'created_by', checkerAction, 'production request');
 
     const setFields = ['status = ?'];
     const values = [status];
@@ -229,9 +226,7 @@ export async function updateProductionPlanStatus(id, status, userId) {
   if (plan.status !== 'Draft') {
     throw new Error(`Cannot ${status.toLowerCase()} a plan with status "${plan.status}". Only Draft plans can be approved or rejected.`);
   }
-  if (Number(plan.created_by) === Number(userId)) {
-    throw new Error('You cannot approve or reject your own production plan');
-  }
+  assertNotOwnDocument(plan, userId, 'created_by', status === 'Approved' ? 'approve' : 'reject', 'production plan');
 
   const setFields = ['status = ?'];
   const values = [status];
@@ -431,11 +426,7 @@ export async function postProductionBatch(id, userId) {
     // person who books the consumption and the person who recorded the batch
     // two different people - the same rule already enforced on production
     // wastage's verify/approve steps in productionWastageService.js.
-    if (Number(batch.created_by) === Number(userId)) {
-      const err = new Error('You cannot post a production batch you created. Another authorised user must post it.');
-      err.statusCode = 403;
-      throw err;
-    }
+    assertNotOwnDocument(batch, userId, 'created_by', 'post', 'production batch');
 
     const [materials] = await conn.execute('SELECT * FROM production_batch_materials WHERE production_batch_id = ?', [id]);
     const [[output]] = await conn.execute('SELECT * FROM production_batch_outputs WHERE production_batch_id = ?', [id]);

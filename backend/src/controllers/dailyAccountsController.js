@@ -3,6 +3,7 @@ import path from 'path';
 import { query, getConnection } from '../config/database.js';
 import { assertSafeColumnNames } from '../utils/validators.js';
 import { assertDateEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 
@@ -324,7 +325,7 @@ export const verifyDailyCashbook = async (req, res) => {
         });
       }
 
-      if (Number(existing.entered_by) === Number(req.user.id)) {
+      if (isOwnDocument(existing, req.user.id, 'entered_by')) {
         await conn.rollback();
         return res.status(403).json({ success: false, message: 'Users cannot verify their own cashbook' });
       }
@@ -1125,7 +1126,7 @@ export const approveDailyCashExpense = async (req, res) => {
     if (existing.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: 'Only Submitted expenses can be approved' });
     }
-    if (Number(existing.entered_by) === Number(req.user.id)) {
+    if (isOwnDocument(existing, req.user.id, 'entered_by')) {
       return res.status(403).json({ success: false, message: 'Users cannot approve their own expense' });
     }
 
@@ -1287,7 +1288,7 @@ export const rejectDailyCashExpense = async (req, res) => {
     if (existing.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: 'Only Submitted expenses can be rejected' });
     }
-    if (Number(existing.entered_by) === Number(req.user.id)) {
+    if (isOwnDocument(existing, req.user.id, 'entered_by')) {
       return res.status(403).json({ success: false, message: 'Users cannot reject their own expense' });
     }
 
@@ -1698,7 +1699,7 @@ export const verifyBankDeposit = async (req, res) => {
       });
     }
 
-    if (Number(existing[0].entered_by) === Number(req.user.id)) {
+    if (isOwnDocument(existing[0], req.user.id, 'entered_by')) {
       return res.status(403).json({
         success: false,
         message: 'Users cannot verify their own bank deposits'
@@ -1744,7 +1745,7 @@ export const rejectBankDeposit = async (req, res) => {
       });
     }
 
-    if (Number(existing[0].entered_by) === Number(req.user.id)) {
+    if (isOwnDocument(existing[0], req.user.id, 'entered_by')) {
       return res.status(403).json({
         success: false,
         message: 'Users cannot reject their own bank deposits'
@@ -2017,7 +2018,7 @@ export const verifyDayClosing = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Only Submitted day closings can be verified' });
       }
 
-      if (Number(existing.submitted_by) === Number(req.user.id)) {
+      if (isOwnDocument(existing, req.user.id, 'submitted_by')) {
         await conn.rollback();
         return res.status(403).json({ success: false, message: 'Users cannot verify their own day closing' });
       }
@@ -2242,7 +2243,7 @@ export const rejectDayClosing = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Only Submitted day closings can be rejected' });
       }
 
-      if (Number(existing.submitted_by) === Number(req.user.id)) {
+      if (isOwnDocument(existing, req.user.id, 'submitted_by')) {
         await conn.rollback();
         return res.status(403).json({ success: false, message: 'Users cannot reject their own day closing' });
       }
@@ -2885,7 +2886,7 @@ export const verifyDailyChecklist = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Submitted checklists can be verified' });
     }
 
-    if (existing.submitted_by === req.user.id) {
+    if (isOwnDocument(existing, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission' });
     }
 
@@ -2924,7 +2925,7 @@ export const rejectDailyChecklist = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Submitted checklists can be rejected' });
     }
 
-    if (existing.submitted_by === req.user.id) {
+    if (isOwnDocument(existing, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot reject your own submission' });
     }
 

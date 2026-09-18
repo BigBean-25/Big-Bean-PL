@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
 import { canAccessAllOutlets, getRolePermissions, isKnownRole } from '../utils/roleAccess.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 export const protect = async (req, res, next) => {
   try {
@@ -186,8 +187,7 @@ export const preventReadOnlyWrite = (req, res, next) => {
 
 export const preventOwnApproval = (createdByField = 'created_by') => {
   return (req, res, next) => {
-    if (!req.record || !req.record[createdByField]) return next();
-    if (Number(req.record[createdByField]) === Number(req.user.id)) {
+    if (isOwnDocument(req.record, req.user.id, createdByField)) {
       return res.status(403).json({ success: false, message: 'Users cannot approve or verify their own entries' });
     }
     next();

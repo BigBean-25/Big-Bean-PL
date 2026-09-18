@@ -4,6 +4,7 @@ import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { query } from '../config/database.js';
 import { assertSafeColumnNames } from '../utils/validators.js';
 import { assertMonthEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 const router = express.Router();
 
@@ -223,7 +224,7 @@ router.post('/online/:id/verify', protect, applyOutletScope, checkPermission('on
     if (record.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: `Cannot verify a payout with status "${record.status}". Only Submitted records can be verified.` });
     }
-    if (record.submitted_by === req.user.id) {
+    if (isOwnDocument(record, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission (maker-checker rule).' });
     }
 
@@ -247,7 +248,7 @@ router.post('/online/:id/reject', protect, applyOutletScope, checkPermission('on
     if (record.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: `Cannot reject a payout with status "${record.status}". Only Submitted records can be rejected.` });
     }
-    if (record.submitted_by === req.user.id) {
+    if (isOwnDocument(record, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot reject your own submission (maker-checker rule).' });
     }
     const { rejection_reason } = req.body;
@@ -479,7 +480,7 @@ router.post('/dine-in/:id/verify', protect, applyOutletScope, checkPermission('d
     if (record.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: `Cannot verify a payout with status "${record.status}". Only Submitted records can be verified.` });
     }
-    if (record.submitted_by === req.user.id) {
+    if (isOwnDocument(record, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission (maker-checker rule).' });
     }
 
@@ -503,7 +504,7 @@ router.post('/dine-in/:id/reject', protect, applyOutletScope, checkPermission('d
     if (record.status !== 'Submitted') {
       return res.status(400).json({ success: false, message: `Cannot reject a payout with status "${record.status}". Only Submitted records can be rejected.` });
     }
-    if (record.submitted_by === req.user.id) {
+    if (isOwnDocument(record, req.user.id, 'submitted_by')) {
       return res.status(403).json({ success: false, message: 'You cannot reject your own submission (maker-checker rule).' });
     }
     const { rejection_reason } = req.body;

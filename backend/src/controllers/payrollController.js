@@ -2,6 +2,7 @@ import { query } from '../config/database.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 import { assertMonthEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 export const getEmployeeSalaries = async (req, res) => {
   try {
@@ -293,7 +294,7 @@ export const verifyEmployeeSalary = async (req, res) => {
     // daily checklist, day closing all check this only on verify/reject,
     // against the submitter, never on submit). Applying it to Submitted too
     // meant a lone Accountant could never move their own draft past Draft.
-    if (action === 'Verified' && Number(existing[0].created_by) === Number(req.user.id)) {
+    if (action === 'Verified' && isOwnDocument(existing[0], req.user.id)) {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own salary record' });
     }
     const requiredFromStatus = action === 'Submitted' ? 'Draft' : 'Submitted';

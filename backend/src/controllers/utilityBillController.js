@@ -3,6 +3,7 @@ import { assertSafeColumnNames } from '../utils/validators.js';
 import { logAudit, logApproval } from '../utils/logger.js';
 import { notifyAdmins, notifyUser } from '../utils/notificationService.js';
 import { assertMonthEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 export const getUtilityBills = async (req, res) => {
   try {
@@ -301,7 +302,7 @@ export const verifyUtilityBill = async (req, res) => {
         message: `Utility bill record must be ${requiredFromStatus} before it can be marked ${action}`
       });
     }
-    if (action === 'Verified' && Number(existing[0].created_by) === Number(req.user.id)) {
+    if (action === 'Verified' && isOwnDocument(existing[0], req.user.id)) {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own utility bill record' });
     }
 

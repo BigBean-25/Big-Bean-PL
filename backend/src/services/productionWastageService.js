@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { query, getConnection } from '../config/database.js';
 import { getMaterialBaseUnit, convertToBase } from '../utils/uomUtils.js';
+import { assertNotOwnDocument } from '../utils/makerChecker.js';
 import { getCurrentStock } from './warehouseService.js';
 import { allocateFEFO } from './warehouseBatchService.js';
 
@@ -105,10 +106,12 @@ async function transitionStatus(id, userId, fromStatuses, toStatus, field) {
     // here naturally prevents the creator from also verifying/approving their
     // own wastage record - same gap already found and fixed for Physical
     // Stock Count/Stock Adjustments/Warehouse Wastage.
-    if ((field === 'verified_by' || field === 'approved_by') && Number(w[0].created_by) === Number(userId)) {
-      await conn.rollback();
-      throw new Error(`Creator cannot ${toStatus.toLowerCase()} their own wastage record`);
-    }
+    // Reject is the same review decision once the record has been submitted,
+    // so it gets the identical self-check for Submitted/Verified records -
+    // rejecting your own still-Draft record stays allowed as a self-withdraw.
+    const checkerAction = { verified_by: 'verify', approved_by: 'approve', rejected_by: 'reject' }[field];
+    const isCheckerStep = field === 'verified_by' || field === 'approved_by' || (field === 'rejected_by' && w[0].status !== 'Draft');
+    if (isCheckerStep) assertNotOwnDocument(w[0], userId, 'created_by', checkerAction, 'wastage record');
     await conn.execute(`UPDATE production_wastage SET status = ?, ${field} = ?, ${field.replace('_by', '_at')} = NOW() WHERE id = ?`, [toStatus, userId, id]);
     await conn.commit();
     return getProductionWastageById(id);

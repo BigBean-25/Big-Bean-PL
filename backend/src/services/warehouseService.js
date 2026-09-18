@@ -5,6 +5,7 @@ import { updatePOStatusAfterGRN } from './warehousePurchaseOrderService.js';
 import { getSettingValue } from './warehouseSettingService.js';
 import { validateContactFields } from '../utils/validators.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
+import { assertNotOwnDocument } from '../utils/makerChecker.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -712,11 +713,7 @@ export const approveRequisition = async (id, data, userId) => {
     // over stock, so it is the checker step - the raising outlet user must not
     // also be the one who signs it off. Same rule the rest of this codebase's
     // approval workflows already enforce.
-    if (Number(req.created_by) === Number(userId)) {
-      const err = new Error('You cannot approve or reject a requisition you created. Another authorised user must review it.');
-      err.statusCode = 403;
-      throw err;
-    }
+    assertNotOwnDocument(req, userId, 'created_by', 'approve or reject', 'requisition');
 
     const [itemRows] = await connection.execute(
       `SELECT sri.*, rm.material_name, rm.material_code, u.unit_name

@@ -121,17 +121,17 @@ router.use(protect);
 
 router.get('/central-kitchens', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
   try { const data = await getCentralKitchenLocations(); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/dashboard/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
   try { const data = await getProductionDashboard(Number(req.params.centralKitchenId)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/finished-stock/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
   try { const data = await getFinishedGoodsStock(Number(req.params.centralKitchenId)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/ledger/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
@@ -166,7 +166,7 @@ router.get('/requests', checkPermission('production_requests', 'can_view'), asyn
       : data;
     res.json({ success: true, data: scoped });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/requests/:id', checkPermission('production_requests', 'can_view'), async (req, res) => {
@@ -183,7 +183,7 @@ router.get('/requests/:id', checkPermission('production_requests', 'can_view'), 
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/requests', checkPermission('production_requests', 'can_create'), async (req, res) => {
@@ -199,7 +199,7 @@ router.post('/requests', checkPermission('production_requests', 'can_create'), a
     const data = await createProductionRequest(req.body, req.user.id);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.patch('/requests/:id/status', canTransitionProductionRequest, async (req, res) => {
@@ -209,52 +209,52 @@ router.patch('/requests/:id/status', canTransitionProductionRequest, async (req,
 
 router.get('/plans', checkPermission('production_planning', 'can_view'), async (req, res) => {
   try { const data = await getProductionPlans(Number(req.query.central_kitchen_id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/plans/:id', checkPermission('production_planning', 'can_view'), async (req, res) => {
   try { const data = await getProductionPlanById(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/plans', checkPermission('production_planning', 'can_create'), async (req, res) => {
   try { const data = await createProductionPlan(req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.patch('/plans/:id/status', checkPermission('production_planning', 'can_edit'), async (req, res) => {
   try { const data = await updateProductionPlanStatus(Number(req.params.id), req.body.status, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches', checkPermission('production_batches', 'can_view'), async (req, res) => {
   try { const data = await getProductionBatches(Number(req.query.central_kitchen_id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches/:id', checkPermission('production_batches', 'can_view'), async (req, res) => {
   try { const data = await getProductionBatchById(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/batches', checkPermission('production_batches', 'can_create'), async (req, res) => {
   try { const data = await createProductionBatch(req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/batches/:id/materials', checkPermission('production_batches', 'can_edit'), async (req, res) => {
   try { const data = await setProductionBatchMaterials(Number(req.params.id), req.body.materials); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.patch('/batches/:id/actual-qty', checkPermission('production_batches', 'can_edit'), async (req, res) => {
   try { const data = await updateProductionBatchActualQty(Number(req.params.id), req.body); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches/:id/availability', checkPermission('production_batches', 'can_view'), async (req, res) => {
   try { const data = await getRawMaterialAvailability(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/batches/:id/post', checkPermission('production_batches', 'can_edit'), async (req, res) => {
@@ -265,52 +265,52 @@ router.post('/batches/:id/post', checkPermission('production_batches', 'can_edit
 // Wastage
 router.get('/wastage', checkPermission('production_wastage', 'can_view'), async (req, res) => {
   try { const data = await getProductionWastages(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/wastage/:id', checkPermission('production_wastage', 'can_view'), async (req, res) => {
   try { const data = await getProductionWastageById(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage', checkPermission('production_wastage', 'can_create'), async (req, res) => {
   try { const data = await createProductionWastage(req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/wastage/:id', checkPermission('production_wastage', 'can_edit'), async (req, res) => {
   try { const data = await updateProductionWastage(Number(req.params.id), req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/submit', checkPermission('production_wastage', 'can_submit'), async (req, res) => {
   try { const data = await submitProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/verify', checkPermission('production_wastage', 'can_verify'), async (req, res) => {
   try { const data = await verifyProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/approve', checkPermission('production_wastage', 'can_approve'), async (req, res) => {
   try { const data = await approveProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/post', checkPermission('production_wastage', 'can_approve'), async (req, res) => {
   try { const data = await postProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/reject', checkPermission('production_wastage', 'can_reject'), async (req, res) => {
   try { const data = await rejectProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/wastage/:id/lock', checkPermission('production_wastage', 'can_lock'), async (req, res) => {
   try { const data = await lockProductionWastage(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/wastage-export', checkPermission('production_wastage', 'can_export'), async (req, res) => {
@@ -319,7 +319,7 @@ router.get('/wastage-export', checkPermission('production_wastage', 'can_export'
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="production_wastage.xlsx"');
     res.send(buffer);
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 function normalizeOutletId(raw) {
@@ -337,12 +337,12 @@ router.get('/variance', checkPermission('production_variance', 'can_view'), asyn
     const data = await getProductionVariance(req.query);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/variance/:batchId', checkPermission('production_variance', 'can_view'), async (req, res) => {
   try { const data = await getProductionVarianceByBatch(Number(req.params.batchId)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/variance-kpis/:centralKitchenId', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
@@ -352,7 +352,7 @@ router.get('/variance-kpis/:centralKitchenId', checkPermission('production_dashb
     const data = await getProductionDashboardVarianceKPIs(Number(req.params.centralKitchenId));
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/variance-export', checkPermission('production_variance', 'can_export'), async (req, res) => {
@@ -363,48 +363,48 @@ router.get('/variance-export', checkPermission('production_variance', 'can_expor
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="production_variance.xlsx"');
     res.send(buffer);
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 // Dispatch
 router.get('/dispatch-kpis', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
   try { const data = await getProductionDispatchKPIs(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/profit', checkPermission('production_dashboard', 'can_view'), async (req, res) => {
   try { const data = await getProductionProfitReport(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/dispatch', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
   try { const data = await getProductionDispatches(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/dispatch/pending-items/:requestId', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
   try { const data = await getPendingRequestItems(Number(req.params.requestId)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/dispatch/:id', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
   try { const data = await getProductionDispatchById(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/dispatch', checkPermission('production_dispatch', 'can_create'), async (req, res) => {
   try { const data = await createProductionDispatch(req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/dispatch/:id/post', checkPermission('production_dispatch', 'can_submit'), async (req, res) => {
   try { const data = await postProductionDispatch(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/dispatch/:id/receive', canReceiveProductionDispatch, async (req, res) => {
   try { const data = await receiveProductionDispatch(Number(req.params.id), req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/dispatch-export', checkPermission('production_dispatch', 'can_export'), async (req, res) => {
@@ -413,7 +413,7 @@ router.get('/dispatch-export', checkPermission('production_dispatch', 'can_expor
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="production_dispatch.xlsx"');
     res.send(buffer);
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 export default router;

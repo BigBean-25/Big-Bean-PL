@@ -4,6 +4,7 @@ import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { applyLocationScope, checkLocationAccess, isLocationAccessible, resolveScopedLocationId, resolveScopedLocationIds } from '../middleware/warehouseMiddleware.js';
 import { query } from '../config/database.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
@@ -58,14 +59,14 @@ router.get('/locations', async (req, res) => {
           const rows = await getLocationsForManagement(req.query);
           res.json({ success: true, data: rows });
         } catch (error) {
-          res.status(500).json({ success: false, message: error.message });
+          res.status(error.statusCode || 500).json({ success: false, message: error.message });
         }
       });
     }
     const rows = await getAllowedLocations(req.user, req.query.scope);
     res.json({ success: true, data: rows });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -74,7 +75,7 @@ router.post('/locations', checkPermission('locations', 'can_create'), async (req
     const row = await createLocation(req.body, req.user.id);
     res.status(201).json({ success: true, data: row });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 
@@ -83,7 +84,7 @@ router.get('/locations/:id', protect, checkLocationAccess('id'), async (req, res
     const row = await getLocationById(req.params.id);
     res.json({ success: true, data: row });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -94,7 +95,7 @@ router.get('/locations/:id/summary', checkPermission('locations', 'can_view'), c
     const summary = await getLocationOperationalSummary(req.params.id);
     res.json({ success: true, data: summary });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -103,7 +104,7 @@ router.put('/locations/:id', checkPermission('locations', 'can_edit'), checkLoca
     const row = await updateLocation(req.params.id, req.body);
     res.json({ success: true, data: row });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 
@@ -114,7 +115,7 @@ router.get('/dashboard', checkPermission('warehouse_dashboard', 'can_view'), app
     const data = await getDashboardMetrics(locationId);
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -125,7 +126,7 @@ router.get('/stock', checkPermission('warehouse_stock', 'can_view'), applyLocati
     const data = await getCurrentStock(locationId);
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -147,7 +148,7 @@ router.get('/ledger', checkPermission('warehouse_ledger', 'can_view'), applyLoca
     const data = fullData.slice(start, start + limit);
     res.json({ success: true, data, pagination: { total, page, limit, pages: Math.ceil(total / limit) || 1 } });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -156,7 +157,7 @@ router.post('/opening', checkPermission('warehouse_stock', 'can_create'), checkL
     const row = await postOpening({ ...req.body, transaction_date: req.body.transaction_date || new Date().toISOString().split('T')[0] }, req.user.id);
     res.status(201).json({ success: true, data: row });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 
@@ -167,7 +168,7 @@ router.get('/grn', checkPermission('grn', 'can_view'), applyLocationScope, async
     const result = await getGRNs({ ...req.query, allowedLocationIds });
     res.json({ success: true, data: result.data, pagination: result.pagination });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -186,7 +187,7 @@ router.get('/grn/:id', checkPermission('grn', 'can_view'), async (req, res) => {
     }
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -195,7 +196,7 @@ router.post('/grn', checkPermission('grn', 'can_create'), checkLocationAccess('w
     const data = await createGRN(req.body, req.user.id);
     res.status(201).json({ success: true, data });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 
@@ -212,13 +213,13 @@ router.post('/grn/:id/post', checkPermission('grn', 'can_edit'), async (req, res
     // holds. Without this the creator received, valued and posted their own
     // goods receipt unchallenged. Mirrors the creator-cannot-approve rule
     // already enforced on purchase orders and purchase returns.
-    if (Number(grn.created_by) === Number(req.user.id)) {
+    if (isOwnDocument(grn, req.user.id)) {
       return res.status(403).json({ success: false, message: 'You cannot post a GRN you created. Another authorised user must post it.' });
     }
     const data = await postGRN(req.params.id, req.user.id);
     res.json({ success: true, data });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 
@@ -229,7 +230,7 @@ router.get('/requisitions', checkPermission('warehouse_requisitions', 'can_view'
     const result = await getRequisitions({ ...req.query, allowedLocationIds });
     res.json({ success: true, data: result.data, pagination: result.pagination });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_view'), applyLocationScope, async (req, res) => {
@@ -244,7 +245,7 @@ router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_v
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_create'), async (req, res) => {
@@ -264,7 +265,7 @@ router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_crea
     const data = await createRequisition(req.body, req.user.id);
     res.status(201).json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions', 'can_submit'), async (req, res) => {
@@ -282,7 +283,7 @@ router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions'
     const data = await submitRequisition(req.params.id, req.user.id);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/requisitions/:id/approve', checkPermission('warehouse_requisitions', 'can_approve'), async (req, res) => {
@@ -292,7 +293,7 @@ router.post('/requisitions/:id/approve', checkPermission('warehouse_requisitions
 
 router.post('/requisitions/:id/dispatch', checkPermission('warehouse_requisitions', 'can_edit'), async (req, res) => {
   try { const data = await dispatchRequisition(req.params.id, req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/transfers', checkPermission('warehouse_transfers', 'can_view'), applyLocationScope, async (req, res) => {
@@ -302,7 +303,7 @@ router.get('/transfers', checkPermission('warehouse_transfers', 'can_view'), app
     const data = await getTransfers({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/transfers/:id', checkPermission('warehouse_transfers', 'can_view'), applyLocationScope, async (req, res) => {
@@ -317,7 +318,7 @@ router.get('/transfers/:id', checkPermission('warehouse_transfers', 'can_view'),
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/transfers/:id/receive', checkPermission('warehouse_transfers', 'can_edit'), async (req, res) => {
@@ -330,7 +331,7 @@ router.post('/transfers/:id/receive', checkPermission('warehouse_transfers', 'ca
     const data = await receiveTransfer(req.params.id, req.body, req.user.id);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // --- Physical Stock Count ---
@@ -342,7 +343,7 @@ router.get('/physical-stock-counts', checkPermission('physical_stock_counts', 'c
     const data = await getPhysicalStockCounts({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/physical-stock-counts/:id', checkPermission('physical_stock_counts', 'can_view'), applyLocationScope, async (req, res) => {
@@ -354,12 +355,12 @@ router.get('/physical-stock-counts/:id', checkPermission('physical_stock_counts'
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts', checkPermission('physical_stock_counts', 'can_create'), checkLocationAccess('location_id'), async (req, res) => {
   try { const data = await createPhysicalStockCount(req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/physical-stock-counts/:id', checkPermission('physical_stock_counts', 'can_edit'), async (req, res) => {
@@ -371,7 +372,7 @@ router.put('/physical-stock-counts/:id', checkPermission('physical_stock_counts'
     }
     const data = await updatePhysicalStockCount(req.params.id, req.body); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.delete('/physical-stock-counts/:id', checkPermission('physical_stock_counts', 'can_delete'), async (req, res) => {
@@ -383,32 +384,32 @@ router.delete('/physical-stock-counts/:id', checkPermission('physical_stock_coun
     }
     const data = await deletePhysicalStockCount(req.params.id); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/submit', checkPermission('physical_stock_counts', 'can_submit'), async (req, res) => {
   try { const data = await submitPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/verify', checkPermission('physical_stock_counts', 'can_verify'), async (req, res) => {
   try { const data = await verifyPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/approve', checkPermission('physical_stock_counts', 'can_approve'), async (req, res) => {
   try { const data = await approvePhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/post', checkPermission('physical_stock_counts', 'can_approve'), async (req, res) => {
   try { const data = await postPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/physical-stock-counts/:id/lock', checkPermission('physical_stock_counts', 'can_lock'), async (req, res) => {
   try { const data = await lockPhysicalStockCount(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // --- Stock Adjustments ---
@@ -420,7 +421,7 @@ router.get('/stock-adjustments', checkPermission('stock_adjustments', 'can_view'
     const data = await getStockAdjustments({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/stock-adjustments/:id', checkPermission('stock_adjustments', 'can_view'), applyLocationScope, async (req, res) => {
@@ -432,12 +433,12 @@ router.get('/stock-adjustments/:id', checkPermission('stock_adjustments', 'can_v
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments', checkPermission('stock_adjustments', 'can_create'), checkLocationAccess('location_id'), async (req, res) => {
   try { const data = await createStockAdjustment(req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/stock-adjustments/:id', checkPermission('stock_adjustments', 'can_edit'), async (req, res) => {
@@ -449,7 +450,7 @@ router.put('/stock-adjustments/:id', checkPermission('stock_adjustments', 'can_e
     }
     const data = await updateStockAdjustment(req.params.id, req.body); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.delete('/stock-adjustments/:id', checkPermission('stock_adjustments', 'can_delete'), async (req, res) => {
@@ -461,32 +462,32 @@ router.delete('/stock-adjustments/:id', checkPermission('stock_adjustments', 'ca
     }
     const data = await deleteStockAdjustment(req.params.id); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/submit', checkPermission('stock_adjustments', 'can_submit'), async (req, res) => {
   try { const data = await submitStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/verify', checkPermission('stock_adjustments', 'can_verify'), async (req, res) => {
   try { const data = await verifyStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/approve', checkPermission('stock_adjustments', 'can_approve'), async (req, res) => {
   try { const data = await approveStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/post', checkPermission('stock_adjustments', 'can_approve'), async (req, res) => {
   try { const data = await postStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/stock-adjustments/:id/lock', checkPermission('stock_adjustments', 'can_lock'), async (req, res) => {
   try { const data = await lockStockAdjustment(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // --- Warehouse Wastage ---
@@ -498,7 +499,7 @@ router.get('/warehouse-wastage', checkPermission('warehouse_wastage', 'can_view'
     const data = await getWarehouseWastages({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_view'), applyLocationScope, async (req, res) => {
@@ -510,12 +511,12 @@ router.get('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_v
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage', checkPermission('warehouse_wastage', 'can_create'), checkLocationAccess('location_id'), async (req, res) => {
   try { const data = await createWarehouseWastage(req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_edit'), async (req, res) => {
@@ -527,7 +528,7 @@ router.put('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_e
     }
     const data = await updateWarehouseWastage(req.params.id, req.body); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.delete('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_delete'), async (req, res) => {
@@ -539,46 +540,46 @@ router.delete('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'ca
     }
     const data = await deleteWarehouseWastage(req.params.id); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/submit', checkPermission('warehouse_wastage', 'can_submit'), async (req, res) => {
   try { const data = await submitWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/verify', checkPermission('warehouse_wastage', 'can_verify'), async (req, res) => {
   try { const data = await verifyWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/approve', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
   try { const data = await approveWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/post', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
   try { const data = await postWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/lock', checkPermission('warehouse_wastage', 'can_lock'), async (req, res) => {
   try { const data = await lockWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // --- Batch & Expiry ---
 
 router.get('/batches', checkPermission('warehouse_batch_expiry', 'can_view'), async (req, res) => {
   try { const data = await getBatches(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches/:materialId/available', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
   try {
     const data = await getAvailableBatches(req.query.location_id, Number(req.params.materialId));
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches/:materialId/fefo', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
@@ -586,12 +587,12 @@ router.get('/batches/:materialId/fefo', checkPermission('warehouse_batch_expiry'
     const { location_id, qty } = req.query;
     const data = await allocateFEFO(Number(location_id), Number(req.params.materialId), Number(qty));
     res.json({ success: true, data });
-  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/expiry-alerts', checkPermission('warehouse_batch_expiry', 'can_view'), async (req, res) => {
   try { const data = await getExpiryAlerts(req.query); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/batches/:materialId/history', checkPermission('warehouse_batch_expiry', 'can_view'), checkLocationAccess(), async (req, res) => {
@@ -599,7 +600,7 @@ router.get('/batches/:materialId/history', checkPermission('warehouse_batch_expi
     const { location_id, batch_no, expiry_date } = req.query;
     const data = await getBatchLedgerHistory(Number(location_id), Number(req.params.materialId), batch_no, expiry_date);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 // --- Purchase Returns ---
@@ -611,17 +612,17 @@ router.get('/purchase-returns', checkPermission('warehouse_purchase_returns', 'c
     const data = await getReturns({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-returns/grns', checkPermission('warehouse_purchase_returns', 'can_create'), async (req, res) => {
   try { const data = await getGRNsForReturn(Number(req.query.supplier_id), Number(req.query.location_id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-returns/grns/:id/items', checkPermission('warehouse_purchase_returns', 'can_create'), async (req, res) => {
   try { const data = await getGRNItems(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-returns/:id', checkPermission('warehouse_purchase_returns', 'can_view'), applyLocationScope, async (req, res) => {
@@ -633,12 +634,12 @@ router.get('/purchase-returns/:id', checkPermission('warehouse_purchase_returns'
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns', checkPermission('warehouse_purchase_returns', 'can_create'), checkLocationAccess('warehouse_location_id'), async (req, res) => {
   try { const data = await createReturn(req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/purchase-returns/:id', checkPermission('warehouse_purchase_returns', 'can_edit'), async (req, res) => {
@@ -650,7 +651,7 @@ router.put('/purchase-returns/:id', checkPermission('warehouse_purchase_returns'
     }
     const data = await updateReturn(Number(req.params.id), req.body, req.user.id); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.delete('/purchase-returns/:id', checkPermission('warehouse_purchase_returns', 'can_delete'), async (req, res) => {
@@ -662,47 +663,47 @@ router.delete('/purchase-returns/:id', checkPermission('warehouse_purchase_retur
     }
     await deleteReturn(Number(req.params.id), req.user.id); res.json({ success: true });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/submit', checkPermission('warehouse_purchase_returns', 'can_submit'), async (req, res) => {
   try { const data = await submitReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/verify', checkPermission('warehouse_purchase_returns', 'can_verify'), async (req, res) => {
   try { const data = await verifyReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/approve', checkPermission('warehouse_purchase_returns', 'can_approve'), async (req, res) => {
   try { const data = await approveReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/reject', checkPermission('warehouse_purchase_returns', 'can_reject'), async (req, res) => {
   try { const data = await rejectReturn(Number(req.params.id), req.user.id, req.body.rejection_reason); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/post', checkPermission('warehouse_purchase_returns', 'can_approve'), async (req, res) => {
   try { const data = await postReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-returns/:id/lock', checkPermission('warehouse_purchase_returns', 'can_lock'), async (req, res) => {
   try { const data = await lockReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-returns/credits-summary', checkPermission('warehouse_purchase_returns', 'can_view'), async (req, res) => {
   try { const data = await getCreditsSummary(); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.put('/purchase-returns/credits/:id/status', checkPermission('warehouse_purchase_returns', 'can_edit'), async (req, res) => {
   try { const data = await updateCreditStatus(Number(req.params.id), req.body.status, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // Warehouse Phase 2F: Purchase Orders
@@ -713,7 +714,7 @@ router.get('/purchase-orders', checkPermission('warehouse_purchase_orders', 'can
     const data = await getPOs({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-orders/:id', checkPermission('warehouse_purchase_orders', 'can_view'), applyLocationScope, async (req, res) => {
@@ -725,12 +726,12 @@ router.get('/purchase-orders/:id', checkPermission('warehouse_purchase_orders', 
     }
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders', checkPermission('warehouse_purchase_orders', 'can_create'), checkLocationAccess('warehouse_location_id'), async (req, res) => {
   try { const data = await createPO(req.body, req.user.id); res.status(201).json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/purchase-orders/:id', checkPermission('warehouse_purchase_orders', 'can_edit'), async (req, res) => {
@@ -742,7 +743,7 @@ router.put('/purchase-orders/:id', checkPermission('warehouse_purchase_orders', 
     }
     const data = await updatePO(Number(req.params.id), req.body, req.user.id); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.delete('/purchase-orders/:id', checkPermission('warehouse_purchase_orders', 'can_delete'), async (req, res) => {
@@ -754,23 +755,23 @@ router.delete('/purchase-orders/:id', checkPermission('warehouse_purchase_orders
     }
     const data = await deletePO(Number(req.params.id)); res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders/:id/submit', checkPermission('warehouse_purchase_orders', 'can_submit'), async (req, res) => {
   try { const data = await submitPO(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders/:id/approve', checkPermission('warehouse_purchase_orders', 'can_approve'), async (req, res) => {
   try {
     const po = await getPOById(Number(req.params.id));
     if (!po) return res.status(404).json({ success: false, message: 'PO not found' });
-    if (po.created_by === req.user.id) return res.status(403).json({ success: false, message: 'Creator cannot approve own PO' });
+    if (isOwnDocument(po, req.user.id)) return res.status(403).json({ success: false, message: 'Creator cannot approve own PO' });
     const data = await approvePO(Number(req.params.id), req.user.id);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders/:id/reject', checkPermission('warehouse_purchase_orders', 'can_reject'), async (req, res) => {
@@ -780,31 +781,31 @@ router.post('/purchase-orders/:id/reject', checkPermission('warehouse_purchase_o
     // approve already blocks this above; reject is the same review step's
     // other outcome and was missing the same maker-checker check every other
     // approve/reject pair in this codebase applies to both sides.
-    if (po.created_by === req.user.id) return res.status(403).json({ success: false, message: 'Creator cannot reject own PO' });
+    if (isOwnDocument(po, req.user.id)) return res.status(403).json({ success: false, message: 'Creator cannot reject own PO' });
     const data = await rejectPO(Number(req.params.id), req.user.id, req.body.rejection_reason);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders/:id/send', checkPermission('warehouse_purchase_orders', 'can_edit'), async (req, res) => {
   try { const data = await sendPO(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/purchase-orders/:id/close', checkPermission('warehouse_purchase_orders', 'can_lock'), async (req, res) => {
   try { const data = await closePO(Number(req.params.id), req.user.id, req.body.close_reason); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-orders/:id/receipt-summary', checkPermission('warehouse_purchase_orders', 'can_view'), async (req, res) => {
   try { const data = await getPOReceiptSummary(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/purchase-orders/:id/grn-prefill', checkPermission('grn', 'can_create'), async (req, res) => {
   try { const data = await getGRNPrefill(Number(req.params.id)); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // Supplier purchase history (read-only reporting). These take a single
@@ -828,7 +829,7 @@ router.get('/supplier-history', checkPermission('warehouse_supplier_history', 'c
       search: req.query.search,
     });
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/supplier-history/:supplierId', checkPermission('warehouse_supplier_history', 'can_view'), applyLocationScope, async (req, res) => {
@@ -837,7 +838,7 @@ router.get('/supplier-history/:supplierId', checkPermission('warehouse_supplier_
     if (locationId === undefined) return;
     const data = await getSupplierHistoryDetail(Number(req.params.supplierId), locationId);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/supplier-history/:supplierId/materials', checkPermission('warehouse_supplier_history', 'can_view'), applyLocationScope, async (req, res) => {
@@ -846,7 +847,7 @@ router.get('/supplier-history/:supplierId/materials', checkPermission('warehouse
     if (locationId === undefined) return;
     const data = await getSupplierMaterialHistory(Number(req.params.supplierId), locationId, req.query.material_id ? Number(req.query.material_id) : null);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/supplier-history/:supplierId/price-movement', checkPermission('warehouse_supplier_history', 'can_view'), applyLocationScope, async (req, res) => {
@@ -855,7 +856,7 @@ router.get('/supplier-history/:supplierId/price-movement', checkPermission('ware
     if (locationId === undefined) return;
     const data = await getSupplierPriceMovement(Number(req.params.supplierId), locationId, req.query.material_id ? Number(req.query.material_id) : null);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/supplier-history/:supplierId/timeline', checkPermission('warehouse_supplier_history', 'can_view'), applyLocationScope, async (req, res) => {
@@ -864,7 +865,7 @@ router.get('/supplier-history/:supplierId/timeline', checkPermission('warehouse_
     if (locationId === undefined) return;
     const data = await getSupplierTimeline(Number(req.params.supplierId), locationId);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 // Low Stock / Reorder - same "optional location_id defaults to company-wide"
@@ -881,21 +882,21 @@ router.get('/reorder', checkPermission('warehouse_reorder', 'can_view'), applyLo
       search: req.query.search || null,
     });
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.put('/reorder/:materialId/settings', checkPermission('warehouse_reorder', 'can_edit'), async (req, res) => {
   try {
     const data = await updateReorderSettings(Number(req.params.materialId), req.body);
     res.json({ success: true, data });
-  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/reorder/create-po', checkPermission('warehouse_reorder', 'can_create'), checkLocationAccess(), async (req, res) => {
   try {
     const data = await createDraftPOFromReorder(req.body.material_ids, Number(req.body.location_id), req.user.id);
     res.json({ success: true, data });
-  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // Warehouse Reports (read-only). Same fix as supplier-history/reorder above:
@@ -910,7 +911,7 @@ router.get('/reports/summary', checkPermission('warehouse_reports', 'can_view'),
     const data = await reportService.getReportSummary(locationId);
     res.json({ success: true, data });
   }
-  catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 // Procurement sources diagnostics (read-only). Dedicated route kept ahead of
@@ -1094,7 +1095,7 @@ router.get('/reports/:type', checkPermission('warehouse_reports', 'can_view'), a
     if (!handlers[type]) return res.status(404).json({ success: false, message: 'Report not found' });
     const data = await handlers[type](filters);
     res.json({ success: true, data });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.get('/reports/pack/export', checkPermission('warehouse_reports', 'can_export'), applyLocationScope, async (req, res) => {
@@ -1110,7 +1111,7 @@ router.get('/reports/pack/export', checkPermission('warehouse_reports', 'can_exp
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="BigBean_Warehouse_Report_Pack_${new Date().toISOString().split('T')[0]}.xlsx"`);
     res.send(buffer);
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 // Warehouse Settings
@@ -1119,7 +1120,7 @@ router.get('/settings', checkPermission('warehouse_settings', 'can_view'), check
     const locationId = Number(req.query.location_id);
     const data = await settingService.getWarehouseSettings(locationId);
     res.json({ success: true, data });
-  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.put('/settings', checkPermission('warehouse_settings', 'can_edit'), checkLocationAccess(), async (req, res) => {
@@ -1127,7 +1128,7 @@ router.put('/settings', checkPermission('warehouse_settings', 'can_edit'), check
     const { location_id, settings } = req.body;
     const data = await settingService.updateWarehouseSettings(Number(location_id), settings, req.user.id);
     res.json({ success: true, data });
-  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 export default router;

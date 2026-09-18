@@ -1,5 +1,6 @@
 import { query, getConnection } from '../config/database.js';
 import { convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
+import { assertNotOwnDocument } from '../utils/makerChecker.js';
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
 const fmt = n => Math.round((num(n) + Number.EPSILON) * 1e6) / 1e6;
@@ -271,19 +272,16 @@ const transition = async (id, action, userId, extra = {}) => {
     if (!rows.length) { await conn.rollback(); throw new Error('Return not found'); }
     const row = rows[0];
     if (Array.isArray(cfg.from) ? !cfg.from.includes(row.status) : row.status !== cfg.from) { await conn.rollback(); throw new Error(`Invalid status transition from ${row.status}`); }
-    if (action === 'verify' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot verify own return'); }
-    // Verify already blocks the creator; approve is a separate, later gate in
-    // this workflow (Draft -> Submitted -> Verified -> Approved, unlike
-    // GRN/PO's single-approval-step design) and had no equivalent check - the
-    // creator could submit, have someone else verify, then circle back and
-    // approve their own return, defeating the point of a distinct approval step.
-    if (action === 'approve' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot approve own return'); }
-    // Reject is the same review decision as verify/approve, just the negative
-    // outcome (it fires from the identical Submitted/Verified predecessor
-    // states) - without this, a creator could reject their own submitted or
-    // verified return, which is exactly as much a maker-checker bypass as
-    // self-approving would be.
-    if (action === 'reject' && row.created_by === userId) { await conn.rollback(); throw new Error('Creator cannot reject own return'); }
+    // Verify/approve/reject are all checker decisions on a record someone
+    // else created - the maker must not also be the checker. Approve is a
+    // separate, later gate in this workflow (Draft -> Submitted -> Verified ->
+    // Approved, unlike GRN/PO's single-approval-step design), and reject is
+    // the same review decision with a negative outcome - without these, the
+    // creator could submit, have someone else verify, then approve or reject
+    // their own return, defeating the point of distinct review steps.
+    if (action === 'verify' || action === 'approve' || action === 'reject') {
+      assertNotOwnDocument(row, userId, 'created_by', action, 'purchase return');
+    }
     const sets = { status: cfg.to };
     if (action === 'submit') { sets.submitted_by = userId; sets.submitted_at = new Date(); }
     if (action === 'verify') { sets.verified_by = userId; sets.verified_at = new Date(); }

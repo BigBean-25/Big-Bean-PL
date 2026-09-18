@@ -1,6 +1,7 @@
 import { query, getConnection } from '../config/database.js';
 import { getMaterialBaseUnit, convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
 import { getSettingValue } from './warehouseSettingService.js';
+import { assertNotOwnDocument } from '../utils/makerChecker.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -60,10 +61,7 @@ const transitionDocument = async (table, id, userId, action) => {
     // for either physical_stock_counts or stock_adjustments (both call
     // through here) - unlike the rest of this codebase's approval workflows,
     // which all block self-approval on the review step.
-    if ((action === 'verify' || action === 'approve') && Number(rows[0].created_by) === Number(userId)) {
-      await conn.rollback();
-      throw new Error(`Creator cannot ${action} their own document`);
-    }
+    if (action === 'verify' || action === 'approve') assertNotOwnDocument(rows[0], userId, 'created_by', action);
     const actionCols = {
       submit: ['submitted_by', 'submitted_at'],
       verify: ['verified_by', 'verified_at'],
