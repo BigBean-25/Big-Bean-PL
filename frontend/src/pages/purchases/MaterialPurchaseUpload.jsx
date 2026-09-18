@@ -1233,7 +1233,7 @@ const MaterialPurchaseUpload = () => {
                 type="button"
                 disabled={!rejectReason.trim() || actionLoading === `reject-${rejectId}`}
                 onClick={async () => {
-                  await runWorkflowAction(rejectId, "reject", { reason: rejectReason.trim() });
+                  await runWorkflowAction(rejectId, "reject", { rejection_reason: rejectReason.trim() });
                   setRejectId(null);
                   setRejectReason("");
                 }}

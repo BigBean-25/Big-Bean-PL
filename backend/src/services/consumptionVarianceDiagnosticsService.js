@@ -120,7 +120,7 @@ const loadSalesRows = async ({ outletId, startDate, endDate }) => query(
    INNER JOIN item_sales_items isi ON isi.upload_id = isu.id
    LEFT JOIN menu_items mi ON mi.id = isi.menu_item_id
    LEFT JOIN categories c ON c.id = mi.category_id
-   WHERE isu.outlet_id = ? AND isu.status = 'Completed'
+   WHERE isu.outlet_id = ? AND isu.status = 'Completed' AND isu.approval_status = 'Verified'
      AND isi.date BETWEEN ? AND ?
      AND isi.menu_item_id IS NOT NULL
    ORDER BY isi.id`,
@@ -522,7 +522,7 @@ export const getConsumptionVarianceDiagnostics = async ({ outletId, month, year,
        COALESCE(SUM(isi.qty_sold), 0) AS qty_total
      FROM item_sales_uploads isu
      INNER JOIN item_sales_items isi ON isi.upload_id = isu.id
-     WHERE isu.outlet_id = ? AND isu.status = 'Completed'
+     WHERE isu.outlet_id = ? AND isu.status = 'Completed' AND isu.approval_status = 'Verified'
        AND isi.date BETWEEN ? AND ?
        AND isi.menu_item_id IS NOT NULL`,
     [outletId, period.startDate, period.endDate]

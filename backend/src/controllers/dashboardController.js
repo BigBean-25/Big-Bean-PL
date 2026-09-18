@@ -19,6 +19,7 @@ export const getDashboardSummary = async (req, res) => {
          SELECT outlet_id FROM opening_stock_uploads WHERE approval_status IN ('Draft','Submitted')
          UNION ALL SELECT outlet_id FROM closing_stock_uploads WHERE approval_status IN ('Draft','Submitted')
          UNION ALL SELECT outlet_id FROM material_purchase_uploads WHERE approval_status IN ('Draft','Submitted')
+         UNION ALL SELECT outlet_id FROM item_sales_uploads WHERE approval_status IN ('Draft','Submitted')
        ) pending WHERE ${scope?.all ? '1=1' : `pending.outlet_id IN (${(scope?.outletIds || []).map(() => '?').join(',') || 'NULL'})`}`,
       scope?.all ? [] : scope?.outletIds || []
     );

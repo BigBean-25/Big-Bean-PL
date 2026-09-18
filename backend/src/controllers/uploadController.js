@@ -875,7 +875,8 @@ export const uploadItemSales = async (req, res) => {
         `SELECT u.id, u.batch_id
          FROM item_sales_uploads u
          INNER JOIN item_sales_items i ON i.upload_id = u.id
-         WHERE u.outlet_id = ? AND u.status IN ('Processing', 'Completed')
+         WHERE u.outlet_id = ?
+           AND (u.status = 'Processing' OR (u.status = 'Completed' AND u.approval_status <> 'Rejected'))
            AND i.date BETWEEN ? AND ?
          GROUP BY u.id, u.batch_id
          LIMIT 1`,
@@ -2400,8 +2401,8 @@ export const downloadMaterialPurchaseTemplate = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 5D2B1/5D2B2: maker-checker approval workflow for the accounting
-// uploads (opening_stock, closing_stock, material_purchase).
+// Phase 5D2B1/5D2B2/5D2B3: maker-checker approval workflow for the accounting
+// uploads (opening_stock, closing_stock, material_purchase, item_sales).
 //
 // `status` stays the technical import status; `approval_status` carries the
 // business state. A row is financially effective only when BOTH hold:
@@ -2411,12 +2412,13 @@ export const downloadMaterialPurchaseTemplate = async (req, res) => {
 // Corrections to a Verified upload require a future controlled reversal flow.
 // ---------------------------------------------------------------------------
 
-const UPLOAD_WORKFLOW_TYPES = ['opening_stock', 'closing_stock', 'material_purchase'];
+const UPLOAD_WORKFLOW_TYPES = ['opening_stock', 'closing_stock', 'material_purchase', 'item_sales'];
 
 const UPLOAD_WORKFLOW_LABEL = {
   opening_stock: 'An opening stock upload',
   closing_stock: 'A closing stock upload',
   material_purchase: 'A material purchase upload',
+  item_sales: 'An item sales upload',
 };
 
 const transitionStockUpload = async (req, res, action) => {
@@ -2435,9 +2437,9 @@ const transitionStockUpload = async (req, res, action) => {
 
     // Period lock is re-checked on every transition: the period can be
     // finalized after upload but before verify/reject. Stock uploads are
-    // month/year buckets; material_purchase rows carry their own dates, so
-    // its guard runs over the item date range.
-    if (type === 'material_purchase') {
+    // month/year buckets; material_purchase and item_sales rows carry their
+    // own dates, so their guard runs over the item date range.
+    if (type === 'material_purchase' || type === 'item_sales') {
       const [range] = await query(
         `SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM ${config.itemsTable} WHERE upload_id = ?`,
         [req.params.id]

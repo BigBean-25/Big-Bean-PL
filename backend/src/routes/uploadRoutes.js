@@ -83,14 +83,15 @@ router.get('/item-sales/:id', protect, applyOutletScope, checkPermission('item_s
 
 router.delete('/:type/:id', protect, applyOutletScope, checkDeleteUploadPermission, deleteUpload);
 
-// Phase 5D2B1/5D2B2: maker-checker workflow endpoints for the accounting
-// uploads (opening stock, closing stock, material purchase). The same
-// handler family serves all three because the upload tables share the same
-// workflow columns; :type resolves the table through UPLOAD_TYPE_CONFIG and
-// the controller picks the right period guard (month/year for stock,
-// item-date range for purchases). Verified is terminal - there is
-// intentionally no route that moves a Verified upload anywhere.
-const STOCK_UPLOAD_TYPES = ['opening_stock', 'closing_stock', 'material_purchase'];
+// Phase 5D2B1/5D2B2/5D2B3: maker-checker workflow endpoints for the
+// accounting uploads (opening stock, closing stock, material purchase,
+// item sales). The same handler family serves all four because the upload
+// tables share the same workflow columns; :type resolves the table through
+// UPLOAD_TYPE_CONFIG and the controller picks the right period guard
+// (month/year for stock, item-date range for purchases/sales). Verified is
+// terminal - there is intentionally no route that moves a Verified upload
+// anywhere.
+const STOCK_UPLOAD_TYPES = ['opening_stock', 'closing_stock', 'material_purchase', 'item_sales'];
 
 const checkStockWorkflowPermission = (action) => async (req, res, next) => {
   const { type } = req.params;

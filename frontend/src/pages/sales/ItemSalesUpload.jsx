@@ -15,6 +15,8 @@ import {
   FileDown,
   Trash2,
   Info,
+  Send,
+  Ban,
 } from "lucide-react";
 import {
   PageHeader,
@@ -107,6 +109,10 @@ const StatusBadge = ({ status = "" }) => {
     Completed: "bg-[#E9F9EF] text-[#28C76F]",
     Failed: "bg-[#FCEAEA] text-[#EA5455]",
     "Rolled Back": "bg-[#F3F2F7] text-[#6F6B7D]",
+    Draft: "bg-[#F3F2F7] text-[#6F6B7D]",
+    Submitted: "bg-[#E6FAFD] text-[#00CFE8]",
+    Verified: "bg-[#E9F9EF] text-[#28C76F]",
+    Rejected: "bg-[#FCEAEA] text-[#EA5455]",
   };
   return (
     <span
@@ -172,6 +178,18 @@ const ItemSalesUpload = () => {
 
   const canUpload = hasPermission("item_sales", "can_upload");
   const canDelete = hasPermission("item_sales", "can_delete");
+  const canSubmit = hasPermission("item_sales", "can_submit");
+  const canVerify = hasPermission("item_sales", "can_verify");
+  const canReject = hasPermission("item_sales", "can_reject");
+
+  const isOwn = (record) =>
+    record &&
+    (Number(record.uploaded_by) === Number(user?.id) ||
+      Number(record.submitted_by) === Number(user?.id));
+  const isDeletable = (record) =>
+    record &&
+    (record.status !== "Completed" ||
+      ["Draft", "Rejected"].includes(record.approval_status));
 
   const contextOutlets = useMemo(
     () => (availableOutlets || []).filter((o) => o && o.id && !Number.isNaN(Number(o.id))),
@@ -357,6 +375,62 @@ const ItemSalesUpload = () => {
   }, [filteredUploads]);
 
   const [confirmAction, setConfirmAction] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const runWorkflowAction = async (id, action, body = {}) => {
+    setActionLoading(`${action}-${id}`);
+    try {
+      await uploadAPI[`${action}StockUpload`]("item_sales", id, body);
+      const labels = { submit: "submitted for verification", verify: "verified", reject: "rejected" };
+      toast.success(`Item sales upload ${labels[action] || action}`);
+      closeDetail();
+      await fetchUploads();
+    } catch (error) {
+      toast.error(error.response?.data?.message || `Failed to ${action} upload`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const workflowActions = (row) => {
+    if (!row || row.status !== "Completed") return [];
+    const actions = [];
+    const busy = (a) => actionLoading === `${a}-${row.id}`;
+    if (["Draft", "Rejected"].includes(row.approval_status) && canSubmit) {
+      actions.push({
+        label: row.approval_status === "Rejected" ? "Resubmit" : "Submit",
+        icon: Send,
+        loading: busy("submit"),
+        onClick: () => runWorkflowAction(row.id, "submit"),
+      });
+    }
+    if (row.approval_status === "Submitted" && canVerify && !isOwn(row)) {
+      actions.push({
+        label: "Verify",
+        icon: CheckCircle2,
+        onClick: () =>
+          setConfirmAction({
+            type: "verify",
+            row,
+            message:
+              "Verify this item sales upload? Once verified, its quantities feed theoretical consumption and it cannot be edited, rejected or deleted.",
+          }),
+      });
+    }
+    if (row.approval_status === "Submitted" && canReject && !isOwn(row)) {
+      actions.push({
+        label: "Reject",
+        icon: Ban,
+        danger: true,
+        onClick: () => {
+          setRejectReason("");
+          setConfirmAction({ type: "reject", row });
+        },
+      });
+    }
+    return actions;
+  };
 
   const clearFilters = () => {
     setSearchTerm("");
@@ -371,7 +445,8 @@ const ItemSalesUpload = () => {
       icon: Eye,
       onClick: () => openDetail(row.id),
     });
-    if (canDelete && !["Completed"].includes(row.status)) {
+    actions.push(...workflowActions(row));
+    if (canDelete && isDeletable(row)) {
       actions.push({
         label: "Delete",
         icon: Trash2,
@@ -748,7 +823,12 @@ const ItemSalesUpload = () => {
                       {Number(upload.failed_rows || 0)}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={upload.status} />
+                      <div className="flex flex-col items-start gap-1">
+                        <StatusBadge status={upload.status} />
+                        {upload.status === "Completed" && upload.approval_status && (
+                          <StatusBadge status={upload.approval_status} />
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">{formatDateTime(upload.created_at)}</td>
                     <td
@@ -844,9 +924,41 @@ const ItemSalesUpload = () => {
                     </div>
                   </div>
                   <div>
+                    <p className={`text-[12px] font-medium ${muted}`}>Approval Status</p>
+                    <div className="mt-1">
+                      {detail.upload?.status === "Completed" ? (
+                        <StatusBadge status={detail.upload?.approval_status || "Draft"} />
+                      ) : (
+                        <span className={`text-[14px] ${muted}`}>-</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
                     <p className={`text-[12px] font-medium ${muted}`}>Uploaded At</p>
                     <p className={`mt-0.5 text-[14px] font-semibold ${main}`}>{formatDateTime(detail.upload?.created_at)}</p>
                   </div>
+                  <div>
+                    <p className={`text-[12px] font-medium ${muted}`}>Submitted At</p>
+                    <p className={`mt-0.5 text-[14px] font-semibold ${main}`}>
+                      {detail.upload?.submitted_at ? formatDateTime(detail.upload.submitted_at) : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={`text-[12px] font-medium ${muted}`}>Verified At</p>
+                    <p className={`mt-0.5 text-[14px] font-semibold ${main}`}>
+                      {detail.upload?.verified_at
+                        ? formatDateTime(detail.upload.verified_at)
+                        : detail.upload?.approval_status === "Verified"
+                        ? "Legacy record"
+                        : "-"}
+                    </p>
+                  </div>
+                  {detail.upload?.rejection_reason && (
+                    <div className="md:col-span-3">
+                      <p className={`text-[12px] font-medium ${muted}`}>Rejection Reason</p>
+                      <p className={`mt-0.5 text-[14px] font-semibold text-[#EA5455]`}>{detail.upload.rejection_reason}</p>
+                    </div>
+                  )}
                 </div>
 
                 {detail.items?.length > 0 && (
@@ -930,21 +1042,37 @@ const ItemSalesUpload = () => {
                 <div className="text-[13px] text-[#6F6B7D]">
                   This is a quantity/recipe upload — not accounting revenue.
                 </div>
-                {canDelete && !["Completed"].includes(detail.upload?.status) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setConfirmAction({
-                        type: "delete",
-                        row: detail.upload || detail,
-                        message: "This removes this upload and its related Item Sales records.",
-                      })
-                    }
-                    className="h-9 rounded-lg bg-[#FCEAEA] px-4 text-[13px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC]"
-                  >
-                    Delete Upload
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {workflowActions(detail.upload || detail).map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={action.onClick}
+                      disabled={action.loading}
+                      className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white transition disabled:opacity-60 ${
+                        action.danger ? "bg-[#EA5455] hover:bg-[#D14545]" : action.label === "Verify" ? "bg-[#28C76F] hover:bg-[#1F9D57]" : "bg-[#00CFE8] hover:bg-[#00B8CF]"
+                      }`}
+                    >
+                      {action.loading ? <Loader2 size={15} className="animate-spin" /> : <action.icon size={15} />}
+                      {action.label}
+                    </button>
+                  ))}
+                  {canDelete && isDeletable(detail.upload || detail) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "delete",
+                          row: detail.upload || detail,
+                          message: "This removes this upload and its related Item Sales records.",
+                        })
+                      }
+                      className="h-9 rounded-lg bg-[#FCEAEA] px-4 text-[13px] font-semibold text-[#EA5455] transition hover:bg-[#F9DCDC]"
+                    >
+                      Delete Upload
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -954,8 +1082,28 @@ const ItemSalesUpload = () => {
       {confirmAction && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${getCardClass(isDark)}`}>
-            <h3 className={`text-lg font-bold ${main}`}>Delete Item Sales Upload?</h3>
-            <p className={`mt-2 text-[14px] ${muted}`}>{confirmAction.message}</p>
+            <h3 className={`text-lg font-bold ${main}`}>
+              {confirmAction.type === "verify"
+                ? "Verify Item Sales Upload?"
+                : confirmAction.type === "reject"
+                ? "Reject Item Sales Upload?"
+                : "Delete Item Sales Upload?"}
+            </h3>
+            <p className={`mt-2 text-[14px] ${muted}`}>
+              {confirmAction.type === "reject"
+                ? "Rejected uploads have no consumption effect and can be resubmitted after correction."
+                : confirmAction.message}
+            </p>
+
+            {confirmAction.type === "reject" && (
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Rejection reason (required)"
+                className={`mt-4 w-full rounded-lg border px-3 py-2 text-[14px] outline-none ${getInputClass(isDark)}`}
+              />
+            )}
 
             <div className="mt-6 flex justify-end gap-3">
               <button
@@ -967,14 +1115,19 @@ const ItemSalesUpload = () => {
               </button>
               <button
                 type="button"
+                disabled={confirmAction.type === "reject" && !rejectReason.trim()}
                 onClick={() => {
-                  const { row } = confirmAction;
+                  const { type, row } = confirmAction;
                   setConfirmAction(null);
-                  handleDelete(row.id);
+                  if (type === "verify") runWorkflowAction(row.id, "verify");
+                  else if (type === "reject") runWorkflowAction(row.id, "reject", { rejection_reason: rejectReason.trim() });
+                  else handleDelete(row.id);
                 }}
-                className="h-10 rounded-lg bg-[#EA5455] px-4 text-[14px] font-semibold text-white transition hover:bg-[#D14545]"
+                className={`h-10 rounded-lg px-4 text-[14px] font-semibold text-white transition disabled:opacity-60 ${
+                  confirmAction.type === "verify" ? "bg-[#28C76F] hover:bg-[#1F9D57]" : "bg-[#EA5455] hover:bg-[#D14545]"
+                }`}
               >
-                Delete
+                {confirmAction.type === "verify" ? "Verify" : confirmAction.type === "reject" ? "Reject" : "Delete"}
               </button>
             </div>
           </div>

@@ -105,7 +105,7 @@ export async function getTheoreticalConsumption({ outletId, month, year }) {
      LEFT JOIN menu_items mi ON isi.menu_item_id = mi.id
      LEFT JOIN categories c ON mi.category_id = c.id
      WHERE isi.outlet_id = ? AND isi.date >= ? AND isi.date <= ?
-     AND isu.status = 'Completed' AND isi.menu_item_id IS NOT NULL
+     AND isu.status = 'Completed' AND isu.approval_status = 'Verified' AND isi.menu_item_id IS NOT NULL
      GROUP BY isi.menu_item_id, mi.item_name, mi.item_code, c.category_name`,
     [outletId, startDate, endDateStr]
   );
