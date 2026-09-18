@@ -285,7 +285,7 @@ export const getSupplierPendingReport = async (req, res) => {
     // computed via the SAME canonical getSupplierLedgerSummary() used by the
     // Supplier Payments ledger-summary endpoint, so both surfaces always agree.
     const pairs = await query(
-      `SELECT outlet_id, supplier_id FROM supplier_payments WHERE ${scopeWhere}
+      `SELECT outlet_id, supplier_id FROM supplier_payments WHERE ${scopeWhere} AND status <> 'Rejected'
        UNION
        SELECT mpi.outlet_id, mpi.supplier_id
        FROM material_purchase_items mpi

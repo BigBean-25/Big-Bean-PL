@@ -14,8 +14,12 @@ import {
   Wallet,
   AlertCircle,
   FileText,
+  Send,
+  CheckCircle2,
+  Ban,
 } from "lucide-react";
-import api, { masterAPI } from "../../services/api";
+import api, { masterAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
 
 const getRows = (response) => {
@@ -90,7 +94,25 @@ const emptyForm = () => ({
 const calculateBalance = (data) =>
   num(data.opening_pending) + num(data.purchase_value) - num(data.paid_amount);
 
+const STATUS_STYLES = {
+  Draft: "bg-[#F3F2F7] text-[#6F6B7D]",
+  Submitted: "bg-[#FFF4E5] text-[#FF9F43]",
+  Verified: "bg-[#E9F9EF] text-[#28C76F]",
+  Rejected: "bg-[#FCEAEA] text-[#EA5455]",
+};
+
+const StatusBadge = ({ status }) => (
+  <span
+    className={`inline-block rounded-full px-3 py-1 text-[12px] font-semibold ${
+      STATUS_STYLES[status] || STATUS_STYLES.Draft
+    }`}
+  >
+    {status || "Draft"}
+  </span>
+);
+
 const SupplierPayments = () => {
+  const { user } = useAuthStore();
   const outletContext = useOutletContext() || {};
   const { selectedOutletId = "all", availableOutlets = [] } = outletContext;
 
@@ -104,6 +126,17 @@ const SupplierPayments = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [verifyId, setVerifyId] = useState(null);
+  const [rejectId, setRejectId] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const permissions = useMemo(() => getStoredPermissions()?.supplier_payments || {}, []);
+  const can = (action) => Boolean(permissions[action]);
+  const isOwn = (payment) =>
+    payment &&
+    (Number(payment.created_by) === Number(user?.id) ||
+      Number(payment.submitted_by) === Number(user?.id));
 
   const [formData, setFormData] = useState(emptyForm);
 
@@ -315,6 +348,21 @@ const SupplierPayments = () => {
       toast.error(error.response?.data?.message || "Operation failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const runWorkflowAction = async (id, action, body = {}) => {
+    setActionLoading(`${action}-${id}`);
+    try {
+      await api.post(`/supplier-payments/${id}/${action}`, body);
+      const labels = { submit: "submitted for verification", verify: "verified", reject: "rejected" };
+      toast.success(`Supplier payment ${labels[action] || action}`);
+      if (selectedPayment?.id === id) setSelectedPayment(null);
+      await fetchPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.message || `Failed to ${action} supplier payment`);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -878,16 +926,131 @@ const SupplierPayments = () => {
             </div>
           </div>
 
+          <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <div className="rounded-md bg-[#F8F7FA] p-5">
+              <DetailItem label="Status:" value={<StatusBadge status={selectedPayment.status} />} />
+              <DetailItem label="Created By:" value={selectedPayment.created_by_name} />
+            </div>
+            <div className="rounded-md bg-[#F8F7FA] p-5">
+              <DetailItem label="Submitted By:" value={selectedPayment.submitted_by_name} />
+              <DetailItem label="Verified By:" value={selectedPayment.verified_by_name} />
+            </div>
+            {selectedPayment.status === "Rejected" && (
+              <div className="rounded-md bg-[#FCEAEA] p-5">
+                <DetailItem label="Rejected By:" value={selectedPayment.rejected_by_name} />
+                <DetailItem label="Rejection Reason:" value={selectedPayment.rejection_reason} />
+              </div>
+            )}
+          </div>
+
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => handleEdit(selectedPayment)}
-              className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <Edit2 size={17} />
-              Edit
-            </button>
+            {["Draft", "Rejected"].includes(selectedPayment.status) && can("can_edit") && (
+              <button
+                type="button"
+                onClick={() => handleEdit(selectedPayment)}
+                className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Edit2 size={17} />
+                Edit
+              </button>
+            )}
+
+            {["Draft", "Rejected"].includes(selectedPayment.status) && can("can_submit") && (
+              <button
+                type="button"
+                disabled={actionLoading === `submit-${selectedPayment.id}`}
+                onClick={() => runWorkflowAction(selectedPayment.id, "submit")}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#00CFE8] px-5 py-2.5 text-[15px] font-semibold text-white disabled:opacity-70"
+              >
+                <Send size={17} />
+                {selectedPayment.status === "Rejected" ? "Resubmit" : "Submit"}
+              </button>
+            )}
+
+            {selectedPayment.status === "Submitted" && can("can_verify") && !isOwn(selectedPayment) && (
+              <button
+                type="button"
+                disabled={actionLoading === `verify-${selectedPayment.id}`}
+                onClick={() => setVerifyId(selectedPayment.id)}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#28C76F] px-5 py-2.5 text-[15px] font-semibold text-white disabled:opacity-70"
+              >
+                <CheckCircle2 size={17} />
+                Verify
+              </button>
+            )}
+
+            {selectedPayment.status === "Submitted" && can("can_reject") && !isOwn(selectedPayment) && (
+              <button
+                type="button"
+                onClick={() => { setRejectId(selectedPayment.id); setRejectReason(""); }}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#EA5455] px-5 py-2.5 text-[15px] font-semibold text-white"
+              >
+                <Ban size={17} />
+                Reject
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {verifyId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-md bg-white p-6 shadow-lg">
+            <h3 className="text-[18px] font-semibold text-[#2F2B3D]">Verify Supplier Payment</h3>
+            <p className="mt-2 text-[14px] text-[#6F6B7D]">
+              Verify this payment? A verified payment becomes locked and can no longer be edited.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setVerifyId(null)}
+                className="rounded-md bg-[#F3F2F7] px-5 py-2.5 text-[14px] font-semibold text-[#6F6B7D]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading === `verify-${verifyId}`}
+                onClick={() => { runWorkflowAction(verifyId, "verify"); setVerifyId(null); }}
+                className="rounded-md bg-[#28C76F] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
+              >
+                Verify
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-md bg-white p-6 shadow-lg">
+            <h3 className="text-[18px] font-semibold text-[#2F2B3D]">Reject Supplier Payment</h3>
+            <p className="mt-1 text-[13px] text-[#A8AAAE]">A reason is required for rejection.</p>
+            <textarea
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              placeholder="Enter rejection reason"
+              rows={3}
+              className="mt-4 w-full rounded-md border border-[#EBE9F1] p-3 text-[14px] outline-none"
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setRejectId(null); setRejectReason(""); }}
+                className="rounded-md bg-[#F3F2F7] px-5 py-2.5 text-[14px] font-semibold text-[#6F6B7D]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!rejectReason.trim() || actionLoading === `reject-${rejectId}`}
+                onClick={() => { runWorkflowAction(rejectId, "reject", { rejection_reason: rejectReason }); setRejectId(null); setRejectReason(""); }}
+                className="rounded-md bg-[#EA5455] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
+              >
+                Reject
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1012,6 +1175,9 @@ const SupplierPayments = () => {
                     Reference No
                   </th>
                   <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                    Status
+                  </th>
+                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
                     Outstanding After Payment
                   </th>
                   <th
@@ -1062,6 +1228,9 @@ const SupplierPayments = () => {
                       <td className="px-6 py-4 text-[14px] text-[#6F6B7D]">
                         {payment.reference_no || "-"}
                       </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={payment.status} />
+                      </td>
                       <td className="px-6 py-4 text-[14px] font-semibold text-[#EA5455]">
                         {formatINR(balance)}
                       </td>
@@ -1080,14 +1249,51 @@ const SupplierPayments = () => {
                             <Eye size={18} />
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(payment)}
-                            className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#E6FAFD] hover:text-[#00A6B7]"
-                            title="Edit"
-                          >
-                            <Edit2 size={18} />
-                          </button>
+                          {["Draft", "Rejected"].includes(payment.status) && can("can_edit") && (
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(payment)}
+                              className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#E6FAFD] hover:text-[#00A6B7]"
+                              title="Edit"
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                          )}
+
+                          {["Draft", "Rejected"].includes(payment.status) && can("can_submit") && (
+                            <button
+                              type="button"
+                              disabled={actionLoading === `submit-${payment.id}`}
+                              onClick={() => runWorkflowAction(payment.id, "submit")}
+                              className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#E9F9EF] hover:text-[#28C76F] disabled:opacity-50"
+                              title={payment.status === "Rejected" ? "Resubmit" : "Submit for verification"}
+                            >
+                              {actionLoading === `submit-${payment.id}` ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                            </button>
+                          )}
+
+                          {payment.status === "Submitted" && can("can_verify") && !isOwn(payment) && (
+                            <button
+                              type="button"
+                              disabled={actionLoading === `verify-${payment.id}`}
+                              onClick={() => setVerifyId(payment.id)}
+                              className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#E9F9EF] hover:text-[#28C76F] disabled:opacity-50"
+                              title="Verify"
+                            >
+                              {actionLoading === `verify-${payment.id}` ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                            </button>
+                          )}
+
+                          {payment.status === "Submitted" && can("can_reject") && !isOwn(payment) && (
+                            <button
+                              type="button"
+                              onClick={() => { setRejectId(payment.id); setRejectReason(""); }}
+                              className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-[#FCEAEA] hover:text-[#EA5455]"
+                              title="Reject"
+                            >
+                              <Ban size={18} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

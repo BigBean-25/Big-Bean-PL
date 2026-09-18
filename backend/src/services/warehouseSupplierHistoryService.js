@@ -61,7 +61,7 @@ export const getSupplierHistorySummary = async ({
       locationId ? [s.id, locationId] : [s.id]
     );
     const payments = await query(
-      `SELECT COALESCE(SUM(paid_amount), 0) AS v FROM supplier_payments WHERE supplier_id = ?`,
+      `SELECT COALESCE(SUM(paid_amount), 0) AS v FROM supplier_payments WHERE supplier_id = ? AND status <> 'Rejected'`,
       [s.id]
     );
     let outstanding = 0;
@@ -293,7 +293,7 @@ export const getSupplierTimeline = async (supplierId, locationId) => {
      UNION ALL
      SELECT pr.return_no, pr.return_date, pr.status, 'Purchase Return Posted' FROM purchase_returns pr WHERE pr.supplier_id = ? AND pr.status = 'Posted' ${locationId ? 'AND warehouse_location_id = ?' : ''}
      UNION ALL
-     SELECT sp.reference_no, sp.date, 'Completed', 'Supplier Payment' FROM supplier_payments sp WHERE sp.supplier_id = ?
+     SELECT sp.reference_no, sp.date, sp.status, 'Supplier Payment' FROM supplier_payments sp WHERE sp.supplier_id = ?
      ORDER BY po_date DESC`,
     locationId
       ? [supplierId, locationId, supplierId, locationId, supplierId, locationId, supplierId, locationId, supplierId]

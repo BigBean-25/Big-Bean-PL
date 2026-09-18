@@ -36,7 +36,7 @@ const getCumulativePurchases = async (outletId, supplierId, asOfDate) => {
 const getCumulativePayments = async (outletId, supplierId, asOfDate, excludeId = null) => {
   let sql = `SELECT COALESCE(SUM(paid_amount), 0) AS total
              FROM supplier_payments
-             WHERE outlet_id = ? AND supplier_id = ? AND date <= ?`;
+             WHERE outlet_id = ? AND supplier_id = ? AND date <= ? AND status <> 'Rejected'`;
   const params = [outletId, supplierId, asOfDate];
 
   if (excludeId) {

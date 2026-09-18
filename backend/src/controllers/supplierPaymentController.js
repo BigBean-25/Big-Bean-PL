@@ -2,6 +2,7 @@ import { query } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { getSupplierLedgerSummary, computePaymentRowValues } from '../services/supplierLedgerService.js';
 import { assertDateEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 const num = (value) => Number(value || 0);
 
@@ -73,12 +74,18 @@ export const getSupplierPayments = async (req, res) => {
     const payments = await query(
       `SELECT sp.*, DATE_FORMAT(sp.date, '%Y-%m-%d') as date,
               o.outlet_name, s.supplier_name, pm.mode_name,
-              u1.full_name as created_by_name
+              u1.full_name as created_by_name,
+              u2.full_name as submitted_by_name,
+              u3.full_name as verified_by_name,
+              u4.full_name as rejected_by_name
        FROM supplier_payments sp
        LEFT JOIN outlets o ON sp.outlet_id = o.id
        LEFT JOIN suppliers s ON sp.supplier_id = s.id
        LEFT JOIN payment_modes pm ON sp.payment_mode_id = pm.id
        LEFT JOIN users u1 ON sp.created_by = u1.id
+       LEFT JOIN users u2 ON sp.submitted_by = u2.id
+       LEFT JOIN users u3 ON sp.verified_by = u3.id
+       LEFT JOIN users u4 ON sp.rejected_by = u4.id
        WHERE ${whereClause}
        ORDER BY sp.date DESC, sp.id DESC
        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`,
@@ -183,6 +190,7 @@ export const createSupplierPayment = async (req, res) => {
       payment_mode_id: payment_mode_id || null,
       reference_no: reference_no ? String(reference_no).trim() : null,
       remarks: remarks ? String(remarks).trim() : null,
+      status: 'Draft',
       created_by: req.user.id,
       proof_attachment: req.file?.path || null
     };
@@ -222,6 +230,13 @@ export const updateSupplierPayment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Supplier payment not found'
+      });
+    }
+
+    if (!['Draft', 'Rejected'].includes(existing.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot edit a supplier payment with status "${existing.status}". Only Draft or Rejected payments can be edited.`
       });
     }
 
@@ -299,5 +314,118 @@ export const updateSupplierPayment = async (req, res) => {
       success: false,
       message: error.message || 'Error updating supplier payment'
     });
+  }
+};
+
+export const submitSupplierPayment = async (req, res) => {
+  try {
+    const record = req.record;
+
+    if (!['Draft', 'Rejected'].includes(record.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit a supplier payment with status "${record.status}". Only Draft or Rejected payments can be submitted.`
+      });
+    }
+
+    await assertDateEditable(record.outlet_id, record.date, 'A supplier payment');
+
+    const result = await query(
+      `UPDATE supplier_payments
+       SET status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
+           rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = NOW()
+       WHERE id = ? AND status IN ('Draft', 'Rejected')`,
+      [req.user.id, req.params.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Supplier payment could not be submitted in its current status' });
+    }
+
+    await logAudit(req.user.id, 'SUBMIT', 'supplier_payments', req.params.id, record, { status: 'Submitted', submitted_by: req.user.id }, 'Submitted supplier payment for verification');
+
+    res.status(200).json({ success: true, message: 'Supplier payment submitted for verification' });
+  } catch (error) {
+    console.error('Submit supplier payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error submitting supplier payment' });
+  }
+};
+
+export const verifySupplierPayment = async (req, res) => {
+  try {
+    const record = req.record;
+
+    if (record.status !== 'Submitted') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot verify a supplier payment with status "${record.status}". Only Submitted payments can be verified.`
+      });
+    }
+
+    if (isOwnDocument(record, req.user.id, 'created_by') || isOwnDocument(record, req.user.id, 'submitted_by')) {
+      return res.status(403).json({ success: false, message: 'You cannot verify your own supplier payment (maker-checker rule).' });
+    }
+
+    await assertDateEditable(record.outlet_id, record.date, 'A supplier payment');
+
+    const result = await query(
+      `UPDATE supplier_payments
+       SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW()
+       WHERE id = ? AND status = 'Submitted'`,
+      [req.user.id, req.params.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Supplier payment could not be verified in its current status' });
+    }
+
+    await logAudit(req.user.id, 'VERIFY', 'supplier_payments', req.params.id, record, { status: 'Verified', verified_by: req.user.id }, 'Verified supplier payment');
+
+    res.status(200).json({ success: true, message: 'Supplier payment verified' });
+  } catch (error) {
+    console.error('Verify supplier payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error verifying supplier payment' });
+  }
+};
+
+export const rejectSupplierPayment = async (req, res) => {
+  try {
+    const record = req.record;
+
+    if (record.status !== 'Submitted') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot reject a supplier payment with status "${record.status}". Only Submitted payments can be rejected.`
+      });
+    }
+
+    if (isOwnDocument(record, req.user.id, 'created_by') || isOwnDocument(record, req.user.id, 'submitted_by')) {
+      return res.status(403).json({ success: false, message: 'You cannot reject your own supplier payment (maker-checker rule).' });
+    }
+
+    const { rejection_reason } = req.body || {};
+    if (!rejection_reason || !String(rejection_reason).trim()) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+    }
+
+    await assertDateEditable(record.outlet_id, record.date, 'A supplier payment');
+
+    const result = await query(
+      `UPDATE supplier_payments
+       SET status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?, updated_at = NOW()
+       WHERE id = ? AND status = 'Submitted'`,
+      [req.user.id, String(rejection_reason).trim(), req.params.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Supplier payment could not be rejected in its current status' });
+    }
+
+    await logAudit(req.user.id, 'REJECT', 'supplier_payments', req.params.id, record, { status: 'Rejected', rejected_by: req.user.id, rejection_reason: String(rejection_reason).trim() }, 'Rejected supplier payment');
+
+    res.status(200).json({ success: true, message: 'Supplier payment rejected' });
+  } catch (error) {
+    console.error('Reject supplier payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error rejecting supplier payment' });
   }
 };
