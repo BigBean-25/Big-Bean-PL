@@ -34,7 +34,7 @@ export default function WarehouseDashboard({ locationId, locations, materials, i
   const [ledger, setLedger] = useState([]);
 
   const permissions = getStoredPermissions();
-  const canViewDashboard = permissions?.warehouse_dashboard?.can_view !== false;
+  const canViewDashboard = permissions?.warehouse_dashboard?.can_view === true;
   const canViewGRN = permissions?.grn?.can_view;
   const canViewRequisitions = permissions?.warehouse_requisitions?.can_view;
   const canViewTransfers = permissions?.warehouse_transfers?.can_view;

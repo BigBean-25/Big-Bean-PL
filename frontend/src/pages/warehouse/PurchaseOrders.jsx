@@ -12,6 +12,7 @@ import ExcelJS from "exceljs";
 import { amountInWords } from "./invoiceWords";
 
 const statusOptions = ['Draft','Submitted','Approved','Sent','Partially Received','Received','Rejected','Closed'];
+const WAREHOUSE_LOCATION_KEY = "bbc_warehouse_location_id";
 
 export default function PurchaseOrders({ locationId, locations, materials, suppliers, units, isDark }) {
   const [pos, setPos] = useState([]);
@@ -166,7 +167,14 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
   const openEdit = (po) => { setForm({ ...po, items: po.items.map(i => ({ ...i })) }); setShow(true); };
 
   const createGRN = async (po) => {
-    try { const res = await warehouseAPI.getGRNPrefillFromPO(po.id); const pre = res?.data?.data; if (!pre || !pre.items.length) { toast.error("No remaining quantity to receive"); return; } }
+    try {
+      const res = await warehouseAPI.getGRNPrefillFromPO(po.id);
+      const pre = res?.data?.data;
+      if (!pre || !pre.items.length) { toast.error("No remaining quantity to receive"); return; }
+      if (typeof window !== "undefined" && po.warehouse_location_id) {
+        window.localStorage.setItem(WAREHOUSE_LOCATION_KEY, String(po.warehouse_location_id));
+      }
+    }
     catch (error) { toast.error("Goods Receipt prefill failed"); return; }
     window.open(`/warehouse/grn?po_id=${po.id}`, "_blank");
   };

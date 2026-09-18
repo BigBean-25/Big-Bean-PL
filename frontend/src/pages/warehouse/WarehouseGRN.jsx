@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { warehouseAPI } from "../../services/api";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
@@ -8,10 +9,12 @@ import toast from "react-hot-toast";
 import { amountInWords } from "./invoiceWords";
 
 export default function WarehouseGRN({ locationId, locations, materials, suppliers, isDark }) {
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [grns, setGrns] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [prefilling, setPrefilling] = useState(false);
   const [filters, setFilters] = useState({ search: "", status: "", supplier: "" });
   const [print, setPrint] = useState(null);
   const [page, setPage] = useState(1);
@@ -73,15 +76,17 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     };
   }, [print]);
 
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     grn_no: "",
     grn_date: new Date().toISOString().split("T")[0],
     supplier_id: "",
+    purchase_order_id: "",
     purchase_reference: "",
     invoice_reference: "",
     remarks: "",
     items: [{ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }],
   });
+  const [form, setForm] = useState(emptyForm());
 
   const fetchGRNs = async (pageArg = page) => {
     if (!locationId) return;
@@ -93,6 +98,51 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     } catch (error) { toast.error("Failed to load Goods Receipts"); }
     finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    const poId = new URLSearchParams(location.search).get("po_id");
+    if (!poId || !locationId) return;
+    let alive = true;
+    setShowCreate(true);
+    setPrefilling(true);
+    warehouseAPI.getGRNPrefillFromPO(poId)
+      .then((res) => {
+        if (!alive) return;
+        const prefill = res?.data?.data || {};
+        const po = prefill.po || {};
+        const items = (prefill.items || []).map((it) => ({
+          raw_material_id: String(it.raw_material_id || ""),
+          received_qty: String(it.remaining_qty ?? it.ordered_qty ?? ""),
+          rejected_qty: "0",
+          unit_id: String(it.unit_id || ""),
+          rate: String(it.rate ?? ""),
+          batch_no: "",
+          expiry_date: "",
+        }));
+        if (!items.length) {
+          toast.error("No remaining quantity to receive for this purchase order");
+          setShowCreate(false);
+          setForm(emptyForm());
+          return;
+        }
+        setForm({
+          ...emptyForm(),
+          supplier_id: po.supplier_id ? String(po.supplier_id) : "",
+          purchase_order_id: po.id ? String(po.id) : poId,
+          purchase_reference: po.po_no || po.reference || "",
+          remarks: po.remarks || "",
+          items,
+        });
+      })
+      .catch((error) => {
+        if (!alive) return;
+        toast.error(error?.response?.data?.message || "Failed to load purchase order prefill");
+      })
+      .finally(() => {
+        if (alive) setPrefilling(false);
+      });
+    return () => { alive = false; };
+  }, [location.search, locationId]);
 
   // Switching warehouse resets to page 1 and fetches directly (rather than
   // waiting for the page state update to flush and re-trigger the effect
@@ -146,7 +196,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
       if (post && created?.data?.data?.id) await warehouseAPI.postGRN(created.data.data.id);
       toast.success(post ? "Goods Receipt posted" : "Goods Receipt saved");
       setShowCreate(false);
-      setForm({ grn_no: "", grn_date: new Date().toISOString().split("T")[0], supplier_id: "", purchase_reference: "", invoice_reference: "", remarks: "", items: [{ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }] });
+      setForm(emptyForm());
       fetchGRNs();
     } catch (error) { toast.error(error.response?.data?.message || "Goods Receipt failed"); }
     finally { setSaving(false); }
@@ -190,7 +240,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
           <button onClick={reset} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
-          <button onClick={() => setShowCreate(true)} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
+          <button onClick={() => { setForm(emptyForm()); setPrefilling(false); setShowCreate(true); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
             <Plus size={16} /> New Goods Receipt
           </button>
         </div>
@@ -338,9 +388,9 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
               </SectionCard>
 
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowCreate(false)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
-                <button onClick={() => save(false)} disabled={saving} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{saving ? "Saving…" : "Save Draft"}</button>
-                <button onClick={() => save(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Posting…" : "Post Goods Receipt"}</button>
+                <button onClick={() => setShowCreate(false)} disabled={saving || prefilling} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
+                <button onClick={() => save(false)} disabled={saving || prefilling} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{prefilling ? "Loading PO…" : (saving ? "Saving…" : "Save Draft")}</button>
+                <button onClick={() => save(true)} disabled={saving || prefilling} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{prefilling ? "Loading PO…" : (saving ? "Posting…" : "Post Goods Receipt")}</button>
               </div>
             </div>
           </div>
