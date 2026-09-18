@@ -183,7 +183,7 @@ const loadOpeningRows = async ({ outletId, year, month }) => query(
    INNER JOIN opening_stock_items osi ON osi.upload_id = osu.id
    LEFT JOIN raw_materials rm ON rm.id = osi.raw_material_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE osu.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed'`,
+   WHERE osu.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed' AND osu.approval_status = 'Verified'`,
   [outletId, month, year]
 );
 
@@ -194,7 +194,7 @@ const loadClosingRows = async ({ outletId, year, month }) => query(
    INNER JOIN closing_stock_items csi ON csi.upload_id = csu.id
    LEFT JOIN raw_materials rm ON rm.id = csi.raw_material_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE csu.outlet_id = ? AND csu.month = ? AND csu.year = ? AND csu.status = 'Completed'`,
+   WHERE csu.outlet_id = ? AND csu.month = ? AND csu.year = ? AND csu.status = 'Completed' AND csu.approval_status = 'Verified'`,
   [outletId, month, year]
 );
 

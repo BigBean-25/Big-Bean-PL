@@ -62,7 +62,7 @@ const loadLatestCompletedClosingUpload = async ({ outletId, year, month }) => {
   const rows = await query(
     `SELECT id, batch_id, month, year, status, created_at
      FROM closing_stock_uploads
-     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed'
+     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed' AND approval_status = 'Verified'
      ORDER BY id DESC
      LIMIT 1`,
     [outletId, month, year]

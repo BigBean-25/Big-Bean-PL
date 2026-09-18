@@ -85,7 +85,7 @@ export const getOutletReconciliation = async ({ outletId, asOfDate, locationScop
   const closingUpload = await query(
     `SELECT id, batch_id, month, year, status, created_at
      FROM closing_stock_uploads
-     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed'
+     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed' AND approval_status = 'Verified'
      ORDER BY id DESC
      LIMIT 1`,
     [outletId, period.month, period.year]
@@ -332,7 +332,7 @@ export const getOutletReconciliation = async ({ outletId, asOfDate, locationScop
     `SELECT COUNT(*) AS item_count
      FROM opening_stock_items osi
      INNER JOIN opening_stock_uploads osu ON osi.upload_id = osu.id
-     WHERE osi.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed'`,
+     WHERE osi.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed' AND osu.approval_status = 'Verified'`,
     [outletId, period.month, period.year]
   );
   const openingPhysical = location

@@ -460,6 +460,9 @@ export const uploadAPI = {
   downloadItemSalesTemplate: () =>
     api.get('/uploads/item-sales/template', { responseType: 'blob' }),
   deleteUpload: (id, type) => api.delete(`/uploads/${type}/${id}`),
+  submitStockUpload: (type, id) => api.post(`/uploads/${type}/${id}/submit`),
+  verifyStockUpload: (type, id) => api.post(`/uploads/${type}/${id}/verify`),
+  rejectStockUpload: (type, id, data) => api.post(`/uploads/${type}/${id}/reject`, data),
   downloadOpeningStockOriginal: (id) =>
     api.get(`/uploads/opening_stock/${id}/download-original`, { responseType: "blob" }),
   downloadOpeningStockProcessed: (id) =>

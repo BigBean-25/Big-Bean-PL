@@ -43,7 +43,7 @@ const loadActualUploadCount = async (tableName, outletId, month, year) => {
   const rows = await query(
     `SELECT COUNT(*) AS upload_count
      FROM ${tableName}
-     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed'`,
+     WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Completed' AND approval_status = 'Verified'`,
     [outletId, month, year]
   );
   return Number(rows[0]?.upload_count || 0);
@@ -81,7 +81,7 @@ const loadOpeningRows = async ({ outletId, month, year }) => query(
    LEFT JOIN raw_materials rm ON rm.id = osi.raw_material_id
    LEFT JOIN units u ON u.id = osi.unit_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE osu.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed'
+   WHERE osu.outlet_id = ? AND osu.month = ? AND osu.year = ? AND osu.status = 'Completed' AND osu.approval_status = 'Verified'
    ORDER BY osi.id`,
   [outletId, month, year]
 );
@@ -108,7 +108,7 @@ const loadClosingRows = async ({ outletId, month, year }) => query(
    LEFT JOIN raw_materials rm ON rm.id = csi.raw_material_id
    LEFT JOIN units u ON u.id = csi.unit_id
    LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE csu.outlet_id = ? AND csu.month = ? AND csu.year = ? AND csu.status = 'Completed'
+   WHERE csu.outlet_id = ? AND csu.month = ? AND csu.year = ? AND csu.status = 'Completed' AND csu.approval_status = 'Verified'
    ORDER BY csi.id`,
   [outletId, month, year]
 );

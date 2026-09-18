@@ -82,7 +82,8 @@ export const getOutletPL = async ({ outletId, month, year }) => {
      FROM opening_stock_items osi
      INNER JOIN opening_stock_uploads osu ON osi.upload_id = osu.id
      WHERE ${osiOutlet.sql} AND osu.month = ? AND osu.year = ?
-     AND osu.status = 'Completed'`,
+     AND osu.status = 'Completed'
+     AND osu.approval_status = 'Verified'`,
     [...osiOutlet.params, month, year]
   );
 
@@ -91,7 +92,8 @@ export const getOutletPL = async ({ outletId, month, year }) => {
      FROM closing_stock_items csi
      INNER JOIN closing_stock_uploads csu ON csi.upload_id = csu.id
      WHERE ${csiOutlet.sql} AND csu.month = ? AND csu.year = ?
-     AND csu.status = 'Completed'`,
+     AND csu.status = 'Completed'
+     AND csu.approval_status = 'Verified'`,
     [...csiOutlet.params, month, year]
   );
 

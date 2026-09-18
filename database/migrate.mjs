@@ -69,6 +69,7 @@ const MIGRATIONS = [
   { name: 'add_fixed_costs_to_snapshot_migration.mjs', file: 'backend/add_fixed_costs_to_snapshot_migration.mjs', why: 'adds fixed_costs column to the redesigned snapshot table above - must run after it' },
   { name: 'add_raw_material_cash_expense_linkage.sql', file: 'database/add_raw_material_cash_expense_linkage.sql', why: 'daily_cash_expenses raw-material linkage + expense_heads.is_raw_material_category, dailyAccountsController.js approveDailyCashExpense' },
   { name: 'add_supplier_payment_workflow.sql', file: 'database/add_supplier_payment_workflow.sql', why: 'Phase 5D1: production_wastage rejected_by/at repair + supplier_payments Draft/Submitted/Verified/Rejected maker-checker columns (backfills existing rows as Verified)' },
+  { name: 'add_stock_upload_approval_workflow.sql', file: 'database/add_stock_upload_approval_workflow.sql', why: 'Phase 5D2B1: approval_status + submit/verify/reject audit columns on opening_stock_uploads + closing_stock_uploads (backfills Completed rows as Verified with NULL verifier)' },
 ];
 
 async function ensureTrackingTable(conn) {

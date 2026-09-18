@@ -24,6 +24,7 @@ export async function getActualConsumption({ outletId, month, year }) {
      LEFT JOIN units u ON rm.unit_id = u.id
      WHERE osi.outlet_id = ? AND osu.month = ? AND osu.year = ?
      AND osu.status = 'Completed'
+     AND osu.approval_status = 'Verified'
      GROUP BY osi.raw_material_id, rm.material_name, rm.material_code, c.category_name, u.unit_name`,
     [outletId, month, year]
   );
@@ -37,6 +38,7 @@ export async function getActualConsumption({ outletId, month, year }) {
      INNER JOIN closing_stock_uploads csu ON csi.upload_id = csu.id
      WHERE csi.outlet_id = ? AND csu.month = ? AND csu.year = ?
      AND csu.status = 'Completed'
+     AND csu.approval_status = 'Verified'
      GROUP BY csi.raw_material_id`,
     [outletId, month, year]
   );

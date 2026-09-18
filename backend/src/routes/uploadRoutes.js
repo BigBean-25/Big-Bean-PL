@@ -2,6 +2,7 @@ import express from 'express';
 import { protect, applyOutletScope } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { upload } from '../config/multer.js';
+import { query } from '../config/database.js';
 import {
   uploadOpeningStock,
   uploadClosingStock,
@@ -24,6 +25,10 @@ import {
   downloadMaterialPurchaseProcessed,
   downloadMaterialPurchaseErrors,
   downloadMaterialPurchaseTemplate,
+  UPLOAD_TYPE_CONFIG,
+  submitStockUpload,
+  verifyStockUpload,
+  rejectStockUpload,
 } from '../controllers/uploadController.js';
 
 const router = express.Router();
@@ -77,6 +82,46 @@ router.get('/item-sales/template', protect, checkPermission('item_sales', 'can_u
 router.get('/item-sales/:id', protect, applyOutletScope, checkPermission('item_sales', 'can_view'), getItemSalesUploadById);
 
 router.delete('/:type/:id', protect, applyOutletScope, checkDeleteUploadPermission, deleteUpload);
+
+// Phase 5D2B1: maker-checker workflow endpoints for the stock uploads only.
+// The same handler family serves both types because opening_stock_uploads and
+// closing_stock_uploads are structurally identical; :type resolves the table
+// through UPLOAD_TYPE_CONFIG. Verified is terminal - there is intentionally
+// no route that moves a Verified upload anywhere.
+const STOCK_UPLOAD_TYPES = ['opening_stock', 'closing_stock'];
+
+const checkStockWorkflowPermission = (action) => async (req, res, next) => {
+  const { type } = req.params;
+  if (!STOCK_UPLOAD_TYPES.includes(type)) {
+    return res.status(400).json({ success: false, message: 'Invalid upload type' });
+  }
+  const middleware = checkPermission(type, `can_${action}`);
+  await middleware(req, res, next);
+};
+
+const loadStockUploadRecord = async (req, res, next) => {
+  try {
+    const config = UPLOAD_TYPE_CONFIG[req.params.type];
+    const rows = await query(`SELECT * FROM ${config.masterTable} WHERE id = ? LIMIT 1`, [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Upload record not found' });
+    }
+    const record = rows[0];
+    if (req.outletScope && !req.outletScope.all && !req.outletScope.outletIds.includes(Number(record.outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this record outlet' });
+    }
+    req.record = record;
+    req.uploadConfig = config;
+    next();
+  } catch (error) {
+    console.error('Load stock upload record error:', error);
+    res.status(500).json({ success: false, message: 'Error loading upload record' });
+  }
+};
+
+router.post('/:type/:id/submit', protect, applyOutletScope, checkStockWorkflowPermission('submit'), loadStockUploadRecord, submitStockUpload);
+router.post('/:type/:id/verify', protect, applyOutletScope, checkStockWorkflowPermission('verify'), loadStockUploadRecord, verifyStockUpload);
+router.post('/:type/:id/reject', protect, applyOutletScope, checkStockWorkflowPermission('reject'), loadStockUploadRecord, rejectStockUpload);
 
 router.get('/opening_stock/template', protect, downloadOpeningStockTemplate);
 

@@ -4,9 +4,10 @@ import path from 'path';
 import fs from 'fs';
 import { query, getConnection } from '../config/database.js';
 import { generateUploadBatchId, parseExcelDate, sanitizeString, parseNumber } from '../utils/helpers.js';
-import { logUploadError } from '../utils/logger.js';
+import { logUploadError, logAudit } from '../utils/logger.js';
 import { notifyAdmins } from '../utils/notificationService.js';
 import { assertMonthEditable, assertDateRangeEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 const MAX_UPLOAD_ROWS = 5000;
 
@@ -274,7 +275,8 @@ export const uploadOpeningStock = async (req, res) => {
     // item_sales overlap check already established in uploadItemSales below.
     const [existingBatch] = await connection.execute(
       `SELECT id, batch_id FROM opening_stock_uploads
-       WHERE outlet_id = ? AND month = ? AND year = ? AND status IN ('Processing', 'Completed')
+       WHERE outlet_id = ? AND month = ? AND year = ?
+         AND (status = 'Processing' OR (status = 'Completed' AND approval_status <> 'Rejected'))
        LIMIT 1`,
       [outlet_id, month, year]
     );
@@ -434,7 +436,8 @@ export const uploadClosingStock = async (req, res) => {
     // closing stock value in plCalculator.js.
     const [existingBatch] = await connection.execute(
       `SELECT id, batch_id FROM closing_stock_uploads
-       WHERE outlet_id = ? AND month = ? AND year = ? AND status IN ('Processing', 'Completed')
+       WHERE outlet_id = ? AND month = ? AND year = ?
+         AND (status = 'Processing' OR (status = 'Completed' AND approval_status <> 'Rejected'))
        LIMIT 1`,
       [outlet_id, month, year]
     );
@@ -1004,7 +1007,7 @@ export const uploadItemSales = async (req, res) => {
   }
 };
 
-const UPLOAD_TYPE_CONFIG = {
+export const UPLOAD_TYPE_CONFIG = {
   opening_stock: { masterTable: 'opening_stock_uploads', itemsTable: 'opening_stock_items' },
   closing_stock: { masterTable: 'closing_stock_uploads', itemsTable: 'closing_stock_items' },
   material_purchase: { masterTable: 'material_purchase_uploads', itemsTable: 'material_purchase_items' },
@@ -1110,6 +1113,22 @@ export const deleteUpload = async (req, res) => {
         connection.release();
         return res.status(403).json({ success: false, message: 'You do not have access to this outlet' });
       }
+    }
+
+    // Workflow immutability (Phase 5D2B1): for the stock uploads, Submitted
+    // and Verified approval states can never be hard-deleted - Verified is
+    // financially effective and Submitted is under checker review. Draft and
+    // Rejected stay deletable (subject to the period lock below), and a
+    // Failed upload never had accounting effect. Verified corrections must
+    // go through a future controlled reversal flow, not ordinary delete.
+    if ((type === 'opening_stock' || type === 'closing_stock')
+        && ['Submitted', 'Verified'].includes(record.approval_status)) {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete an upload with approval status "${record.approval_status}".`
+      });
     }
 
     // None of the four upload* functions above are the only way a Completed
@@ -2377,3 +2396,119 @@ export const downloadMaterialPurchaseTemplate = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error generating template' });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Phase 5D2B1: maker-checker approval workflow for opening_stock_uploads and
+// closing_stock_uploads.
+//
+// `status` stays the technical import status; `approval_status` carries the
+// business state. A row is financially effective only when BOTH hold:
+//   status = 'Completed' AND approval_status = 'Verified'
+//
+// Verified is terminal: no reject, no resubmit, no delete, no backward move.
+// Corrections to a Verified upload require a future controlled reversal flow.
+// ---------------------------------------------------------------------------
+
+const transitionStockUpload = async (req, res, action) => {
+  try {
+    const record = req.record;
+    const config = req.uploadConfig;
+    const table = config.masterTable;
+    const type = req.params.type;
+
+    if (record.status !== 'Completed') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot ${action} an upload with technical status "${record.status}". Only Completed uploads can enter the approval workflow.`
+      });
+    }
+
+    await assertMonthEditable(
+      record.outlet_id,
+      record.month,
+      record.year,
+      type === 'opening_stock' ? 'An opening stock upload' : 'A closing stock upload'
+    );
+
+    if (action === 'submit') {
+      if (!['Draft', 'Rejected'].includes(record.approval_status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot submit an upload with approval status "${record.approval_status}". Only Draft or Rejected uploads can be submitted.`
+        });
+      }
+
+      const result = await query(
+        `UPDATE ${table}
+         SET approval_status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
+             rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL
+         WHERE id = ? AND status = 'Completed' AND approval_status IN ('Draft', 'Rejected')`,
+        [req.user.id, req.params.id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(400).json({ success: false, message: 'Upload could not be submitted in its current state' });
+      }
+
+      await logAudit(req.user.id, 'SUBMIT', table, req.params.id, record, { approval_status: 'Submitted', submitted_by: req.user.id }, `Submitted ${type} upload for verification`);
+      return res.status(200).json({ success: true, message: 'Upload submitted for verification' });
+    }
+
+    if (record.approval_status !== 'Submitted') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot ${action} an upload with approval status "${record.approval_status}". Only Submitted uploads can be ${action === 'verify' ? 'verified' : 'rejected'}.`
+      });
+    }
+
+    if (isOwnDocument(record, req.user.id, 'uploaded_by')) {
+      return res.status(403).json({
+        success: false,
+        message: `You cannot ${action} your own upload (maker-checker rule).`
+      });
+    }
+
+    if (action === 'verify') {
+      const result = await query(
+        `UPDATE ${table}
+         SET approval_status = 'Verified', verified_by = ?, verified_at = NOW()
+         WHERE id = ? AND status = 'Completed' AND approval_status = 'Submitted'`,
+        [req.user.id, req.params.id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(400).json({ success: false, message: 'Upload could not be verified in its current state' });
+      }
+
+      await logAudit(req.user.id, 'VERIFY', table, req.params.id, record, { approval_status: 'Verified', verified_by: req.user.id }, `Verified ${type} upload`);
+      return res.status(200).json({ success: true, message: 'Upload verified' });
+    }
+
+    // reject
+    const { rejection_reason } = req.body || {};
+    if (!rejection_reason || !String(rejection_reason).trim()) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+    }
+
+    const result = await query(
+      `UPDATE ${table}
+       SET approval_status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?
+       WHERE id = ? AND status = 'Completed' AND approval_status = 'Submitted'`,
+      [req.user.id, String(rejection_reason).trim(), req.params.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Upload could not be rejected in its current state' });
+    }
+
+    await logAudit(req.user.id, 'REJECT', table, req.params.id, record, { approval_status: 'Rejected', rejected_by: req.user.id, rejection_reason: String(rejection_reason).trim() }, `Rejected ${type} upload`);
+    return res.status(200).json({ success: true, message: 'Upload rejected' });
+  } catch (error) {
+    console.error(`${action} stock upload error:`, error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || `Error during ${action}` });
+  }
+};
+
+export const submitStockUpload = (req, res) => transitionStockUpload(req, res, 'submit');
+export const verifyStockUpload = (req, res) => transitionStockUpload(req, res, 'verify');
+export const rejectStockUpload = (req, res) => transitionStockUpload(req, res, 'reject');
