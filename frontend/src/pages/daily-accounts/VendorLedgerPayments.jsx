@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Loader2,
@@ -95,6 +95,7 @@ export default function VendorLedgerPayments() {
     () => (user?.outlets || []).map((o) => String(o.id || o.outlet_id)),
     [user]
   );
+  const outletContextId = selectedOutletId && selectedOutletId !== "all" ? String(selectedOutletId) : "";
 
   const [outlets, setOutlets] = useState(availableOutlets);
   const [vendors, setVendors] = useState([]);
@@ -107,7 +108,7 @@ export default function VendorLedgerPayments() {
   const [paying, setPaying] = useState(false);
 
   const [filters, setFilters] = useState({
-    outlet_id: selectedOutletId || "",
+    outlet_id: outletContextId,
     vendor_id: "",
     from_date: "",
     to_date: "",
@@ -116,19 +117,33 @@ export default function VendorLedgerPayments() {
   const [payAmount, setPayAmount] = useState("");
   const [payModeId, setPayModeId] = useState("");
   const [payRef, setPayRef] = useState("");
+  const requestSeq = useRef(0);
 
   const visibleOutlets = useMemo(
     () => (isAdmin ? outlets : outlets.filter((o) => userOutletIds.includes(String(o.id)))),
     [outlets, userOutletIds, isAdmin]
   );
 
+  const clearLedgerState = useCallback(() => {
+    requestSeq.current += 1;
+    setLoading(false);
+    setPurchases([]);
+    setPayments([]);
+    setCurrentLedger(null);
+    setOpeningBalance(0);
+  }, []);
+
   useEffect(() => {
     setOutlets(availableOutlets);
   }, [availableOutlets]);
 
   useEffect(() => {
-    setFilters((f) => ({ ...f, outlet_id: selectedOutletId || "" }));
-  }, [selectedOutletId]);
+    setFilters((f) => ({ ...f, outlet_id: outletContextId, vendor_id: "" }));
+    clearLedgerState();
+    setPayAmount("");
+    setPayModeId("");
+    setPayRef("");
+  }, [outletContextId, clearLedgerState]);
 
   const fetchLookups = useCallback(async () => {
     try {
@@ -144,13 +159,15 @@ export default function VendorLedgerPayments() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    if (!filters.outlet_id || !filters.vendor_id) {
-      setPurchases([]);
-      setPayments([]);
-      setCurrentLedger(null);
-      setOpeningBalance(0);
+    if (!filters.outlet_id || filters.outlet_id === "all" || !filters.vendor_id) {
+      clearLedgerState();
       return;
     }
+    if (filters.from_date && filters.to_date && filters.from_date > filters.to_date) {
+      clearLedgerState();
+      return;
+    }
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
       const calls = [
@@ -184,16 +201,18 @@ export default function VendorLedgerPayments() {
         );
       }
       const [pRes, pmRes, curRes, openRes] = await Promise.all(calls);
+      if (seq !== requestSeq.current) return;
       setPurchases(pRes?.data?.data || []);
       setPayments(pmRes?.data?.data || []);
       setCurrentLedger(curRes?.data?.data || null);
       setOpeningBalance(openRes?.data?.data?.current_outstanding || 0);
     } catch {
+      if (seq !== requestSeq.current) return;
       toast.error("Failed to load ledger");
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  }, [filters]);
+  }, [filters, clearLedgerState]);
 
   useEffect(() => {
     fetchLookups();
@@ -262,6 +281,7 @@ export default function VendorLedgerPayments() {
 
   const handleRecordPayment = async () => {
     if (paying || !canPay) return;
+    if (!filters.outlet_id || filters.outlet_id === "all" || !filters.vendor_id) return;
     if (!payAmount || Number(payAmount) <= 0) {
       toast.error("Enter a valid payment amount");
       return;
@@ -292,13 +312,38 @@ export default function VendorLedgerPayments() {
     }
   };
 
-  const resetFilters = () =>
+  const handleOutletChange = (value) => {
+    setFilters((f) => ({
+      ...f,
+      outlet_id: value,
+      vendor_id: "",
+    }));
+    clearLedgerState();
+    setPayAmount("");
+    setPayModeId("");
+    setPayRef("");
+  };
+
+  const handleVendorChange = (value) => {
+    setFilters((f) => ({ ...f, vendor_id: value }));
+    clearLedgerState();
+    setPayAmount("");
+    setPayModeId("");
+    setPayRef("");
+  };
+
+  const resetFilters = () => {
     setFilters({
-      outlet_id: selectedOutletId || "",
+      outlet_id: outletContextId,
       vendor_id: "",
       from_date: "",
       to_date: "",
     });
+    clearLedgerState();
+    setPayAmount("");
+    setPayModeId("");
+    setPayRef("");
+  };
 
   const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
     <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
@@ -345,7 +390,7 @@ export default function VendorLedgerPayments() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
           <select
             value={filters.outlet_id}
-            onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
+            onChange={(e) => handleOutletChange(e.target.value)}
             className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
           >
             <option value="">Select outlet</option>
@@ -355,18 +400,24 @@ export default function VendorLedgerPayments() {
               </option>
             ))}
           </select>
-          <select
-            value={filters.vendor_id}
-            onChange={(e) => setFilters({ ...filters, vendor_id: e.target.value })}
-            className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
-          >
-            <option value="">Select vendor</option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.vendor_name} ({v.category})
-              </option>
-            ))}
-          </select>
+          <div>
+            <select
+              value={filters.vendor_id}
+              onChange={(e) => handleVendorChange(e.target.value)}
+              disabled={!filters.outlet_id || filters.outlet_id === "all"}
+              className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
+            >
+              <option value="">Select vendor</option>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.vendor_name} ({v.category})
+                </option>
+              ))}
+            </select>
+            {!filters.outlet_id || filters.outlet_id === "all" ? (
+              <p className={`mt-1 text-[12px] ${mutedCls}`}>Select an outlet first</p>
+            ) : null}
+          </div>
           <input
             type="date"
             value={filters.from_date}
@@ -409,7 +460,7 @@ export default function VendorLedgerPayments() {
                   type="number"
                   min="0"
                   step="0.01"
-                  max={ledger.current_outstanding}
+                  max={currentLedger.current_outstanding}
                   value={payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
                   placeholder="Payment amount"
