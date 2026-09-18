@@ -329,6 +329,12 @@ export const verifyDailyCashbook = async (req, res) => {
         return res.status(403).json({ success: false, message: 'Users cannot verify their own cashbook' });
       }
 
+      // Same finalized-month guard approveDailyCashExpense already carries:
+      // a status transition on a record dated inside a finalized month is
+      // still a mutation of that month's books, so every transition/delete
+      // path below now checks it, not just create/update/approve.
+      await assertDateEditable(existing.outlet_id, existing.date, 'A cashbook');
+
       const fieldsToSet = ['status = ?'];
       const params = [action];
 
@@ -378,6 +384,9 @@ export const verifyDailyCashbook = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify daily cashbook error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error verifying daily cashbook'
@@ -414,6 +423,8 @@ export const submitDailyCashbook = async (req, res) => {
           message: 'Date and outlet are required'
         });
       }
+
+      await assertDateEditable(existing.outlet_id, existing.date, 'A cashbook');
 
       const fieldsToSet = ['status = ?'];
       const params = ['Submitted'];
@@ -461,6 +472,9 @@ export const submitDailyCashbook = async (req, res) => {
     });
   } catch (error) {
     console.error('Submit daily cashbook error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error submitting daily cashbook' });
   }
 };
@@ -487,6 +501,8 @@ export const lockDailyCashbook = async (req, res) => {
           message: 'Only Verified cashbooks can be locked'
         });
       }
+
+      await assertDateEditable(existing.outlet_id, existing.date, 'A cashbook');
 
       const fieldsToSet = ['status = ?'];
       const params = ['Locked'];
@@ -527,6 +543,9 @@ export const lockDailyCashbook = async (req, res) => {
     });
   } catch (error) {
     console.error('Lock daily cashbook error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error locking daily cashbook' });
   }
 };
@@ -588,6 +607,8 @@ export const deleteDailyCashbook = async (req, res) => {
       });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cashbook');
+
     await logAudit(req.user.id, 'DELETE', 'daily_cashbooks', id, existing, null, 'Deleted daily cashbook');
 
     await query('DELETE FROM daily_cashbooks WHERE id = ?', [id]);
@@ -595,6 +616,9 @@ export const deleteDailyCashbook = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily cashbook deleted successfully' });
   } catch (error) {
     console.error('Delete daily cashbook error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting daily cashbook' });
   }
 };
@@ -1059,6 +1083,8 @@ export const submitDailyCashExpense = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Draft or Rejected expenses can be submitted' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cash expense');
+
     await query(
       `UPDATE daily_cash_expenses SET status = ?, updated_at = NOW() WHERE id = ?`,
       ['Submitted', existing.id]
@@ -1086,6 +1112,9 @@ export const submitDailyCashExpense = async (req, res) => {
     });
   } catch (error) {
     console.error('Submit daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error submitting daily cash expense' });
   }
 };
@@ -1262,6 +1291,8 @@ export const rejectDailyCashExpense = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Users cannot reject their own expense' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cash expense');
+
     const { admin_remarks } = req.body || {};
     if (!admin_remarks || !String(admin_remarks).trim()) {
       return res.status(400).json({ success: false, message: 'Rejection reason is required' });
@@ -1306,6 +1337,9 @@ export const rejectDailyCashExpense = async (req, res) => {
     });
   } catch (error) {
     console.error('Reject daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error rejecting daily cash expense' });
   }
 };
@@ -1316,6 +1350,8 @@ export const deleteDailyCashExpense = async (req, res) => {
     if (!['Draft', 'Rejected'].includes(existing.status)) {
       return res.status(400).json({ success: false, message: 'Only Draft or Rejected expenses can be deleted' });
     }
+
+    await assertDateEditable(existing.outlet_id, existing.date, 'A cash expense');
 
     await logAudit(req.user.id, 'DELETE', 'daily_cash_expenses', existing.id, existing, null, 'Deleted daily cash expense');
 
@@ -1341,6 +1377,9 @@ export const deleteDailyCashExpense = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily cash expense deleted successfully' });
   } catch (error) {
     console.error('Delete daily cash expense error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting daily cash expense' });
   }
 };
@@ -1617,6 +1656,8 @@ export const submitBankDeposit = async (req, res) => {
       });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].date, 'A bank deposit');
+
     // Status is re-checked in the UPDATE itself (not just the SELECT above) so a
     // double-click or a race against another transition on this same row can't
     // both fall through - whichever request's UPDATE actually matches a row wins,
@@ -1635,6 +1676,9 @@ export const submitBankDeposit = async (req, res) => {
     res.status(200).json({ success: true, message: 'Bank deposit submitted successfully' });
   } catch (error) {
     console.error('Submit bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error submitting bank deposit' });
   }
 };
@@ -1661,6 +1705,8 @@ export const verifyBankDeposit = async (req, res) => {
       });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].date, 'A bank deposit');
+
     const verifyResult = await query(
       `UPDATE bank_deposits SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'Submitted'`,
       [req.user.id, id]
@@ -1675,6 +1721,9 @@ export const verifyBankDeposit = async (req, res) => {
     res.status(200).json({ success: true, message: 'Bank deposit verified successfully' });
   } catch (error) {
     console.error('Verify bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error verifying bank deposit' });
   }
 };
@@ -1702,6 +1751,8 @@ export const rejectBankDeposit = async (req, res) => {
       });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].date, 'A bank deposit');
+
     if (!String(rejection_reason).trim()) {
       return res.status(400).json({
         success: false,
@@ -1723,6 +1774,9 @@ export const rejectBankDeposit = async (req, res) => {
     res.status(200).json({ success: true, message: 'Bank deposit rejected successfully' });
   } catch (error) {
     console.error('Reject bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error rejecting bank deposit' });
   }
 };
@@ -1742,6 +1796,8 @@ export const deleteBankDeposit = async (req, res) => {
       });
     }
 
+    await assertDateEditable(existing[0].outlet_id, existing[0].date, 'A bank deposit');
+
     const attachment = existing[0].proof_attachment;
     await query('DELETE FROM bank_deposits WHERE id = ?', [id]);
 
@@ -1759,6 +1815,9 @@ export const deleteBankDeposit = async (req, res) => {
     res.status(200).json({ success: true, message: 'Bank deposit deleted successfully' });
   } catch (error) {
     console.error('Delete bank deposit error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting bank deposit' });
   }
 };
@@ -1854,6 +1913,8 @@ export const submitDayClosing = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Only Open or Rejected day closings can be submitted' });
       }
 
+      await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
+
       const [cashbookRows] = await conn.execute(
         'SELECT * FROM daily_cashbooks WHERE outlet_id = ? AND date = ?',
         [existing.outlet_id, toISOLocal(existing.date)]
@@ -1930,6 +1991,9 @@ export const submitDayClosing = async (req, res) => {
     res.status(200).json({ success: true, message: 'Day closing submitted successfully' });
   } catch (error) {
     console.error('Submit day closing error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error submitting day closing' });
   }
 };
@@ -1958,6 +2022,8 @@ export const verifyDayClosing = async (req, res) => {
         return res.status(403).json({ success: false, message: 'Users cannot verify their own day closing' });
       }
 
+      await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
+
       await conn.execute(
         `UPDATE day_closings SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ?`,
         [req.user.id, id]
@@ -1976,6 +2042,9 @@ export const verifyDayClosing = async (req, res) => {
     res.status(200).json({ success: true, message: 'Day closing verified successfully' });
   } catch (error) {
     console.error('Verify day closing error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error verifying day closing' });
   }
 };
@@ -2178,6 +2247,8 @@ export const rejectDayClosing = async (req, res) => {
         return res.status(403).json({ success: false, message: 'Users cannot reject their own day closing' });
       }
 
+      await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
+
       const existingRemarks = String(existing.manager_remarks || '').trim();
       const reasonLine = `Rejection reason: ${String(rejection_reason).trim()}`;
       const updatedRemarks = existingRemarks ? `${existingRemarks}\n${reasonLine}` : reasonLine;
@@ -2200,6 +2271,9 @@ export const rejectDayClosing = async (req, res) => {
     res.status(200).json({ success: true, message: 'Day closing rejected successfully' });
   } catch (error) {
     console.error('Reject day closing error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error rejecting day closing' });
   }
 };
@@ -2223,6 +2297,8 @@ export const lockDayClosing = async (req, res) => {
         await conn.rollback();
         return res.status(400).json({ success: false, message: 'Only Verified day closings can be locked' });
       }
+
+      await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
 
       const fieldsToSet = ['status = ?', 'locked_by = ?', 'locked_at = NOW()'];
       const values = ['Locked', req.user.id];
@@ -2250,6 +2326,9 @@ export const lockDayClosing = async (req, res) => {
     res.status(200).json({ success: true, message: 'Day closing locked successfully' });
   } catch (error) {
     console.error('Lock day closing error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error locking day closing' });
   }
 };
@@ -2266,6 +2345,8 @@ export const deleteDayClosing = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Open or Rejected day closings can be deleted' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A day closing');
+
     await query('DELETE FROM day_closings WHERE id = ?', [id]);
 
     await logAudit(req.user.id, 'DELETE', 'day_closings', id, existing, null, 'Deleted day closing');
@@ -2273,6 +2354,9 @@ export const deleteDayClosing = async (req, res) => {
     res.status(200).json({ success: true, message: 'Day closing deleted successfully' });
   } catch (error) {
     console.error('Delete day closing error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting day closing' });
   }
 };
@@ -2641,6 +2725,8 @@ export const createDailyChecklist = async (req, res) => {
       return res.status(409).json({ success: false, message: 'Daily checklist already exists for this date and outlet' });
     }
 
+    await assertDateEditable(outlet_id, isoDate, 'A daily checklist');
+
     const items = await query(
       'SELECT id FROM daily_checklist_items WHERE is_active = 1 ORDER BY section_key, sort_order'
     );
@@ -2676,6 +2762,9 @@ export const createDailyChecklist = async (req, res) => {
     });
   } catch (error) {
     console.error('Create daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error creating daily checklist' });
   }
 };
@@ -2691,6 +2780,8 @@ export const updateDailyChecklist = async (req, res) => {
     if (!['Open', 'Rejected'].includes(existing.status)) {
       return res.status(400).json({ success: false, message: 'Only Open or Rejected checklists can be edited' });
     }
+
+    await assertDateEditable(existing.outlet_id, existing.date, 'A daily checklist');
 
     const { responses, manager_remarks } = req.body || {};
 
@@ -2716,6 +2807,9 @@ export const updateDailyChecklist = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily checklist updated successfully' });
   } catch (error) {
     console.error('Update daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error updating daily checklist' });
   }
 };
@@ -2731,6 +2825,8 @@ export const submitDailyChecklist = async (req, res) => {
     if (!['Open', 'Rejected'].includes(existing.status)) {
       return res.status(400).json({ success: false, message: 'Only Open or Rejected checklists can be submitted' });
     }
+
+    await assertDateEditable(existing.outlet_id, existing.date, 'A daily checklist');
 
     const missingRequired = await query(
       `SELECT dci.item_label
@@ -2770,6 +2866,9 @@ export const submitDailyChecklist = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily checklist submitted successfully' });
   } catch (error) {
     console.error('Submit daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error submitting daily checklist' });
   }
 };
@@ -2790,6 +2889,8 @@ export const verifyDailyChecklist = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A daily checklist');
+
     await query(
       `UPDATE daily_checklists
        SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW()
@@ -2803,6 +2904,9 @@ export const verifyDailyChecklist = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily checklist verified successfully' });
   } catch (error) {
     console.error('Verify daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error verifying daily checklist' });
   }
 };
@@ -2828,6 +2932,8 @@ export const rejectDailyChecklist = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Rejection reason is required' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A daily checklist');
+
     await query(
       `UPDATE daily_checklists
        SET status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?, updated_at = NOW()
@@ -2841,6 +2947,9 @@ export const rejectDailyChecklist = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily checklist rejected successfully' });
   } catch (error) {
     console.error('Reject daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error rejecting daily checklist' });
   }
 };
@@ -2857,6 +2966,8 @@ export const deleteDailyChecklist = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only Open or Rejected checklists can be deleted' });
     }
 
+    await assertDateEditable(existing.outlet_id, existing.date, 'A daily checklist');
+
     await query('DELETE FROM daily_checklist_responses WHERE checklist_id = ?', [id]);
     await query('DELETE FROM daily_checklists WHERE id = ?', [id]);
 
@@ -2865,6 +2976,9 @@ export const deleteDailyChecklist = async (req, res) => {
     res.status(200).json({ success: true, message: 'Daily checklist deleted successfully' });
   } catch (error) {
     console.error('Delete daily checklist error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Error deleting daily checklist' });
   }
 };

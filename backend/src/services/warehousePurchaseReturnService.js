@@ -365,12 +365,30 @@ export const getCreditsSummary = async () => {
   return summary;
 };
 
+// Supplier credits move forward only: Pending -> Received -> Reconciled.
+// Any current status could previously be set back to any other - a
+// Reconciled credit could silently be flipped to Pending again, and a
+// Pending one jumped straight to Reconciled without ever being marked
+// Received. Credits drive the supplier-credit summary, so backward moves
+// misstate what the supplier still owes.
+const CREDIT_TRANSITIONS = {
+  'Pending': ['Received', 'Reconciled'],
+  'Received': ['Reconciled'],
+  'Reconciled': [],
+};
+
 export const updateCreditStatus = async (creditId, status, userId) => {
-  if (!['Pending', 'Received', 'Reconciled'].includes(status)) throw new Error('Invalid credit status');
+  if (!Object.keys(CREDIT_TRANSITIONS).includes(status)) throw new Error('Invalid credit status');
   const conn = await getConnection();
   try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute('SELECT status, purchase_return_id FROM supplier_credits WHERE id = ? FOR UPDATE', [creditId]);
+    if (!rows.length) throw new Error('Supplier credit not found');
+    if (!CREDIT_TRANSITIONS[rows[0].status].includes(status)) {
+      throw new Error(`Cannot move a ${rows[0].status} credit to ${status}`);
+    }
     await conn.execute('UPDATE supplier_credits SET status = ? WHERE id = ?', [status, creditId]);
-    const [rows] = await conn.execute('SELECT purchase_return_id FROM supplier_credits WHERE id = ?', [creditId]);
+    await conn.commit();
     return getReturnById(rows[0].purchase_return_id);
-  } finally { conn.release(); }
+  } catch (error) { await conn.rollback(); throw error; } finally { conn.release(); }
 };

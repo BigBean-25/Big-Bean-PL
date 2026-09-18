@@ -185,6 +185,20 @@ export const updateUtilityBill = async (req, res) => {
     await assertMonthEditable(existing[0].outlet_id, existing[0].month, existing[0].year, 'A utility bill');
     if (effectiveMonth !== existing[0].month || effectiveYear !== existing[0].year || Number(effectiveOutletId) !== Number(existing[0].outlet_id)) {
       await assertMonthEditable(effectiveOutletId, effectiveMonth, effectiveYear, 'A utility bill');
+      // createUtilityBill rejects a second bill for the same month/year/
+      // outlet but this update path never re-checked it - only the
+      // unique_month_outlet DB key caught it, surfacing as a raw 500
+      // ER_DUP_ENTRY instead of a clean 400.
+      const dup = await query(
+        'SELECT id FROM utility_bills WHERE month = ? AND year = ? AND outlet_id = ? AND id != ?',
+        [effectiveMonth, effectiveYear, effectiveOutletId, id]
+      );
+      if (dup.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Another utility bill record already exists for this month/year/outlet'
+        });
+      }
     }
 
     const fields = Object.keys(updateData);
@@ -291,6 +305,11 @@ export const verifyUtilityBill = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Users cannot verify their own utility bill record' });
     }
 
+    // Verified bills feed plCalculator.js (status='Verified' rows only) - a
+    // transition on a bill for an already-finalized month is still a
+    // mutation of that month's books, same rule create/update/delete apply.
+    await assertMonthEditable(existing[0].outlet_id, existing[0].month, existing[0].year, 'A utility bill');
+
     await query(
       `UPDATE utility_bills SET status = ?, verified_by = ?, verified_at = NOW() WHERE id = ?`,
       [action, req.user.id, id]
@@ -315,6 +334,9 @@ export const verifyUtilityBill = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify utility bill error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error verifying utility bill record'

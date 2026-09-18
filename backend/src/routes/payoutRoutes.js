@@ -181,9 +181,11 @@ router.delete('/online/:id', protect, applyOutletScope, checkPermission('online_
     if (!DELETABLE_STATUSES.includes(record.status)) {
       return res.status(400).json({ success: false, message: `Cannot delete a payout with status "${record.status}". Only Draft or Rejected records can be deleted.` });
     }
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'An online payout');
     await query('DELETE FROM online_payouts WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Online payout deleted successfully' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -195,6 +197,12 @@ router.post('/online/:id/submit', protect, applyOutletScope, checkPermission('on
       return res.status(400).json({ success: false, message: `Cannot submit a payout with status "${record.status}". Only Draft or Rejected records can be submitted.` });
     }
 
+    // Verified payouts feed plCalculator.js (status='Verified' rows only) and
+    // every transition/delete below is still a mutation of a finalized
+    // month's books - same guard create/update already apply, now on the
+    // transitions too.
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'An online payout');
+
     await query(
       `UPDATE online_payouts SET status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
        verified_by = NULL, verified_at = NULL, rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL,
@@ -204,6 +212,7 @@ router.post('/online/:id/submit', protect, applyOutletScope, checkPermission('on
 
     res.json({ success: true, message: 'Online payout submitted for verification' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -218,6 +227,8 @@ router.post('/online/:id/verify', protect, applyOutletScope, checkPermission('on
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission (maker-checker rule).' });
     }
 
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'An online payout');
+
     await query(
       `UPDATE online_payouts SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ?`,
       [req.user.id, req.params.id]
@@ -225,6 +236,7 @@ router.post('/online/:id/verify', protect, applyOutletScope, checkPermission('on
 
     res.json({ success: true, message: 'Online payout verified successfully' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -243,6 +255,8 @@ router.post('/online/:id/reject', protect, applyOutletScope, checkPermission('on
       return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
     }
 
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'An online payout');
+
     await query(
       `UPDATE online_payouts SET status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?, updated_at = NOW() WHERE id = ?`,
       [req.user.id, rejection_reason.trim(), req.params.id]
@@ -250,6 +264,7 @@ router.post('/online/:id/reject', protect, applyOutletScope, checkPermission('on
 
     res.json({ success: true, message: 'Online payout rejected' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -426,9 +441,11 @@ router.delete('/dine-in/:id', protect, applyOutletScope, checkPermission('dine_i
     if (!DELETABLE_STATUSES.includes(record.status)) {
       return res.status(400).json({ success: false, message: `Cannot delete a payout with status "${record.status}". Only Draft or Rejected records can be deleted.` });
     }
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'A dine-in payout');
     await query('DELETE FROM dine_in_payouts WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Dine-in payout deleted successfully' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -440,6 +457,8 @@ router.post('/dine-in/:id/submit', protect, applyOutletScope, checkPermission('d
       return res.status(400).json({ success: false, message: `Cannot submit a payout with status "${record.status}". Only Draft or Rejected records can be submitted.` });
     }
 
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'A dine-in payout');
+
     await query(
       `UPDATE dine_in_payouts SET status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
        verified_by = NULL, verified_at = NULL, rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL,
@@ -449,6 +468,7 @@ router.post('/dine-in/:id/submit', protect, applyOutletScope, checkPermission('d
 
     res.json({ success: true, message: 'Dine-in payout submitted for verification' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -463,6 +483,8 @@ router.post('/dine-in/:id/verify', protect, applyOutletScope, checkPermission('d
       return res.status(403).json({ success: false, message: 'You cannot verify your own submission (maker-checker rule).' });
     }
 
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'A dine-in payout');
+
     await query(
       `UPDATE dine_in_payouts SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW() WHERE id = ?`,
       [req.user.id, req.params.id]
@@ -470,6 +492,7 @@ router.post('/dine-in/:id/verify', protect, applyOutletScope, checkPermission('d
 
     res.json({ success: true, message: 'Dine-in payout verified successfully' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -488,6 +511,8 @@ router.post('/dine-in/:id/reject', protect, applyOutletScope, checkPermission('d
       return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
     }
 
+    await assertMonthEditable(record.outlet_id, record.month, record.year, 'A dine-in payout');
+
     await query(
       `UPDATE dine_in_payouts SET status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?, updated_at = NOW() WHERE id = ?`,
       [req.user.id, rejection_reason.trim(), req.params.id]
@@ -495,6 +520,7 @@ router.post('/dine-in/:id/reject', protect, applyOutletScope, checkPermission('d
 
     res.json({ success: true, message: 'Dine-in payout rejected' });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });

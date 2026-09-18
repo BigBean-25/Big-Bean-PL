@@ -1120,7 +1120,7 @@ export const approveSalesUpload = async (req, res) => {
     const { remarks } = req.body;
 
     const reconciliation = await query(
-      `SELECT srb.*, psu.uploaded_by
+      `SELECT srb.*, psu.uploaded_by, psu.upload_date_from, psu.upload_date_to
        FROM sales_reconciliation_batches srb
        JOIN petpooja_sales_uploads psu ON psu.id = srb.upload_id
        WHERE srb.id = ?`,
@@ -1149,6 +1149,12 @@ export const approveSalesUpload = async (req, res) => {
         message: 'Only matched sales reconciliations can be approved.'
       });
     }
+
+    // The upload path asserts this range is editable before insert, but a
+    // month the upload covers can be finalized between upload and approval -
+    // plCalculator.js only counts status='Approved' uploads, so approving
+    // after finalization would inject sales into a closed month's books.
+    await assertDateRangeEditable(reconciliation[0].outlet_id, reconciliation[0].upload_date_from, reconciliation[0].upload_date_to, 'A sales upload');
 
     const uploadId = reconciliation[0].upload_id;
 
@@ -1201,6 +1207,9 @@ export const approveSalesUpload = async (req, res) => {
       conn.release();
     }
     console.error('Approve sales error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error approving sales upload',
@@ -1224,7 +1233,7 @@ export const rejectSalesUpload = async (req, res) => {
     }
 
     const reconciliation = await query(
-      `SELECT srb.*, psu.uploaded_by
+      `SELECT srb.*, psu.uploaded_by, psu.upload_date_from, psu.upload_date_to
        FROM sales_reconciliation_batches srb
        JOIN petpooja_sales_uploads psu ON psu.id = srb.upload_id
        WHERE srb.id = ?`,
@@ -1254,6 +1263,10 @@ export const rejectSalesUpload = async (req, res) => {
         message: `Reconciliation cannot be rejected when it is already ${reconciliation[0].status.toLowerCase()}.`
       });
     }
+
+    // Same finalized-period guard as approve above - a status transition on
+    // an upload covering a finalized month is still a mutation of it.
+    await assertDateRangeEditable(reconciliation[0].outlet_id, reconciliation[0].upload_date_from, reconciliation[0].upload_date_to, 'A sales upload');
 
     const uploadId = reconciliation[0].upload_id;
 
@@ -1306,6 +1319,9 @@ export const rejectSalesUpload = async (req, res) => {
       conn.release();
     }
     console.error('Reject sales error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error rejecting sales upload',
@@ -1320,7 +1336,7 @@ export const rollbackPetPoojaUpload = async (req, res) => {
     const { id } = req.params;
 
     const uploads = await query(
-      `SELECT id, outlet_id, status, batch_number, file_path FROM petpooja_sales_uploads WHERE id = ?`,
+      `SELECT id, outlet_id, status, batch_number, file_path, upload_date_from, upload_date_to FROM petpooja_sales_uploads WHERE id = ?`,
       [id]
     );
 
@@ -1342,6 +1358,12 @@ export const rollbackPetPoojaUpload = async (req, res) => {
     if (upload.status === 'Rejected') {
       return res.status(400).json({ success: false, message: 'Rejected sales uploads cannot be deleted.' });
     }
+
+    // Rolling back deletes the upload's item rows outright - rows covering
+    // an already-finalized month must not be removable, same guard every
+    // other upload type's delete applies (see deleteUpload /
+    // deleteItemTaxUpload).
+    await assertDateRangeEditable(upload.outlet_id, upload.upload_date_from, upload.upload_date_to, 'A sales upload');
 
     connection = await getConnection();
     await connection.beginTransaction();
@@ -1385,6 +1407,9 @@ export const rollbackPetPoojaUpload = async (req, res) => {
       connection.release();
     }
     console.error('Rollback PetPooja sales upload error:', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({
       success: false,
       message: 'Error rolling back sales upload',
