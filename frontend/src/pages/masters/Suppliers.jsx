@@ -103,6 +103,7 @@ const Suppliers = () => {
   const [formData, setFormData] = useState(emptyForm);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -131,12 +132,16 @@ const Suppliers = () => {
   }, []);
 
   const fetchSuppliers = async () => {
+    setLoadError("");
     setLoading(true);
 
     try {
       const response = await masterAPI.getSuppliers();
       setSuppliers(getRows(response));
     } catch (error) {
+      setSuppliers([]);
+      setSelectedSupplier(null);
+      setLoadError(error.response?.data?.message || "Failed to fetch suppliers");
       toast.error(error.response?.data?.message || "Failed to fetch suppliers");
     } finally {
       setLoading(false);
@@ -1129,7 +1134,15 @@ const Suppliers = () => {
           </div>
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <div className="flex min-h-[300px] items-center justify-center">
+            <div className={`max-w-md rounded-md border px-6 py-8 text-center ${isDark ? "border-[#EA5455]/40 bg-[#2F3349]" : "border-[#FCEAEA] bg-white"}`}>
+              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>Unable to load suppliers</p>
+              <p className={`mt-1 text-[14px] ${mutedClass}`}>{loadError}</p>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="flex min-h-[300px] items-center justify-center">
             <div className="text-center">
               <Loader2

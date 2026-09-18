@@ -90,6 +90,7 @@ const Categories = () => {
   const [formData, setFormData] = useState(emptyForm);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -117,12 +118,16 @@ const Categories = () => {
   }, []);
 
   const fetchCategories = async () => {
+    setLoadError("");
     setLoading(true);
 
     try {
       const response = await masterAPI.getCategories();
       setCategories(getRows(response));
     } catch (error) {
+      setCategories([]);
+      setSelectedCategory(null);
+      setLoadError(error.response?.data?.message || "Failed to fetch categories");
       toast.error(error.response?.data?.message || "Failed to fetch categories");
     } finally {
       setLoading(false);
@@ -991,7 +996,15 @@ const Categories = () => {
           </div>
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <div className="flex min-h-[300px] items-center justify-center">
+            <div className={`max-w-md rounded-md border px-6 py-8 text-center ${isDark ? "border-[#EA5455]/40 bg-[#2F3349]" : "border-[#FCEAEA] bg-white"}`}>
+              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>Unable to load categories</p>
+              <p className={`mt-1 text-[14px] ${mutedClass}`}>{loadError}</p>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="flex min-h-[300px] items-center justify-center">
             <div className="text-center">
               <Loader2

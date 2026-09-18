@@ -44,6 +44,7 @@ export default function OutletVendors() {
 
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -52,11 +53,16 @@ export default function OutletVendors() {
   const [saving, setSaving] = useState(false);
 
   const fetchVendors = async () => {
+    setLoadError("");
     setLoading(true);
     try {
       const res = await outletVendorAPI.getVendors({ search, category: categoryFilter });
       setVendors(res?.data?.data || []);
-    } catch { toast.error("Failed to load vendors"); }
+    } catch (error) {
+      setVendors([]);
+      setLoadError(error.response?.data?.message || "Failed to load vendors");
+      toast.error(error.response?.data?.message || "Failed to load vendors");
+    }
     finally { setLoading(false); }
   };
 
@@ -222,17 +228,31 @@ export default function OutletVendors() {
               </tr>
             </thead>
             <tbody className={`divide-y ${borderCls}`}>
-              {loading ? (
-                <tr><td colSpan={7} className="px-4 py-14 text-center">
-                  <Loader2 size={28} className="mx-auto animate-spin" style={{ color: primaryColor }} />
-                  <p className={`mt-2 ${mutedCls}`}>Loading vendors…</p>
-                </td></tr>
+              {loadError ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-14 text-center">
+                    <div className={`mx-auto max-w-md rounded-md border px-6 py-8 text-center ${isDark ? "border-[#EA5455]/40 bg-[#2F3349]" : "border-[#FCEAEA] bg-white"}`}>
+                      <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+                      <p className={`mt-3 text-[16px] font-semibold ${mainCls}`}>Unable to load vendors</p>
+                      <p className={`mt-1 text-[14px] ${mutedCls}`}>{loadError}</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-14 text-center">
+                    <Loader2 size={28} className="mx-auto animate-spin" style={{ color: primaryColor }} />
+                    <p className={`mt-2 ${mutedCls}`}>Loading vendors…</p>
+                  </td>
+                </tr>
               ) : vendors.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-14 text-center">
-                  <Store size={30} className={`mx-auto mb-2 ${mutedCls}`} />
-                  <p className={`text-[15px] font-semibold ${mainCls}`}>No vendors found</p>
-                  <p className={`mt-1 text-[13px] ${mutedCls}`}>Add a new vendor or adjust your filters.</p>
-                </td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-14 text-center">
+                    <Store size={30} className={`mx-auto mb-2 ${mutedCls}`} />
+                    <p className={`text-[15px] font-semibold ${mainCls}`}>No vendors found</p>
+                    <p className={`mt-1 text-[13px] ${mutedCls}`}>Add a new vendor or adjust your filters.</p>
+                  </td>
+                </tr>
               ) : vendors.map((v) => (
                 <tr key={v.id} className={rowHoverCls}>
                   <td className="px-4 py-3">

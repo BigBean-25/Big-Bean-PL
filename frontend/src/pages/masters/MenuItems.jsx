@@ -107,6 +107,7 @@ const MenuItems = () => {
   const [formData, setFormData] = useState(emptyForm);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -150,10 +151,14 @@ const MenuItems = () => {
   };
 
   const fetchItems = async () => {
+    setLoadError("");
     try {
       const response = await masterAPI.getMenuItems();
       setItems(getRows(response));
     } catch (error) {
+      setItems([]);
+      setSelectedItem(null);
+      setLoadError(error.response?.data?.message || "Failed to fetch menu items");
       toast.error(error.response?.data?.message || "Failed to fetch menu items");
     }
   };
@@ -1262,7 +1267,15 @@ const MenuItems = () => {
           </div>
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <div className="flex min-h-[300px] items-center justify-center">
+            <div className={`max-w-md rounded-md border px-6 py-8 text-center ${isDark ? "border-[#EA5455]/40 bg-[#2F3349]" : "border-[#FCEAEA] bg-white"}`}>
+              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>Unable to load menu items</p>
+              <p className={`mt-1 text-[14px] ${mutedClass}`}>{loadError}</p>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="flex min-h-[300px] items-center justify-center">
             <div className="text-center">
               <Loader2

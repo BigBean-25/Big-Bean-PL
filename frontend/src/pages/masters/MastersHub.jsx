@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   Search, Building2, Tag, Truck, Package, Coffee, MapPin, FileText, Store,
 } from "lucide-react";
@@ -33,8 +33,19 @@ const ITEM_ICONS = {
   "/masters/outlet-vendors": Store,
 };
 
+const ITEM_MODULES = {
+  "/masters/outlets": "outlets",
+  "/masters/categories": "categories",
+  "/masters/suppliers": "suppliers",
+  "/masters/outlet-vendors": "outlet_vendors",
+  "/masters/raw-materials": "raw_materials",
+  "/masters/menu-items": "menu_items",
+  "/masters/locations": "locations",
+};
+
 const MastersHub = () => {
   const navigate = useNavigate();
+  const { permissions = {}, canAccessMasterRoute } = useOutletContext() || {};
   const [search, setSearch] = useState("");
 
   const primaryColor = getPrimaryColor();
@@ -46,11 +57,31 @@ const MastersHub = () => {
   const rowHover = isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F8F7FA]";
   const borderCls = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
 
+  const canAccessItem = useCallback((path) => {
+    const moduleKey = ITEM_MODULES[path];
+    if (!moduleKey) return false;
+
+    if (typeof canAccessMasterRoute === "function") {
+      return canAccessMasterRoute(moduleKey);
+    }
+
+    if (moduleKey === "outlet_vendors" || moduleKey === "locations") {
+      return Boolean(permissions?.[moduleKey]?.can_view);
+    }
+
+    return Boolean(permissions?.[moduleKey]?.can_view || permissions?.canManageMasters);
+  }, [canAccessMasterRoute, permissions]);
   const term = search.trim().toLowerCase();
   const groups = useMemo(() => {
-    if (!term) return GROUPS;
-    return GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => i.title.toLowerCase().includes(term)) })).filter((g) => g.items.length > 0);
-  }, [term]);
+    const filtered = GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter(
+        (i) => canAccessItem(i.path) && (!term || i.title.toLowerCase().includes(term))
+      ),
+    })).filter((g) => g.items.length > 0);
+
+    return filtered;
+  }, [term, canAccessItem]);
 
   return (
     <div className="page-enter space-y-4 sm:space-y-6">

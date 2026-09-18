@@ -6,7 +6,7 @@ import {
 } from "../../components/ui";
 import {
   Plus, Search, RotateCcw, MapPin, Warehouse as WarehouseIcon, ChefHat, Store,
-  Building2, Eye, Edit2, Power, RefreshCw, X, Save,
+  Building2, Eye, Edit2, Power, RefreshCw, X, Save, AlertCircle,
 } from "lucide-react";
 import { displayLabel } from "../../utils/displayLabels";
 import toast from "react-hot-toast";
@@ -51,6 +51,7 @@ export default function LocationManagement() {
   const inputClass = getInputClass(isDark);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [locations, setLocations] = useState([]);
   const [outlets, setOutlets] = useState([]);
 
@@ -68,12 +69,17 @@ export default function LocationManagement() {
   const [togglingId, setTogglingId] = useState(null);
 
   const fetchLocations = async () => {
+    setLoadError("");
     setLoading(true);
     try {
       const params = { scope: "management", ...filters };
       const res = await warehouseAPI.getLocations(params);
       setLocations(res?.data?.data || []);
     } catch (error) {
+      setLocations([]);
+      setViewLocation(null);
+      setViewSummary(null);
+      setLoadError(error.response?.data?.message || "Failed to load locations");
       toast.error(error.response?.data?.message || "Failed to load locations");
     } finally {
       setLoading(false);
@@ -312,7 +318,15 @@ export default function LocationManagement() {
       </SectionCard>
 
       <SectionCard isDark={isDark}>
-        {!loading && filteredLocations.length === 0 ? (
+        {loadError ? (
+          <div className={`flex min-h-[300px] items-center justify-center rounded-lg border px-6 py-10 text-center ${isDark ? "border-[#EA5455]/40 bg-[#2F3349]" : "border-[#FCEAEA] bg-white"}`}>
+            <div className="max-w-md">
+              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+              <p className={`mt-3 text-[16px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Unable to load locations</p>
+              <p className={`mt-1 text-[14px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{loadError}</p>
+            </div>
+          </div>
+        ) : !loading && filteredLocations.length === 0 ? (
           <EmptyState icon={MapPin} title="No locations match the selected filters." isDark={isDark} action={
             <button onClick={openAdd} className="flex items-center gap-2 rounded-lg px-4 py-2 text-[14px] font-semibold text-white" style={{ backgroundColor: primaryColor }}>
               <Plus size={15} /> Add Location

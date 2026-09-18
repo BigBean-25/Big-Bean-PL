@@ -427,6 +427,13 @@ const DashboardLayout = () => {
   const canView = (moduleKey) => Boolean(dbPermissions?.[moduleKey]?.can_view);
   const legacyCanView = (moduleKey, fallback = false) =>
     legacyPermissions?.[moduleKey]?.can_view ?? fallback;
+  const canAccessMasterRoute = (moduleKey) => {
+    if (moduleKey === "outlet_vendors" || moduleKey === "locations") {
+      return canView(moduleKey);
+    }
+
+    return canView(moduleKey) || legacyCanView(moduleKey, permissions.canManageMasters);
+  };
   const fullName = user?.full_name || user?.name || "Big Bean User";
   const email = user?.email || "admin@bigbean.local";
   const phone = user?.phone || user?.mobile || "-";
@@ -902,6 +909,16 @@ const DashboardLayout = () => {
     return item.submenu?.some((sub) => isActive(sub.path));
   };
 
+  const masterRouteModuleMap = {
+    "/masters/outlets": "outlets",
+    "/masters/categories": "categories",
+    "/masters/suppliers": "suppliers",
+    "/masters/outlet-vendors": "outlet_vendors",
+    "/masters/raw-materials": "raw_materials",
+    "/masters/menu-items": "menu_items",
+    "/masters/locations": "locations",
+  };
+
   const routeModuleMap = {
     "/": "dashboard",
     "/outlet-dashboard": "sales_target",
@@ -909,11 +926,6 @@ const DashboardLayout = () => {
     "/outlet-dashboard/wastage-by-category": "reports",
     "/users": "users",
     "/role-access": "role_access",
-    "/masters/outlets": "outlets",
-    "/masters/categories": "categories",
-    "/masters/suppliers": "suppliers",
-    "/masters/raw-materials": "raw_materials",
-    "/masters/menu-items": "menu_items",
     "/daily-accounts/cashbook": "daily_cashbook",
     "/daily-accounts/expenses": "daily_expenses",
     "/daily-accounts/bank-deposits": "bank_deposits",
@@ -952,19 +964,27 @@ const DashboardLayout = () => {
   };
 
   useEffect(() => {
+    const masterModuleKey = masterRouteModuleMap[location.pathname];
+    if (masterModuleKey) {
+      if (!canAccessMasterRoute(masterModuleKey)) {
+        navigate("/", { replace: true });
+      }
+      return;
+    }
+
     const moduleKey = routeModuleMap[location.pathname];
     if (moduleKey && !canView(moduleKey)) {
       navigate("/", { replace: true });
     }
     if (location.pathname === "/masters") {
       const canViewMasters =
-        canView("outlets") ||
-        canView("categories") ||
-        canView("suppliers") ||
-        canView("outlet_vendors") ||
-        canView("raw_materials") ||
-        canView("menu_items") ||
-        canView("locations");
+        canAccessMasterRoute("outlets") ||
+        canAccessMasterRoute("categories") ||
+        canAccessMasterRoute("suppliers") ||
+        canAccessMasterRoute("outlet_vendors") ||
+        canAccessMasterRoute("raw_materials") ||
+        canAccessMasterRoute("menu_items") ||
+        canAccessMasterRoute("locations");
       if (!canViewMasters) {
         navigate("/", { replace: true });
       }
@@ -2521,6 +2541,8 @@ const DashboardLayout = () => {
                 context={{
                   selectedOutletId,
                   availableOutlets,
+                  permissions,
+                  canAccessMasterRoute,
                   isOutletLocked: permissions.isOutletLocked,
                 }}
               />
