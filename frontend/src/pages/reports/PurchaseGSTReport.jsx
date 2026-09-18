@@ -17,6 +17,7 @@ const PurchaseGSTReport = () => {
   const [reportData, setReportData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [deniedMessage, setDeniedMessage] = useState('');
   const [filters, setFilters] = useState({ supplier_id: 'all', from_date: firstOfMonth(), to_date: today() });
 
   const primaryColor = getPrimaryColor();
@@ -42,12 +43,21 @@ const PurchaseGSTReport = () => {
   const handleGenerateReport = async () => {
     if (!filters.from_date || !filters.to_date) { toast.error('Select both dates'); return; }
     setLoading(true);
+    setDeniedMessage('');
     try {
       const r = await reportAPI.getPurchaseGST(filters);
       setReportData(r.data?.data || r.data || []);
       setHasGenerated(true);
       toast.success('Report generated');
-    } catch { toast.error('Failed to generate report'); }
+    } catch (error) {
+      setReportData([]);
+      setHasGenerated(false);
+      if (error.response?.status === 403) {
+        setDeniedMessage(error.response.data?.message || 'You do not have permission to view this report');
+      } else {
+        toast.error('Failed to generate report');
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -139,6 +149,12 @@ const PurchaseGSTReport = () => {
           </div>
         </div>
       </div>
+
+      {!loading && deniedMessage && (
+        <div className={`rounded-md border py-8 px-4 text-center ${cardCls}`}>
+          <p className={`text-[14px] font-medium text-[#EA5455]`}>{deniedMessage}</p>
+        </div>
+      )}
 
       {loading && (
         <div className={`flex items-center justify-center gap-3 rounded-md border py-12 ${cardCls}`}>

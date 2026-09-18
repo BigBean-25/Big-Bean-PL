@@ -13,7 +13,7 @@ const REPORTS = [
   { title: "Outlet Comparison Report", path: "/reports/outlet-comparison", module: "monthly_pl", needsAllOutlets: true },
   { title: "Expense Report", path: "/reports/expense-report", module: "reports" },
   { title: "Supplier Outstanding Report", path: "/reports/supplier-pending", module: "reports" },
-  { title: "Purchase GST Report", path: "/reports/purchase-gst", module: "reports", favourite: true },
+  { title: "Purchase GST Report", path: "/reports/purchase-gst", module: "reports", favourite: true, needsAllOutlets: true },
   { title: "Sales GST Report", path: "/reports/sales-gst", module: "reports", favourite: true },
   { title: "GSTR-1 (Outward Supplies)", path: "/reports/gstr1", module: "reports", favourite: true },
   { title: "Daily Cashbook Report", path: "/reports/daily-cashbook", module: "reports", favourite: true },
