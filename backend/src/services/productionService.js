@@ -116,31 +116,86 @@ export async function createProductionRequest(data, userId) {
   }
 }
 
-export async function updateProductionRequestStatus(id, status, userId, reasons = {}) {
-  const setFields = ['status = ?'];
-  const values = [status];
-  if (status === 'Reviewed') { setFields.push('reviewed_by = ?'); values.push(userId); }
-  if (status === 'Approved') { setFields.push('approved_by = ?'); values.push(userId); }
-  values.push(id);
-  await query(`UPDATE production_requests SET ${setFields.join(', ')} WHERE id = ?`, values);
+// Only the manual, user-driven transitions belong here. The fulfilment
+// statuses (Partially Fulfilled / In Transit / Fulfilled) are derived and
+// written exclusively by recalculateRequestFulfilment() in
+// productionDispatchService.js off actual dispatch/receipt quantities - they
+// are deliberately absent as both sources and targets below so this endpoint
+// can never hand-move a request into, out of, or backwards through them.
+const PRODUCTION_REQUEST_TRANSITIONS = {
+  Draft: ['Submitted'],
+  Submitted: ['Reviewed', 'Approved', 'Rejected'],
+  Reviewed: ['Approved', 'Rejected'],
+};
 
-  // Approving a request is what authorizes dispatch against it, and the dispatch
-  // flow reads planned_qty (not requested_qty) as "how much was approved". Without
-  // this, every item's planned_qty stays at its schema default of 0 and no dispatch
-  // can ever be created against an approved request. Item-level quantity overrides
-  // can be passed via reasons.items; otherwise this approves the full requested qty.
-  if (status === 'Approved') {
-    const overrides = Object.fromEntries((reasons.items || []).map((it) => [Number(it.id), it.planned_qty]));
-    const items = await query('SELECT id, requested_qty, planned_qty FROM production_request_items WHERE production_request_id = ?', [id]);
-    for (const it of items) {
-      const planned = overrides[it.id] !== undefined ? Number(overrides[it.id]) : Number(it.requested_qty);
-      if (Number(it.planned_qty) !== planned) {
-        await query('UPDATE production_request_items SET planned_qty = ? WHERE id = ?', [planned, it.id]);
+// Reviewed/Approved/Rejected are the reviewing kitchen's decisions on someone
+// else's request; Submitted is the raising outlet's own natural first step and
+// is therefore exempt, exactly as in every other submit/approve workflow here.
+const PRODUCTION_REQUEST_CHECKER_ACTIONS = {
+  Reviewed: 'review',
+  Approved: 'approve',
+  Rejected: 'reject',
+};
+
+export async function updateProductionRequestStatus(id, status, userId, reasons = {}) {
+  // This had no validation at all: any status string was accepted from any
+  // current status, so an already-Fulfilled request could be sent back to
+  // Approved (re-running the planned_qty rewrite below) or an unsubmitted
+  // Draft could be approved outright, and the creator could approve their own
+  // request. canTransitionProductionRequest in productionRoutes.js checks
+  // permission for the requested target only - it cannot see the record's
+  // current status or its creator, so both checks have to live here.
+  const connection = await getConnection();
+  try {
+    await connection.beginTransaction();
+    const [currentRows] = await connection.execute('SELECT status, created_by FROM production_requests WHERE id = ? FOR UPDATE', [id]);
+    if (!currentRows.length) {
+      const err = new Error('Production request not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const current = currentRows[0];
+
+    const allowed = PRODUCTION_REQUEST_TRANSITIONS[current.status] || [];
+    if (!allowed.includes(status)) {
+      const err = new Error(`Cannot change a production request from "${current.status}" to "${status}".`);
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const checkerAction = PRODUCTION_REQUEST_CHECKER_ACTIONS[status];
+    if (checkerAction && Number(current.created_by) === Number(userId)) {
+      const err = new Error(`You cannot ${checkerAction} a production request you created. Another authorised user must review it.`);
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const setFields = ['status = ?'];
+    const values = [status];
+    if (status === 'Reviewed') { setFields.push('reviewed_by = ?'); values.push(userId); }
+    if (status === 'Approved') { setFields.push('approved_by = ?'); values.push(userId); }
+    values.push(id);
+    await connection.execute(`UPDATE production_requests SET ${setFields.join(', ')} WHERE id = ?`, values);
+
+    // Approving a request is what authorizes dispatch against it, and the dispatch
+    // flow reads planned_qty (not requested_qty) as "how much was approved". Without
+    // this, every item's planned_qty stays at its schema default of 0 and no dispatch
+    // can ever be created against an approved request. Item-level quantity overrides
+    // can be passed via reasons.items; otherwise this approves the full requested qty.
+    if (status === 'Approved') {
+      const overrides = Object.fromEntries((reasons.items || []).map((it) => [Number(it.id), it.planned_qty]));
+      const items = await connection.execute('SELECT id, requested_qty, planned_qty FROM production_request_items WHERE production_request_id = ?', [id]);
+      for (const it of items[0]) {
+        const planned = overrides[it.id] !== undefined ? Number(overrides[it.id]) : Number(it.requested_qty);
+        if (Number(it.planned_qty) !== planned) {
+          await connection.execute('UPDATE production_request_items SET planned_qty = ? WHERE id = ?', [planned, it.id]);
+        }
       }
     }
-  }
 
-  return getProductionRequestById(id);
+    await connection.commit();
+    return getProductionRequestById(id);
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }
 
 export async function getProductionPlans(centralKitchenId) {
@@ -368,6 +423,18 @@ export async function postProductionBatch(id, userId) {
     if (batch.is_posted) throw new Error('Production batch already posted');
     if (batch.status !== 'Completed' && batch.status !== 'In Production' && batch.status !== 'Draft') {
       throw new Error('Production batch cannot be posted in current status');
+    }
+    // Posting is the only control point on this workflow: it consumes raw
+    // material and mints finished-goods value into the stock ledger, and is
+    // gated on production_batches.can_edit, which the same Central Kitchen
+    // Admin who created the batch also holds. Blocking self-posting makes the
+    // person who books the consumption and the person who recorded the batch
+    // two different people - the same rule already enforced on production
+    // wastage's verify/approve steps in productionWastageService.js.
+    if (Number(batch.created_by) === Number(userId)) {
+      const err = new Error('You cannot post a production batch you created. Another authorised user must post it.');
+      err.statusCode = 403;
+      throw err;
     }
 
     const [materials] = await conn.execute('SELECT * FROM production_batch_materials WHERE production_batch_id = ?', [id]);

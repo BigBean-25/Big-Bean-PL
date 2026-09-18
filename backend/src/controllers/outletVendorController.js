@@ -440,7 +440,9 @@ export const getVendorOutstandingReport = async (req, res) => {
   try {
     const { date } = req.query;
     const effectiveDate = date || new Date().toISOString().slice(0, 10);
-    const rows = await getAllVendorOutstanding(effectiveDate);
+    const outletScope = req.outletScope;
+    const allowedOutletIds = outletScope && !outletScope.all ? outletScope.outletIds : null;
+    const rows = await getAllVendorOutstanding(effectiveDate, allowedOutletIds);
     const enriched = await Promise.all(rows.map(async (r) => {
       const [outlet] = await query('SELECT outlet_name FROM outlets WHERE id = ?', [r.outlet_id]);
       const [vendor] = await query('SELECT vendor_name, category FROM outlet_vendors WHERE id = ?', [r.vendor_id]);

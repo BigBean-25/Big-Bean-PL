@@ -11,7 +11,7 @@ import {
 const router = express.Router();
 
 router.get('/', protect, checkPermission('outlet_vendors', 'can_view'), getVendors);
-router.get('/outstanding-report', protect, checkPermission('outlet_vendors', 'can_view'), getVendorOutstandingReport);
+router.get('/outstanding-report', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorOutstandingReport);
 router.get('/ledger', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorLedger);
 router.get('/:id', protect, checkPermission('outlet_vendors', 'can_view'), getVendorById);
 router.post('/', protect, checkPermission('outlet_vendors', 'can_create'), createVendor);

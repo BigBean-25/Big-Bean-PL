@@ -697,37 +697,60 @@ export const submitRequisition = async (id, userId) => {
 
 export const approveRequisition = async (id, data, userId) => {
   const { items, remarks, rejection_reason } = data || {};
-  const req = await getRequisitionById(id);
-  if (!req) throw new Error('Requisition not found');
-  if (req.status !== 'Submitted') throw new Error('Only Submitted requisitions can be reviewed');
-  if (!items || items.length !== req.items.length) throw new Error('Approval quantities required for all items');
-
-  const approvedItems = [];
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
+    const [reqRows] = await connection.execute('SELECT * FROM stock_requisitions WHERE id = ? FOR UPDATE', [id]);
+    if (!reqRows.length) throw new Error('Requisition not found');
+    const req = reqRows[0];
+    // Explicit single from-status: this endpoint decides Approved /
+    // Partially Approved / Rejected, all of which may only ever be reached from
+    // Submitted. Anything already Approved, Partially Approved, Rejected,
+    // Dispatched, Received or Cancelled must not be re-reviewed here.
+    if (req.status !== 'Submitted') throw new Error('Only Submitted requisitions can be reviewed');
+    // Approving (or rejecting) a requisition authorises the warehouse to hand
+    // over stock, so it is the checker step - the raising outlet user must not
+    // also be the one who signs it off. Same rule the rest of this codebase's
+    // approval workflows already enforce.
+    if (Number(req.created_by) === Number(userId)) {
+      const err = new Error('You cannot approve or reject a requisition you created. Another authorised user must review it.');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const [itemRows] = await connection.execute(
+      `SELECT sri.*, rm.material_name, rm.material_code, u.unit_name
+       FROM stock_requisition_items sri
+       LEFT JOIN raw_materials rm ON rm.id = sri.raw_material_id
+       LEFT JOIN units u ON u.id = sri.unit_id
+       WHERE sri.requisition_id = ?`,
+      [id]
+    );
+    if (!items || items.length !== itemRows.length) throw new Error('Approval quantities required for all items');
+
+    const approvedItems = [];
     for (const it of items) {
-      const item = req.items.find((x) => x.id === Number(it.id));
-      if (!item) { await connection.rollback(); throw new Error('Invalid item'); }
+      const item = itemRows.find((x) => x.id === Number(it.id));
+      if (!item) throw new Error('Invalid item');
       const approved = num(it.approved_qty);
-      if (approved < 0 || approved > num(item.requested_qty)) { await connection.rollback(); throw new Error('Approved qty cannot exceed requested or be negative'); }
+      if (approved < 0 || approved > num(item.requested_qty)) throw new Error('Approved qty cannot exceed requested or be negative');
       // Validate against available stock at warehouse
       const stock = await getCurrentStock(req.from_location_id);
       const matStock = stock.find((s) => Number(s.raw_material_id) === Number(item.raw_material_id));
       const available = num(matStock?.current_qty);
       const baseUnit = await getMaterialBaseUnit(item.raw_material_id);
       const approvedBase = await convertToBase(approved, item.unit_id, baseUnit.id);
-      if (approvedBase > available) { await connection.rollback(); throw new Error(`Insufficient stock for ${item.material_name}`); }
+      if (approvedBase > available) throw new Error(`Insufficient stock for ${item.material_name}`);
       approvedItems.push({ ...item, approved_qty: approved, approved_base: approvedBase });
       await connection.execute('UPDATE stock_requisition_items SET approved_qty = ? WHERE id = ?', [approved, it.id]);
     }
 
     const totalApproved = approvedItems.reduce((s, i) => s + num(i.approved_qty), 0);
-    const totalRequested = req.items.reduce((s, i) => s + num(i.requested_qty), 0);
+    const totalRequested = itemRows.reduce((s, i) => s + num(i.requested_qty), 0);
     let status = 'Approved';
     if (totalApproved === 0) status = 'Rejected';
     else if (totalApproved < totalRequested) status = 'Partially Approved';
-    if (status === 'Rejected' && !rejection_reason) { await connection.rollback(); throw new Error('Rejection reason required'); }
+    if (status === 'Rejected' && !rejection_reason) throw new Error('Rejection reason required');
 
     await connection.execute(
       `UPDATE stock_requisitions SET status = ?, approved_by = ?, approved_at = NOW(), remarks = ?, rejection_reason = ? WHERE id = ?`,

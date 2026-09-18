@@ -206,6 +206,15 @@ router.post('/grn/:id/post', checkPermission('grn', 'can_edit'), async (req, res
     if (!(await isLocationAccessible(req.user, grn.warehouse_location_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this location' });
     }
+    // Posting a GRN is what actually moves stock and books its value into the
+    // ledger, so it is the checker step of this workflow - but it is gated on
+    // grn.can_edit, which the same Warehouse Admin who raised the GRN also
+    // holds. Without this the creator received, valued and posted their own
+    // goods receipt unchallenged. Mirrors the creator-cannot-approve rule
+    // already enforced on purchase orders and purchase returns.
+    if (Number(grn.created_by) === Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'You cannot post a GRN you created. Another authorised user must post it.' });
+    }
     const data = await postGRN(req.params.id, req.user.id);
     res.json({ success: true, data });
   } catch (error) {
@@ -278,7 +287,7 @@ router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions'
 
 router.post('/requisitions/:id/approve', checkPermission('warehouse_requisitions', 'can_approve'), async (req, res) => {
   try { const data = await approveRequisition(req.params.id, req.body, req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/requisitions/:id/dispatch', checkPermission('warehouse_requisitions', 'can_edit'), async (req, res) => {

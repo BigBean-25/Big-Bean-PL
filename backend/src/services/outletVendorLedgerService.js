@@ -116,13 +116,24 @@ export const getVendorAgeing = async ({ outletId, vendorId, date }) => {
  * Outstanding balance per vendor across all outlets that have transacted
  * with them - used for a vendor-pending overview list.
  */
-export const getAllVendorOutstanding = async (asOfDate = null) => {
+export const getAllVendorOutstanding = async (asOfDate = null, allowedOutletIds = null) => {
   const date = asOfDate || new Date().toISOString().slice(0, 10);
+  // allowedOutletIds confines an outlet-scoped caller to their own outlets'
+  // payables. Outlet Manager/Admin hold outlet_vendors.can_view, and this
+  // report previously listed every outlet/vendor pair company-wide, so one
+  // outlet could read every other outlet's vendor outstanding. null means the
+  // caller has genuine all-outlet access; an empty array means no access.
+  if (Array.isArray(allowedOutletIds) && allowedOutletIds.length === 0) return [];
+  const outletFilter = Array.isArray(allowedOutletIds)
+    ? ` AND outlet_id IN (${allowedOutletIds.map(() => '?').join(',')})`
+    : '';
   const pairs = await query(
-    `SELECT DISTINCT outlet_id, vendor_id FROM outlet_vendor_purchases WHERE purchase_date <= ?
+    `SELECT DISTINCT outlet_id, vendor_id FROM outlet_vendor_purchases WHERE purchase_date <= ?${outletFilter}
      UNION
-     SELECT DISTINCT outlet_id, vendor_id FROM outlet_vendor_payments WHERE date <= ?`,
-    [date, date]
+     SELECT DISTINCT outlet_id, vendor_id FROM outlet_vendor_payments WHERE date <= ?${outletFilter}`,
+    Array.isArray(allowedOutletIds)
+      ? [date, ...allowedOutletIds, date, ...allowedOutletIds]
+      : [date, date]
   );
   const results = [];
   for (const p of pairs) {

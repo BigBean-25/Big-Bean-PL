@@ -83,12 +83,31 @@ const canReceiveProductionDispatch = async (req, res, next) => {
 
     const perm = await query('SELECT can_edit, is_read_only FROM role_permissions WHERE role_id = ? AND module_key = ?', [req.user.role_id, 'production_dispatch']);
     const hasEdit = perm.length && perm[0].can_edit && !perm[0].is_read_only;
-    if (hasEdit) return next();
 
-    if (req.user.role_name === 'Outlet Admin' || req.user.role_name === 'Outlet Manager') {
-      const [uo] = await query('SELECT id FROM user_outlets WHERE user_id = ? AND outlet_id = ?', [req.user.id, loc.outlet_id]);
-      if (uo) return next();
+    // Receiving is the outlet's independent confirmation that the goods the
+    // kitchen dispatched actually arrived - it is the only checker on the
+    // dispatch leg, and it creates TRANSFER_IN stock at the destination. The
+    // `hasEdit` shortcut used to run BEFORE any destination check, so anyone
+    // holding production_dispatch.can_edit - including the Central Kitchen
+    // Admin who dispatched - could receive on any outlet's behalf and close
+    // the loop alone. Destination scope is now checked first: only the
+    // platform-wide admin roles (whose remit genuinely spans every outlet and
+    // who hold no user_outlets rows) bypass it; everyone else, Central Kitchen
+    // Admin included, must be assigned to the receiving outlet.
+    const isPlatformAdmin = ['Super Admin', 'Admin', 'Developer'].includes(req.user.role_name);
+    if (isPlatformAdmin) {
+      if (perm.length && perm[0].is_read_only) {
+        return res.status(403).json({ success: false, message: 'Read-only users cannot modify data' });
+      }
+      return next();
     }
+
+    const [uo] = await query('SELECT id FROM user_outlets WHERE user_id = ? AND outlet_id = ?', [req.user.id, loc.outlet_id]);
+    if (!uo) {
+      return res.status(403).json({ success: false, message: 'You can only receive a dispatch at an outlet you are assigned to' });
+    }
+
+    if (hasEdit || req.user.role_name === 'Outlet Admin' || req.user.role_name === 'Outlet Manager') return next();
 
     return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
   } catch (error) {
@@ -185,7 +204,7 @@ router.post('/requests', checkPermission('production_requests', 'can_create'), a
 
 router.patch('/requests/:id/status', canTransitionProductionRequest, async (req, res) => {
   try { const data = await updateProductionRequestStatus(Number(req.params.id), req.body.status, req.user.id, req.body); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/plans', checkPermission('production_planning', 'can_view'), async (req, res) => {
@@ -240,7 +259,7 @@ router.get('/batches/:id/availability', checkPermission('production_batches', 'c
 
 router.post('/batches/:id/post', checkPermission('production_batches', 'can_edit'), async (req, res) => {
   try { const data = await postProductionBatch(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
-  catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 // Wastage
