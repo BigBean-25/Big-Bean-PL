@@ -18,6 +18,7 @@ import { saveConsumptionVarianceRun } from '../services/consumptionVarianceServi
 import { getConsumptionVarianceDiagnostics } from '../services/consumptionVarianceDiagnosticsService.js';
 import { getOutletWastageByCategoryReport } from '../services/outletWastageByCategoryService.js';
 import { getPhysicalAccountingReconciliation } from '../services/physicalAccountingReconciliationService.js';
+import { getClosingReconciliation } from '../services/closingReconciliationService.js';
 
 const router = express.Router();
 
@@ -104,6 +105,27 @@ router.get('/physical-accounting-reconciliation', protect, applyOutletScope, che
   } catch (error) {
     console.error('Get physical-accounting reconciliation error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating reconciliation' });
+  }
+});
+
+// Phase 6A5: closing-stock reconciliation + month-close readiness.
+// Read-only - the Verified closing upload remains the financial closing
+// source; physical ledger/counts are diagnostics and the readiness verdict
+// is advisory only (it never blocks finalization).
+router.get('/closing-reconciliation', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, month, year, to_date } = req.query;
+    const data = await getClosingReconciliation({
+      outletId: outlet_id ? Number(outlet_id) : null,
+      month: month ? Number(month) : null,
+      year: year ? Number(year) : null,
+      toDate: to_date || null,
+      outletScope: req.outletScope,
+    });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get closing reconciliation error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating closing reconciliation' });
   }
 });
 

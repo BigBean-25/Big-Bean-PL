@@ -556,6 +556,10 @@ export const fixedCostsAPI = {
   deleteFixedCost: (id) => api.delete(`/fixed-costs/${id}`),
 };
 
+export const closingReconciliationAPI = {
+  get: (params) => api.get("/reports/closing-reconciliation", { params }),
+};
+
 export const accountingEffectsAPI = {
   listPurchases: (params) => api.get("/accounting-effects/purchases", { params }),
   get: (id) => api.get(`/accounting-effects/${id}`),

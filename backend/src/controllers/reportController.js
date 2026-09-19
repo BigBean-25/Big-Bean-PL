@@ -45,9 +45,26 @@ export const finalizeMonthlyOutletPL = async (req, res) => {
 
     const snapshot = await finalizeMonth({ outletId: outlet_id, month, year, userId: req.user.id });
 
+    // Phase 6A5: advisory month-close readiness is attached to the finalize
+    // response for visibility - it is diagnostic only and can never block
+    // finalization (ADVISORY_ONLY: no acknowledgement/review state exists in
+    // the finalize flow to gate on, and variance alone is not a blocker).
+    let readiness = null;
+    try {
+      const { getClosingReconciliation } = await import('../services/closingReconciliationService.js');
+      const recon = await getClosingReconciliation({
+        outletId: outlet_id, month, year,
+        outletScope: req.outletScope,
+      });
+      readiness = recon.readiness;
+    } catch (reconError) {
+      console.error('Closing readiness advisory failed (non-blocking):', reconError);
+      readiness = { status: 'UNAVAILABLE', advisory_only: true };
+    }
+
     res.status(200).json({
       success: true,
-      data: snapshot
+      data: { ...snapshot, closing_readiness: readiness }
     });
   } catch (error) {
     console.error('Finalize monthly outlet P&L error:', error);
