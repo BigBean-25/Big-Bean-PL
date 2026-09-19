@@ -97,8 +97,7 @@ export const getPOs = async (filters = {}) => {
   // Confines a location-scoped caller to POs at a location they're allowed
   // to see - see resolveScopedLocationIds in warehouseMiddleware.js.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length ? ' AND po.warehouse_location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds);
+    sql += allowedLocationIds.length ? ` AND po.warehouse_location_id IN (${allowedLocationIds.map(Number).filter(Boolean).join(',')})` : ' AND 1=0';
   }
   sql += ' ORDER BY po.id DESC';
   return query(sql, params);

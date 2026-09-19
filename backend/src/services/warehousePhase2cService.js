@@ -105,8 +105,8 @@ export const getPhysicalStockCounts = async (filters = {}) => {
   // Confines a location-scoped caller to counts at a location they're
   // allowed to see - see resolveScopedLocationIds in warehouseMiddleware.js.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length ? ' AND psc.location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds);
+    // pool.execute does not expand `IN (?)` array bindings - join sanitized ints.
+    sql += allowedLocationIds.length ? ` AND psc.location_id IN (${allowedLocationIds.map(Number).filter(Boolean).join(',')})` : ' AND 1=0';
   }
   sql += ' ORDER BY psc.created_at DESC';
   return query(sql, params);
@@ -300,8 +300,7 @@ export const getStockAdjustments = async (filters = {}) => {
   // Confines a location-scoped caller to adjustments at a location they're
   // allowed to see - see resolveScopedLocationIds in warehouseMiddleware.js.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length ? ' AND sa.location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds);
+    sql += allowedLocationIds.length ? ` AND sa.location_id IN (${allowedLocationIds.map(Number).filter(Boolean).join(',')})` : ' AND 1=0';
   }
   sql += ' ORDER BY sa.created_at DESC';
   return query(sql, params);
@@ -488,8 +487,7 @@ export const getWarehouseWastages = async (filters = {}) => {
   // Confines a location-scoped caller to wastage records at a location
   // they're allowed to see - see resolveScopedLocationIds in warehouseMiddleware.js.
   if (allowedLocationIds) {
-    sql += allowedLocationIds.length ? ' AND ww.location_id IN (?)' : ' AND 1=0';
-    if (allowedLocationIds.length) params.push(allowedLocationIds);
+    sql += allowedLocationIds.length ? ` AND ww.location_id IN (${allowedLocationIds.map(Number).filter(Boolean).join(',')})` : ' AND 1=0';
   }
   sql += ' ORDER BY ww.created_at DESC';
   return query(sql, params);
