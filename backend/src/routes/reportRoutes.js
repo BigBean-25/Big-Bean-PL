@@ -4,6 +4,8 @@ import { checkPermission } from '../middleware/permissionMiddleware.js';
 import {
   getMonthlyOutletPL,
   finalizeMonthlyOutletPL,
+  getOutletCogsSettings,
+  updateOutletCogsSettings,
   getOutletComparisonReport,
   getActualConsumptionReport,
   getTheoreticalConsumptionReport,
@@ -39,6 +41,9 @@ const router = express.Router();
 // is meant to stay Accountant/leadership-level, unlike the rest.
 router.get('/monthly-pl', protect, applyOutletScope, checkPermission('monthly_pl', 'can_view'), getMonthlyOutletPL);
 router.post('/monthly-pl/finalize', protect, applyOutletScope, checkPermission('monthly_pl', 'can_lock'), finalizeMonthlyOutletPL);
+// Phase 6A8: per-outlet COGS source mode (PERIODIC/PHYSICAL) with cutover date.
+router.get('/monthly-pl/cogs-settings', protect, applyOutletScope, checkPermission('monthly_pl', 'can_view'), getOutletCogsSettings);
+router.put('/monthly-pl/cogs-settings', protect, applyOutletScope, checkPermission('monthly_pl', 'can_edit'), updateOutletCogsSettings);
 router.get('/outlet-comparison', protect, checkPermission('monthly_pl', 'can_view'), getOutletComparisonReport);
 router.get('/actual-consumption', protect, applyOutletScope, checkPermission('reports', 'can_view'), getActualConsumptionReport);
 router.get('/theoretical-consumption', protect, applyOutletScope, checkPermission('reports', 'can_view'), getTheoreticalConsumptionReport);

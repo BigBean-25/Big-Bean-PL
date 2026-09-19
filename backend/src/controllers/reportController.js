@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
-import { getOutletPL, getOutletComparison, getFinalizedSnapshot, finalizeMonth } from '../services/plCalculator.js';
+import { getOfficialOutletPL, getOutletComparison, finalizeMonth } from '../services/plCalculator.js';
+import { getCogsSettings, setCogsSettings } from '../services/physicalCogsService.js';
 import { getSupplierLedgerSummary } from '../services/supplierLedgerService.js';
 import { MANUAL_EFFECTIVE_WHERE, BRIDGE_EFFECTIVE_WHERE } from '../services/effectivePurchaseService.js';
 import { getActualConsumption, getTheoreticalConsumption } from '../services/consumptionService.js';
@@ -16,12 +17,15 @@ export const getMonthlyOutletPL = async (req, res) => {
       });
     }
 
-    const snapshot = await getFinalizedSnapshot({ outletId: outlet_id || null, month, year });
-    const plReport = snapshot || await getOutletPL({ outletId: outlet_id || null, month, year });
+    // Phase 6A8: getOfficialOutletPL resolves snapshot -> outlet COGS mode ->
+    // readiness gate, so the endpoint returns the single official COGS source
+    // (PERIODIC or PHYSICAL) plus the physical diagnostics block.
+    const plReport = await getOfficialOutletPL({ outletId: outlet_id || null, month, year });
+    const { _periodic, ...data } = plReport;
 
     res.status(200).json({
       success: true,
-      data: plReport
+      data
     });
   } catch (error) {
     console.error('Get monthly outlet P&L error:', error);
@@ -688,5 +692,44 @@ export const getSalesGSTReport = async (req, res) => {
   } catch (error) {
     console.error('Get sales GST report error:', error);
     res.status(500).json({ success: false, message: 'Error generating sales GST report' });
+  }
+};
+
+// Phase 6A8 - outlet COGS mode settings. PERIODIC keeps the historical
+// opening+purchases-closing formula; PHYSICAL takes effect only from the
+// configured cutover month and only when the physical readiness gate passes.
+export const getOutletCogsSettings = async (req, res) => {
+  try {
+    const { outlet_id } = req.query;
+    let rows = await getCogsSettings({ outletId: outlet_id || null });
+    const scope = req.outletScope;
+    if (scope && !scope.all) {
+      const allowed = (scope.outletIds || []).map(Number);
+      rows = rows.filter((r) => allowed.includes(Number(r.outlet_id)));
+    }
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Get COGS settings error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error fetching COGS settings' });
+  }
+};
+
+export const updateOutletCogsSettings = async (req, res) => {
+  try {
+    const { outlet_id, cogs_mode, physical_cogs_start_date } = req.body;
+    const scope = req.outletScope;
+    if (scope && !scope.all && !(scope.outletIds || []).map(Number).includes(Number(outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+    }
+    const saved = await setCogsSettings({
+      outletId: outlet_id,
+      cogsMode: cogs_mode,
+      physicalCogsStartDate: physical_cogs_start_date || null,
+      userId: req.user.id,
+    });
+    res.status(200).json({ success: true, data: saved });
+  } catch (error) {
+    console.error('Update COGS settings error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error updating COGS settings' });
   }
 };

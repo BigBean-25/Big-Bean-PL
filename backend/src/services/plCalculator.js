@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { getEffectivePurchaseValue } from './effectivePurchaseService.js';
+import { resolveOutletCogsMode, getPhysicalCogs } from './physicalCogsService.js';
 
 const num = (value) => Number(value || 0);
 
@@ -263,19 +264,22 @@ export const getOutletPL = async ({ outletId, month, year }) => {
 
 /**
  * Side-by-side P&L for every active outlet in one month, for the company-wide
- * comparison dashboard. Reuses getOutletPL() per outlet - no duplicate P&L
- * logic - so this always agrees with each outlet's individual P&L page.
+ * comparison dashboard. Reuses getOfficialOutletPL() per outlet - no duplicate
+ * P&L logic - so this always agrees with each outlet's individual P&L page and
+ * each row resolves its own COGS source (PERIODIC/PHYSICAL) explicitly.
  */
 export const getOutletComparison = async ({ month, year }) => {
   const outlets = await query('SELECT id, outlet_name FROM outlets WHERE is_active = 1 ORDER BY outlet_name');
 
   const rows = await Promise.all(
     outlets.map(async (outlet) => {
-      const snapshot = await getFinalizedSnapshot({ outletId: outlet.id, month, year });
-      const pl = snapshot || await getOutletPL({ outletId: outlet.id, month, year });
+      const pl = await getOfficialOutletPL({ outletId: outlet.id, month, year });
       return {
         outlet_id: outlet.id,
         outlet_name: outlet.outlet_name,
+        cogs_source: pl.cogs_source || 'PERIODIC',
+        physical_readiness: pl.cost_of_goods?.physical_readiness || null,
+        pnl_state: pl.pnl_state || 'OK',
         adjusted_sales: pl.revenue.adjusted_sales,
         actual_consumption: pl.cost_of_goods.actual_consumption,
         total_operating_expenses: pl.operating_expenses.total_operating_expenses,
@@ -342,7 +346,14 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
   const totalOnlineDeductions = totalPlatformCharges - num(s.dine_in_commission) - dineInTcsTds;
   const totalDineInDeductions = num(s.dine_in_commission) + dineInTcsTds;
   const adjustedSales = num(s.net_sales) - totalPlatformCharges;
-  const actualConsumption = num(s.cogs);
+  // official_cogs is a generated column (Phase 6A8): PHYSICAL snapshots carry
+  // the posted consumption figure, PERIODIC rows reproduce
+  // opening+purchases-closing. `?? s.cogs` keeps this readable on a database
+  // that has not yet run add_outlet_cogs_mode.sql.
+  const cogsSource = s.cogs_source || 'PERIODIC';
+  const actualConsumption = num(s.official_cogs ?? s.cogs);
+  const physicalWastage = cogsSource === 'PHYSICAL' ? num(s.physical_wastage) : 0;
+  const physicalAdjustmentVariance = cogsSource === 'PHYSICAL' ? num(s.physical_adjustment_variance) : 0;
   const utilityResidual = num(detail.utility_residual);
   const dailyCash = num(detail.daily_cash_expenses);
   const fixedCosts = num(s.rent) + num(s.accommodation) +
@@ -358,6 +369,10 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
     year,
     is_finalized: true,
     finalized_at: s.finalized_at,
+    cogs_source: cogsSource,
+    realtime_status: 'FINALIZED',
+    pnl_state: 'OK',
+    physical_readiness: s.physical_readiness || null,
     revenue: {
       gross_sales: num(s.gross_sales),
       discounts: num(s.total_discount),
@@ -374,7 +389,15 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
       opening_stock: num(s.opening_stock),
       purchases: num(s.purchases),
       closing_stock: num(s.closing_stock),
-      actual_consumption: actualConsumption
+      periodic_cogs: num(s.cogs),
+      official_cogs: actualConsumption,
+      actual_consumption: actualConsumption,
+      cogs_source: cogsSource,
+      physical_cogs: cogsSource === 'PHYSICAL' ? num(s.physical_cogs) : null,
+      physical_consumption_cogs: cogsSource === 'PHYSICAL' ? num(s.physical_cogs) : null,
+      wastage_cost: physicalWastage,
+      adjustment_variance: physicalAdjustmentVariance,
+      physical_readiness: s.physical_readiness || null
     },
     operating_expenses: {
       daily_cash_expenses: dailyCash,
@@ -396,7 +419,7 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
     },
     summary: {
       total_revenue: adjustedSales,
-      total_expenses: actualConsumption + totalOperatingExpenses,
+      total_expenses: actualConsumption + totalOperatingExpenses + physicalWastage + physicalAdjustmentVariance,
       profit_loss: num(s.net_profit),
       food_cost_percentage: adjustedSales > 0 ? ((actualConsumption / adjustedSales) * 100).toFixed(2) : '0.00',
       salary_cost_percentage: adjustedSales > 0 ? ((num(s.total_payroll_cost) / adjustedSales) * 100).toFixed(2) : '0.00',
@@ -427,6 +450,23 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
     const err = new Error('This month is already finalized for this outlet');
     err.statusCode = 400;
     throw err;
+  }
+
+  // Phase 6A8: resolve the outlet's COGS mode BEFORE freezing. A PHYSICAL-mode
+  // month whose physical data fails the readiness gate cannot be finalized -
+  // finalizing it would freeze either fabricated numbers or a silent periodic
+  // fallback, both of which are worse than refusing.
+  const { mode } = await resolveOutletCogsMode({ outletId, month, year });
+  let physical = null;
+  if (mode === 'PHYSICAL') {
+    physical = await getPhysicalCogs({ outletId, month, year });
+    if (physical.readiness !== 'PHYSICAL_READY') {
+      const err = new Error(
+        `Cannot finalize: this outlet is in PHYSICAL COGS mode but the period is ${physical.readiness} (${physical.readiness_reasons.join(', ')}). Resolve the physical data gaps first.`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   const pl = await getOutletPL({ outletId, month, year });
@@ -506,8 +546,24 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
   const otherDeductions = num(online.other_deductions) + otherPlatformCommission;
 
   const netSales = num(pl.revenue.net_sales);
-  const cogs = num(pl.cost_of_goods.actual_consumption);
-  const grossProfitPercentage = netSales > 0 ? ((netSales - cogs) / netSales) * 100 : null;
+  // officialCogs: exactly one source. PHYSICAL -> posted consumption total;
+  // PERIODIC -> opening + purchases - closing (the generated `cogs` column
+  // keeps storing the periodic figure either way, as an audit reference).
+  const officialCogs = mode === 'PHYSICAL' ? num(physical.physical_cogs_total) : num(pl.cost_of_goods.actual_consumption);
+  const physicalWastage = mode === 'PHYSICAL' ? num(physical.components.wastage_cost) : 0;
+  const physicalAdjVariance = mode === 'PHYSICAL' ? num(physical.components.adjustment_variance) : 0;
+  const grossProfitPercentage = netSales > 0 ? ((netSales - officialCogs) / netSales) * 100 : null;
+
+  // net_profit_percentage must describe the stored official result, so in
+  // PHYSICAL mode it is recomputed against physical_cogs + the separate
+  // wastage/adjustment lines (the periodic summary's percentage is based on
+  // periodic COGS and would misstate the frozen row).
+  const adjustedSalesForPct = num(pl.revenue.adjusted_sales);
+  const netProfitPct = mode === 'PHYSICAL'
+    ? (adjustedSalesForPct > 0
+        ? ((adjustedSalesForPct - (officialCogs + num(opex.total_operating_expenses) + physicalWastage + physicalAdjVariance)) / adjustedSalesForPct) * 100
+        : 0)
+    : num(pl.summary.net_profit_percentage);
 
   const remarks = 'SNAPSHOT_DETAIL:' + JSON.stringify({
     daily_cash_expenses: num(opex.daily_cash_expenses),
@@ -520,13 +576,15 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
     `INSERT INTO monthly_pnl_snapshots (
       outlet_id, month, year,
       gross_sales, total_discount, net_sales, total_tax,
-      opening_stock, purchases, closing_stock, gross_profit_percentage,
+      opening_stock, purchases, closing_stock, cogs_source, physical_cogs,
+      physical_wastage, physical_adjustment_variance, physical_readiness,
+      gross_profit_percentage,
       employee_salary, incentives, overtime, staff_benefits,
       rent, electricity, water, maintenance, accommodation, other_expenses,
       zomato_commission, swiggy_commission, dine_in_commission,
       gateway_charges, tds, tcs, other_deductions,
       net_profit_percentage, is_finalized, finalized_by, finalized_at, remarks
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), ?)
     ON DUPLICATE KEY UPDATE
       gross_sales = VALUES(gross_sales), total_discount = VALUES(total_discount),
       net_sales = VALUES(net_sales), total_tax = VALUES(total_tax),
@@ -550,7 +608,11 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
       outletId, month, year,
       pl.revenue.gross_sales, pl.revenue.discounts, netSales, pl.revenue.taxes,
       pl.cost_of_goods.opening_stock, pl.cost_of_goods.purchases,
-      pl.cost_of_goods.closing_stock, grossProfitPercentage,
+      pl.cost_of_goods.closing_stock, mode,
+      mode === 'PHYSICAL' ? num(physical.physical_cogs_total) : null,
+      physicalWastage, physicalAdjVariance,
+      physical ? physical.readiness : null,
+      grossProfitPercentage,
       opex.employee_salary, opex.incentive_bonus, 0, staffBenefits,
       rent, opex.electricity_bill, opex.water_bill, opex.maintenance_cost,
       accommodation, otherExpenses,
@@ -558,9 +620,224 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
       pl.revenue.payment_gateway_charges,
       num(online.tds) + num(dine.tds), num(online.tcs) + num(dine.tcs),
       otherDeductions,
-      num(pl.summary.net_profit_percentage), userId, remarks
+      netProfitPct, userId, remarks
     ]
   );
 
   return getFinalizedSnapshot({ outletId, month, year });
+};
+
+// ---------------------------------------------------------------------------
+// Phase 6A8 - official P&L resolution (COGS source selection).
+//
+// getOutletPL() always computes the PERIODIC view (Verified Opening +
+// Effective Purchases - Verified Closing). getOfficialOutletPL() is the single
+// entry point every consumer must use: it applies, in order,
+//   1. a finalized snapshot if one exists (frozen, never recalculated),
+//   2. the outlet's configured COGS mode with the physical readiness gate.
+//
+// Exactly one official COGS source exists per outlet/period:
+//   PERIODIC -> cost_of_goods.periodic_cogs (the historical formula)
+//   PHYSICAL -> posted OUTLET_CONSUMPTION value, only when the period is
+//               PHYSICAL_READY. Wastage and adjustment variance are reported
+//               as separate expense lines - never inside COGS.
+// A PHYSICAL-mode period that fails readiness returns
+// pnl_state='PHYSICAL_NOT_READY' with null official totals rather than a
+// silent periodic fallback.
+// ---------------------------------------------------------------------------
+
+const sumKeys = (acc, obj, keys) => {
+  for (const k of keys) acc[k] = (acc[k] || 0) + num(obj?.[k]);
+};
+
+const REVENUE_KEYS = ['gross_sales', 'discounts', 'taxes', 'net_sales', 'online_commission',
+  'payment_gateway_charges', 'tcs_tds', 'total_online_deductions', 'total_dinein_deductions', 'adjusted_sales'];
+const COGS_PERIODIC_KEYS = ['opening_stock', 'purchases', 'closing_stock'];
+const OPEX_KEYS = ['daily_cash_expenses', 'electricity_bill', 'maintenance_cost', 'water_bill',
+  'garbage', 'internet', 'gas', 'other_utility', 'total_utilities', 'employee_salary',
+  'incentive_bonus', 'staff_accommodation', 'other_staff_cost', 'total_salary',
+  'fixed_costs', 'total_operating_expenses'];
+
+/**
+ * Canonical official P&L for one outlet (or the whole company when outletId is
+ * null). Snapshot -> mode-aware live resolution -> per-outlet consolidation.
+ */
+export const getOfficialOutletPL = async ({ outletId, month, year }) => {
+  const snapshot = await getFinalizedSnapshot({ outletId, month, year });
+  if (snapshot) return snapshot;
+  if (!outletId) return getCompanyOfficialPL({ month, year });
+
+  const pl = await getOutletPL({ outletId, month, year });
+  const { mode, physical_cogs_start_date } = await resolveOutletCogsMode({ outletId, month, year });
+  const periodicCogs = num(pl.cost_of_goods.actual_consumption);
+
+  if (mode !== 'PHYSICAL') {
+    return {
+      ...pl,
+      cogs_source: 'PERIODIC',
+      realtime_status: 'OPEN_REALTIME',
+      pnl_state: 'OK',
+      cogs_cutover: { mode, physical_cogs_start_date },
+      cost_of_goods: {
+        ...pl.cost_of_goods,
+        periodic_cogs: periodicCogs,
+        official_cogs: periodicCogs,
+        cogs_source: 'PERIODIC',
+        physical_cogs: null,
+        physical_consumption_cogs: null,
+        wastage_cost: 0,
+        adjustment_variance: 0,
+        physical_readiness: null,
+      },
+      _periodic: pl,
+    };
+  }
+
+  const physical = await getPhysicalCogs({ outletId, month, year });
+  const adjustedSales = num(pl.revenue.adjusted_sales);
+  const opexTotal = num(pl.operating_expenses.total_operating_expenses);
+  const wastage = num(physical.components.wastage_cost);
+  const variance = num(physical.components.adjustment_variance);
+
+  const cogsBlock = {
+    ...pl.cost_of_goods,
+    periodic_cogs: periodicCogs,
+    cogs_source: 'PHYSICAL',
+    physical_cogs: physical.physical_cogs_total,
+    physical_consumption_cogs: physical.components.outlet_consumption_cogs,
+    wastage_cost: wastage,
+    adjustment_variance: variance,
+    physical_readiness: physical.readiness,
+  };
+
+  if (physical.readiness !== 'PHYSICAL_READY') {
+    // Explicit unavailable state: the periodic figures remain visible as
+    // reference (periodic_cogs, revenue, expenses) but the official totals
+    // are null - no silent substitution of an incomplete physical number.
+    return {
+      ...pl,
+      cogs_source: 'PHYSICAL',
+      realtime_status: 'OPEN_REALTIME',
+      pnl_state: 'PHYSICAL_NOT_READY',
+      cogs_cutover: { mode, physical_cogs_start_date },
+      cost_of_goods: { ...cogsBlock, official_cogs: null, actual_consumption: null },
+      summary: {
+        ...pl.summary,
+        total_expenses: null,
+        profit_loss: null,
+        food_cost_percentage: null,
+        net_profit_percentage: null,
+      },
+      physical,
+      _periodic: pl,
+    };
+  }
+
+  const officialCogs = num(physical.physical_cogs_total);
+  const totalExpenses = officialCogs + opexTotal + wastage + variance;
+  const profitLoss = adjustedSales - totalExpenses;
+
+  return {
+    ...pl,
+    cogs_source: 'PHYSICAL',
+    realtime_status: 'OPEN_REALTIME',
+    pnl_state: 'OK',
+    cogs_cutover: { mode, physical_cogs_start_date },
+    cost_of_goods: { ...cogsBlock, official_cogs: officialCogs, actual_consumption: officialCogs },
+    summary: {
+      total_revenue: adjustedSales,
+      total_expenses: totalExpenses,
+      profit_loss: profitLoss,
+      food_cost_percentage: adjustedSales > 0 ? ((officialCogs / adjustedSales) * 100).toFixed(2) : '0.00',
+      salary_cost_percentage: pl.summary.salary_cost_percentage,
+      utility_cost_percentage: pl.summary.utility_cost_percentage,
+      net_profit_percentage: adjustedSales > 0 ? ((profitLoss / adjustedSales) * 100).toFixed(2) : '0.00',
+    },
+    physical,
+    _periodic: pl,
+  };
+};
+
+/**
+ * Company-wide official P&L: each outlet resolves its own official COGS first
+ * (its own snapshot or mode), then the results consolidate. Unowned rows
+ * (NULL outlet_id) can only carry periodic meaning, so their contribution is
+ * added as a delta measured against the aggregate periodic query - which also
+ * keeps company totals identical to getOutletPL(null) when every outlet is in
+ * PERIODIC mode.
+ */
+export const getCompanyOfficialPL = async ({ month, year }) => {
+  const outlets = await query('SELECT id FROM outlets WHERE is_active = 1 ORDER BY outlet_name');
+  const perOutlet = await Promise.all(
+    outlets.map((o) => getOfficialOutletPL({ outletId: o.id, month, year }))
+  );
+  const companyPeriodic = await getOutletPL({ outletId: null, month, year });
+
+  const sumPeriodic = { revenue: {}, cost_of_goods: {}, operating_expenses: {} };
+  for (const p of perOutlet) {
+    const pv = p._periodic || p;
+    sumKeys(sumPeriodic.revenue, pv.revenue, REVENUE_KEYS);
+    sumKeys(sumPeriodic.cost_of_goods, pv.cost_of_goods, COGS_PERIODIC_KEYS);
+    sumPeriodic.cost_of_goods.periodic_cogs =
+      (sumPeriodic.cost_of_goods.periodic_cogs || 0) + num(pv.cost_of_goods?.periodic_cogs ?? pv.cost_of_goods?.actual_consumption);
+    sumKeys(sumPeriodic.operating_expenses, pv.operating_expenses, OPEX_KEYS);
+  }
+
+  // delta = unowned (NULL outlet) contribution present in the aggregate query
+  // but not in any per-outlet result.
+  const delta = { revenue: {}, cost_of_goods: {}, operating_expenses: {} };
+  for (const k of REVENUE_KEYS) delta.revenue[k] = num(companyPeriodic.revenue[k]) - num(sumPeriodic.revenue[k]);
+  for (const k of COGS_PERIODIC_KEYS) delta.cost_of_goods[k] = num(companyPeriodic.cost_of_goods[k]) - num(sumPeriodic.cost_of_goods[k]);
+  delta.cost_of_goods.periodic_cogs = num(companyPeriodic.cost_of_goods.actual_consumption) - num(sumPeriodic.cost_of_goods.periodic_cogs);
+  for (const k of OPEX_KEYS) delta.operating_expenses[k] = num(companyPeriodic.operating_expenses[k]) - num(sumPeriodic.operating_expenses[k]);
+
+  const revenue = {}, costOfGoods = {}, opex = {};
+  for (const k of REVENUE_KEYS) revenue[k] = perOutlet.reduce((s, p) => s + num(p.revenue[k]), 0) + delta.revenue[k];
+  for (const k of COGS_PERIODIC_KEYS) costOfGoods[k] = perOutlet.reduce((s, p) => s + num(p.cost_of_goods[k]), 0) + delta.cost_of_goods[k];
+  for (const k of OPEX_KEYS) opex[k] = perOutlet.reduce((s, p) => s + num(p.operating_expenses[k]), 0) + delta.operating_expenses[k];
+
+  const blocked = perOutlet.filter((p) => p.pnl_state === 'PHYSICAL_NOT_READY').map((p) => p.outlet_id);
+  const officialCogs = perOutlet.reduce((s, p) => s + num(p.cost_of_goods?.official_cogs ?? p.cost_of_goods?.actual_consumption), 0)
+    + delta.cost_of_goods.periodic_cogs;
+  const wastage = perOutlet.reduce((s, p) => s + num(p.cost_of_goods?.wastage_cost), 0);
+  const variance = perOutlet.reduce((s, p) => s + num(p.cost_of_goods?.adjustment_variance), 0);
+  const periodicCogs = num(companyPeriodic.cost_of_goods.actual_consumption);
+
+  const adjustedSales = num(revenue.adjusted_sales);
+  const opexTotal = num(opex.total_operating_expenses);
+  const anyBlocked = blocked.length > 0;
+  const totalExpenses = anyBlocked ? null : officialCogs + opexTotal + wastage + variance;
+  const profitLoss = anyBlocked ? null : adjustedSales - totalExpenses;
+  const sources = [...new Set(perOutlet.map((p) => p.cogs_source || 'PERIODIC'))];
+
+  return {
+    outlet_id: 'all',
+    month,
+    year,
+    cogs_source: sources.length === 1 ? sources[0] : 'MIXED',
+    realtime_status: 'OPEN_REALTIME',
+    pnl_state: anyBlocked ? 'PHYSICAL_NOT_READY' : 'OK',
+    blocked_outlets: blocked,
+    revenue,
+    cost_of_goods: {
+      ...costOfGoods,
+      periodic_cogs: periodicCogs,
+      official_cogs: anyBlocked ? null : officialCogs,
+      actual_consumption: anyBlocked ? null : officialCogs,
+      cogs_source: sources.length === 1 ? sources[0] : 'MIXED',
+      wastage_cost: wastage,
+      adjustment_variance: variance,
+    },
+    operating_expenses: opex,
+    summary: {
+      total_revenue: adjustedSales,
+      total_expenses: totalExpenses,
+      profit_loss: profitLoss,
+      food_cost_percentage: !anyBlocked && adjustedSales > 0 ? ((officialCogs / adjustedSales) * 100).toFixed(2) : '0.00',
+      salary_cost_percentage: adjustedSales > 0 ? ((num(opex.total_salary) / adjustedSales) * 100).toFixed(2) : '0.00',
+      utility_cost_percentage: adjustedSales > 0 ? ((num(opex.total_utilities) / adjustedSales) * 100).toFixed(2) : '0.00',
+      net_profit_percentage: !anyBlocked && adjustedSales > 0 ? ((profitLoss / adjustedSales) * 100).toFixed(2) : '0.00',
+    },
+    _periodic: companyPeriodic,
+  };
 };

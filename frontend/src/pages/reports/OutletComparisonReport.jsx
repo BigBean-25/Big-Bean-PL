@@ -189,9 +189,17 @@ const OutletComparisonReport = () => {
                     <tr key={o.outlet_id} className={`transition ${trHover}`}>
                       <td className={`px-4 py-3 text-[14px] font-medium ${mainCls}`}>{o.outlet_name}</td>
                       <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>{fmtINR(o.adjusted_sales)}</td>
-                      <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>{fmtINR(o.actual_consumption)}</td>
+                      <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>
+                        {o.actual_consumption === null ? '—' : fmtINR(o.actual_consumption)}
+                        {o.cogs_source && (
+                          <span className={`ml-1.5 rounded px-1 py-0.5 text-[10px] font-semibold ${o.cogs_source === 'PHYSICAL' ? (isDark ? "bg-[#00CFE8]/15 text-[#00CFE8]" : "bg-[#E7F9FB] text-[#00A9BD]") : (isDark ? "bg-[#3B405A] text-[#A5A8B6]" : "bg-[#F1F0F2] text-[#6E6B7B]")}`}>
+                            {o.cogs_source === 'PHYSICAL' ? 'PHYS' : 'PER'}
+                          </span>
+                        )}
+                        {o.pnl_state === 'PHYSICAL_NOT_READY' && <span className="ml-1 text-[10px] font-semibold text-[#FF9F43]">NOT READY</span>}
+                      </td>
                       <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>{fmtINR(o.total_operating_expenses)}</td>
-                      <td className={`px-4 py-3 text-[14px] font-semibold tabular-nums ${Number(o.profit_loss) >= 0 ? "text-[#28C76F]" : "text-[#EA5455]"}`}>{fmtINR(o.profit_loss)}</td>
+                      <td className={`px-4 py-3 text-[14px] font-semibold tabular-nums ${Number(o.profit_loss) >= 0 ? "text-[#28C76F]" : "text-[#EA5455]"}`}>{o.profit_loss === null ? '—' : fmtINR(o.profit_loss)}</td>
                       <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>{o.food_cost_percentage}%</td>
                       <td className={`px-4 py-3 text-[14px] tabular-nums ${mutedCls}`}>{o.net_profit_percentage}%</td>
                     </tr>

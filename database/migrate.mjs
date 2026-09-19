@@ -76,6 +76,7 @@ const MIGRATIONS = [
   { name: 'add_accounting_effects.sql', file: 'database/add_accounting_effects.sql', why: 'Phase 6A1: accounting_effects bridge/idempotency table - additive, creates zero rows, read by no financial query yet' },
   { name: 'add_supplier_credits_return_unique.sql', file: 'database/add_supplier_credits_return_unique.sql', why: 'Phase 6A4: UNIQUE(purchase_return_id) on supplier_credits - database-level one-credit-per-return guarantee, additive, zero duplicates verified first' },
   { name: 'add_outlet_consumption_module.sql', file: 'database/add_outlet_consumption_module.sql', why: 'Phase 6A7: outlet_consumptions/outlet_consumption_items + outlet_consumption permission seed - explicit controlled physical consumption document' },
+  { name: 'add_outlet_cogs_mode.sql', file: 'database/add_outlet_cogs_mode.sql', why: 'Phase 6A8: outlet_cogs_settings PERIODIC/PHYSICAL cutover + snapshot cogs_source/official_cogs columns - additive, historical snapshots numerically unchanged' },
 ];
 
 async function ensureTrackingTable(conn) {

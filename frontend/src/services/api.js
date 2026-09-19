@@ -492,6 +492,8 @@ export const uploadAPI = {
 export const reportAPI = {
   getMonthlyPL: (params) => api.get("/reports/monthly-pl", { params }),
   finalizeMonthlyPL: (data) => api.post("/reports/monthly-pl/finalize", data),
+  getCogsSettings: (params) => api.get("/reports/monthly-pl/cogs-settings", { params }),
+  updateCogsSettings: (data) => api.put("/reports/monthly-pl/cogs-settings", data),
   getOutletComparison: (params) => api.get("/reports/outlet-comparison", { params }),
   getActualConsumption: (params) =>
     api.get("/reports/actual-consumption", { params }),

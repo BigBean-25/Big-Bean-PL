@@ -92,7 +92,7 @@ const MonthlyPLReport = () => {
   const opex = reportData?.operating_expenses || {};
   const summary = reportData?.summary || {};
 
-  const netProfit = reportData ? parseFloat(summary.profit_loss || 0) : 0;
+  const netProfit = reportData ? parseFloat(summary.profit_loss ?? 0) : 0;
   const isProfitable = netProfit >= 0;
 
   const handleExport = async () => {
@@ -143,6 +143,15 @@ const MonthlyPLReport = () => {
         </div>
         {reportData && (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Phase 6A8: COGS source + period state badges */}
+            <span className={`flex items-center rounded-md border px-3 py-2 text-[12px] font-semibold ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-[#F8F7FA] text-[#5D596C]"}`}>
+              COGS: {reportData.cogs_source || 'PERIODIC'}
+            </span>
+            {reportData.realtime_status === 'OPEN_REALTIME' && !reportData.is_finalized && (
+              <span className={`flex items-center rounded-md border px-3 py-2 text-[12px] font-semibold ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#00CFE8]" : "border-[#EBE9F1] bg-[#E7F9FB] text-[#00CFE8]"}`}>
+                REAL-TIME
+              </span>
+            )}
             {reportData.is_finalized ? (
               <span className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-[13px] font-semibold ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#28C76F]" : "border-[#EBE9F1] bg-[#E9F9EF] text-[#28C76F]"}`}>
                 <LockKeyhole size={15} /> Finalized{reportData.finalized_at ? ` on ${new Date(reportData.finalized_at).toLocaleDateString('en-IN')}` : ''}
@@ -217,7 +226,7 @@ const MonthlyPLReport = () => {
             {[
               { label: "Net Revenue", value: fmt(revenue.adjusted_sales), color: primaryColor, bg: `${primaryColor}18`, icon: TrendingUp },
               { label: "Total Costs", value: fmt(summary.total_expenses), color: "#EA5455", bg: "#FCEAEA", icon: ShoppingBag },
-              { label: "Net Profit", value: fmt(netProfit), color: isProfitable ? "#28C76F" : "#EA5455", bg: isProfitable ? "#E9F9EF" : "#FCEAEA", icon: isProfitable ? TrendingUp : TrendingDown },
+              { label: "Net Profit", value: reportData.pnl_state === 'PHYSICAL_NOT_READY' ? 'Not available' : fmt(netProfit), color: isProfitable ? "#28C76F" : "#EA5455", bg: isProfitable ? "#E9F9EF" : "#FCEAEA", icon: isProfitable ? TrendingUp : TrendingDown },
             ].map((item) => {
               const Icon = item.icon;
               return (
@@ -245,12 +254,37 @@ const MonthlyPLReport = () => {
             <PLRow label="Net Revenue (Adjusted Sales)" value={fmt(revenue.adjusted_sales)} isTotal isDark={isDark} border />
           </PLSection>
 
+          {/* PHYSICAL-not-ready banner: official totals are unavailable, not
+              silently substituted with the periodic figure */}
+          {reportData.pnl_state === 'PHYSICAL_NOT_READY' && (
+            <div className={`animate-fade-up rounded-md border px-4 py-3 text-[13px] font-medium ${isDark ? "border-[#FF9F43]/40 bg-[#3A3226] text-[#FF9F43]" : "border-[#FF9F43]/40 bg-[#FFF3E8] text-[#B96A00]"}`}>
+              Physical COGS mode is enabled for this outlet but the period is not PHYSICAL_READY
+              {reportData.physical?.readiness_reasons?.length ? ` (${reportData.physical.readiness_reasons.join(', ')})` : ''}.
+              Official P&L totals are unavailable for this period; periodic figures below are reference only.
+            </div>
+          )}
+
           {/* COGS Section */}
           <PLSection title="Cost of Goods Sold (COGS)" icon={ShoppingBag} isDark={isDark} color="#FF9F43">
-            <PLRow label="Opening Stock" value={fmt(cogs.opening_stock)} isDark={isDark} />
-            <PLRow label="Purchases" value={fmt(cogs.purchases)} isDark={isDark} />
-            <PLRow label="Closing Stock" value={`−${fmt(cogs.closing_stock)}`} isNegative isDark={isDark} />
-            <PLRow label="Actual Consumption (COGS)" value={fmt(cogs.actual_consumption)} isTotal isDark={isDark} border />
+            {(reportData.cogs_source || 'PERIODIC') === 'PHYSICAL' ? (
+              <>
+                <PLRow label="Physical Consumption COGS (Posted Outlet Consumption)" value={fmt(cogs.physical_consumption_cogs)} isDark={isDark} />
+                <PLRow label="Wastage (separate operational loss)" value={fmt(cogs.wastage_cost)} isDark={isDark} />
+                <PLRow label="Inventory Adjustment Variance" value={fmt(cogs.adjustment_variance)} isDark={isDark} />
+                <PLRow label="Official COGS" value={cogs.official_cogs === null ? 'Not available' : fmt(cogs.official_cogs)} isTotal isDark={isDark} border />
+                <p className={`mt-2 text-[12px] ${mutedCls}`}>
+                  Periodic reference: Opening {fmt(cogs.opening_stock)} + Purchases {fmt(cogs.purchases)} − Closing {fmt(cogs.closing_stock)} = {fmt(cogs.periodic_cogs)}
+                  {cogs.physical_readiness ? ` · Physical readiness: ${cogs.physical_readiness}` : ''}
+                </p>
+              </>
+            ) : (
+              <>
+                <PLRow label="Opening Stock" value={fmt(cogs.opening_stock)} isDark={isDark} />
+                <PLRow label="Purchases" value={fmt(cogs.purchases)} isDark={isDark} />
+                <PLRow label="Closing Stock" value={`−${fmt(cogs.closing_stock)}`} isNegative isDark={isDark} />
+                <PLRow label="Actual Consumption (COGS)" value={fmt(cogs.actual_consumption)} isTotal isDark={isDark} border />
+              </>
+            )}
           </PLSection>
 
           {/* Expenses Section */}
@@ -265,8 +299,14 @@ const MonthlyPLReport = () => {
           {/* Summary Section */}
           <PLSection title="P&L Summary" icon={BarChart2} isDark={isDark} color={isProfitable ? "#28C76F" : "#EA5455"}>
             <PLRow label="Net Revenue" value={fmt(revenue.adjusted_sales)} isDark={isDark} />
-            <PLRow label="Total COGS" value={`−${fmt(cogs.actual_consumption)}`} isNegative isDark={isDark} />
+            <PLRow label="Total COGS" value={cogs.actual_consumption === null ? 'Not available' : `−${fmt(cogs.actual_consumption)}`} isNegative isDark={isDark} />
             <PLRow label="Total Operating Expenses" value={`−${fmt(opex.total_operating_expenses)}`} isNegative isDark={isDark} />
+            {(reportData.cogs_source === 'PHYSICAL') && (
+              <>
+                <PLRow label="Wastage" value={`−${fmt(cogs.wastage_cost)}`} isNegative isDark={isDark} />
+                <PLRow label="Inventory Adjustment Variance" value={`−${fmt(cogs.adjustment_variance)}`} isNegative isDark={isDark} />
+              </>
+            )}
             <PLRow label="Net Profit / Loss" value={fmt(netProfit)} isTotal isDark={isDark} border isNegative={!isProfitable} />
             <div className={`mt-4 grid grid-cols-2 gap-3 border-t pt-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
               {[

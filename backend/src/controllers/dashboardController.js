@@ -1,5 +1,5 @@
 import { query } from '../config/database.js';
-import { getOutletPL } from '../services/plCalculator.js';
+import { getOfficialOutletPL } from '../services/plCalculator.js';
 
 const money = (value) => Number(value || 0);
 
@@ -12,7 +12,9 @@ export const getDashboardSummary = async (req, res) => {
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
 
-    const pl = await getOutletPL({ outletId, month, year });
+    // Phase 6A8: canonical official P&L - same source of truth as the Monthly
+    // P&L report (snapshot for finalized months, mode-resolved live otherwise).
+    const pl = await getOfficialOutletPL({ outletId, month, year });
 
     const pendingUploads = await query(
       `SELECT COUNT(*) as value FROM (
@@ -38,6 +40,8 @@ export const getDashboardSummary = async (req, res) => {
         purchases: money(pl.cost_of_goods.purchases),
         closing_stock: money(pl.cost_of_goods.closing_stock),
         cogs: money(pl.cost_of_goods.actual_consumption),
+        cogs_source: pl.cogs_source || 'PERIODIC',
+        pnl_state: pl.pnl_state || 'OK',
         payroll_cost: money(pl.operating_expenses.total_salary),
         daily_expenses: money(pl.operating_expenses.daily_cash_expenses),
         platform_charges: platformCharges,
