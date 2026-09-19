@@ -73,6 +73,7 @@ const MIGRATIONS = [
   { name: 'add_material_purchase_approval_workflow.sql', file: 'database/add_material_purchase_approval_workflow.sql', why: 'Phase 5D2B2: approval_status + submit/verify/reject audit columns on material_purchase_uploads (backfills Completed incl. CASHEXP-* rows as Verified with NULL verifier)' },
   { name: 'add_item_sales_approval_workflow.sql', file: 'database/add_item_sales_approval_workflow.sql', why: 'Phase 5D2B3: approval_status + submit/verify/reject audit columns on item_sales_uploads (backfills Completed rows as Verified with NULL verifier)' },
   { name: 'add_item_tax_approval_workflow.sql', file: 'database/add_item_tax_approval_workflow.sql', why: 'Phase 5D2B4: approval_status + submit/verify/reject audit columns on petpooja_item_tax_uploads (backfills all pre-existing rows as Verified with NULL verifier)' },
+  { name: 'add_accounting_effects.sql', file: 'database/add_accounting_effects.sql', why: 'Phase 6A1: accounting_effects bridge/idempotency table - additive, creates zero rows, read by no financial query yet' },
 ];
 
 async function ensureTrackingTable(conn) {
