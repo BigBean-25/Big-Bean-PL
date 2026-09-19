@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { convertToBase } from '../utils/uomUtils.js';
 
 // Phase 6A2 - SHADOW physical <-> accounting reconciliation.
 //
@@ -102,10 +103,12 @@ export const getPhysicalAccountingReconciliation = async ({
     `SELECT g.id AS grn_id, g.grn_no, g.grn_date, g.supplier_id, g.invoice_reference,
             g.warehouse_location_id, l.outlet_id AS mapped_outlet_id, l.location_name, l.location_type,
             gi.id AS grn_item_id, gi.raw_material_id, gi.accepted_qty, gi.unit_id,
-            gi.rate, gi.tax_amount, gi.total_amount
+            gi.rate, gi.tax_amount, gi.total_amount,
+            rm.unit_id AS material_base_unit_id
      FROM grn g
      JOIN grn_items gi ON gi.grn_id = g.id
      LEFT JOIN locations l ON l.id = g.warehouse_location_id
+     LEFT JOIN raw_materials rm ON rm.id = gi.raw_material_id
      WHERE ${physWhere}
      ORDER BY g.grn_date, g.id, gi.id`,
     physParams
@@ -300,6 +303,39 @@ export const getPhysicalAccountingReconciliation = async ({
       e.claim_upload_item_id !== null && itemIds.has(e.claim_upload_item_id));
     r.resolved_by_claim = resolving.length > 0;
     r.resolving_effect_ids = resolving.map((e) => e.id);
+  }
+
+  // ---------------- RETURN ALIGNMENT (Phase 6A4) ----------------
+  // Posted/Locked purchase returns referencing each GRN item - still
+  // read-only. A GRN whose physical receipt was (partially) sent back shows
+  // the returned base qty, the net physical receipt and a NO_RETURN /
+  // PARTIAL_RETURN / RETURN_POSTED alignment. The supplier-credit side of
+  // the same returns is in the purchase_returns section below; nothing
+  // here writes or restates either side.
+  const returnedRows = await query(
+    `SELECT pri.grn_item_id, COALESCE(SUM(pri.base_qty), 0) AS returned_base_qty
+     FROM purchase_return_items pri
+     JOIN purchase_returns pr ON pr.id = pri.purchase_return_id
+     WHERE pr.status IN ('Posted','Locked') AND pri.grn_item_id IS NOT NULL
+     GROUP BY pri.grn_item_id`
+  );
+  const returnedByItem = new Map(returnedRows.map((r) => [Number(r.grn_item_id), num(r.returned_base_qty)]));
+  const acceptedBaseByItem = new Map();
+  for (const p of physicalPurchases) {
+    let base = num(p.accepted_qty);
+    try {
+      if (p.unit_id && p.material_base_unit_id) {
+        base = await convertToBase(num(p.accepted_qty), p.unit_id, p.material_base_unit_id);
+      }
+    } catch { /* no conversion defined - keep accepted_qty as reported */ }
+    acceptedBaseByItem.set(Number(p.grn_item_id), base);
+  }
+  for (const row of purchaseReconciliation) {
+    const acceptedBase = acceptedBaseByItem.get(Number(row.grn_item_id)) ?? num(row.accepted_qty);
+    const returned = returnedByItem.get(Number(row.grn_item_id)) || 0;
+    row.returned_base_qty = returned;
+    row.net_physical_receipt_qty = Math.max(0, acceptedBase - returned);
+    row.return_alignment = returned <= 0 ? 'NO_RETURN' : returned >= acceptedBase ? 'RETURN_POSTED' : 'PARTIAL_RETURN';
   }
 
   // ---------------- OPENING RECONCILIATION ----------------

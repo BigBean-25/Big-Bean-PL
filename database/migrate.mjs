@@ -74,6 +74,7 @@ const MIGRATIONS = [
   { name: 'add_item_sales_approval_workflow.sql', file: 'database/add_item_sales_approval_workflow.sql', why: 'Phase 5D2B3: approval_status + submit/verify/reject audit columns on item_sales_uploads (backfills Completed rows as Verified with NULL verifier)' },
   { name: 'add_item_tax_approval_workflow.sql', file: 'database/add_item_tax_approval_workflow.sql', why: 'Phase 5D2B4: approval_status + submit/verify/reject audit columns on petpooja_item_tax_uploads (backfills all pre-existing rows as Verified with NULL verifier)' },
   { name: 'add_accounting_effects.sql', file: 'database/add_accounting_effects.sql', why: 'Phase 6A1: accounting_effects bridge/idempotency table - additive, creates zero rows, read by no financial query yet' },
+  { name: 'add_supplier_credits_return_unique.sql', file: 'database/add_supplier_credits_return_unique.sql', why: 'Phase 6A4: UNIQUE(purchase_return_id) on supplier_credits - database-level one-credit-per-return guarantee, additive, zero duplicates verified first' },
 ];
 
 async function ensureTrackingTable(conn) {

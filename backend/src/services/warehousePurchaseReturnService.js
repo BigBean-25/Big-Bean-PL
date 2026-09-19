@@ -1,6 +1,7 @@
 import { query, getConnection } from '../config/database.js';
 import { convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
 import { assertNotOwnDocument } from '../utils/makerChecker.js';
+import { assertDateEditable } from '../utils/periodLock.js';
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
 const fmt = n => Math.round((num(n) + Number.EPSILON) * 1e6) / 1e6;
@@ -190,6 +191,58 @@ const computeItem = async (it, locationId) => {
   };
 };
 
+// A return's header and items are only meaningful when they point at the
+// same physical purchase they claim to reverse. Without these checks a
+// return could name supplier A while consuming the returnable quantity of
+// supplier B's GRN item - getReturnableQty() reads the item regardless of
+// who it belongs to - producing a supplier credit to the wrong supplier and
+// a stock deduction on an unrelated material. NULL grn_id / grn_item_id
+// stays allowed: that is the LEGACY/UNLINKED path, linkage is never
+// fabricated. When linkage IS supplied it must be consistent end-to-end,
+// and the credit rate comes from the GRN item itself, never the request.
+const validateReturnLinkage = async (data) => {
+  let headerGrn = null;
+  if (data.grn_id) {
+    const rows = await query('SELECT * FROM grn WHERE id = ?', [data.grn_id]);
+    headerGrn = rows[0];
+    if (!headerGrn) throw new Error('Linked GRN not found');
+    if (headerGrn.status !== 'Posted') throw new Error('A return can only link to a Posted GRN');
+    if (data.supplier_id && Number(headerGrn.supplier_id) !== Number(data.supplier_id)) {
+      throw new Error('Return supplier does not match the linked GRN supplier');
+    }
+    if (data.warehouse_location_id && Number(headerGrn.warehouse_location_id) !== Number(data.warehouse_location_id)) {
+      throw new Error('Return location does not match the linked GRN location');
+    }
+  }
+  const items = [];
+  for (const it of data.items) {
+    if (!it.grn_item_id) { items.push(it); continue; }
+    const rows = await query(
+      `SELECT gi.*, g.id AS grn_id, g.status AS grn_status, g.supplier_id AS grn_supplier_id,
+              g.warehouse_location_id AS grn_location_id
+       FROM grn_items gi JOIN grn g ON g.id = gi.grn_id WHERE gi.id = ?`,
+      [it.grn_item_id]
+    );
+    const gi = rows[0];
+    if (!gi) throw new Error('Linked GRN item not found');
+    if (gi.grn_status !== 'Posted') throw new Error('Return items can only reference a Posted GRN item');
+    if (headerGrn && Number(gi.grn_id) !== Number(headerGrn.id)) {
+      throw new Error('Return item references a GRN item outside the linked GRN');
+    }
+    if (data.supplier_id && Number(gi.grn_supplier_id) !== Number(data.supplier_id)) {
+      throw new Error('Return item references a GRN item belonging to a different supplier');
+    }
+    if (data.warehouse_location_id && Number(gi.grn_location_id) !== Number(data.warehouse_location_id)) {
+      throw new Error('Return item references a GRN item received at a different location');
+    }
+    if (it.raw_material_id && Number(it.raw_material_id) !== Number(gi.raw_material_id)) {
+      throw new Error('Return item material does not match the linked GRN item material');
+    }
+    items.push({ ...it, raw_material_id: gi.raw_material_id, original_purchase_rate: gi.rate });
+  }
+  return items;
+};
+
 export const createReturn = async (data, userId) => {
   const return_no = await nextReturnNo();
   const conn = await getConnection();
@@ -199,18 +252,19 @@ export const createReturn = async (data, userId) => {
       INSERT INTO purchase_returns (return_no, return_date, supplier_id, grn_id, warehouse_location_id, supplier_invoice_reference,
         supplier_credit_note_no, supplier_credit_note_date, return_reason, remarks, status, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
-    `, [return_no, data.return_date, data.supplier_id, data.grn_id, data.warehouse_location_id, data.supplier_invoice_reference || null,
-        data.supplier_credit_note_no || null, data.supplier_credit_note_date || null, data.return_reason, data.remarks, userId]);
+    `, [return_no, data.return_date, data.supplier_id, data.grn_id || null, data.warehouse_location_id, data.supplier_invoice_reference || null,
+        data.supplier_credit_note_no || null, data.supplier_credit_note_date || null, data.return_reason || null, data.remarks || null, userId]);
     const returnId = h.insertId;
+    const items = await validateReturnLinkage(data);
     let totalQty = 0, totalValue = 0;
-    for (const it of data.items) {
+    for (const it of items) {
       const comp = await computeItem(it, data.warehouse_location_id);
       await conn.execute(`
         INSERT INTO purchase_return_items (purchase_return_id, grn_item_id, raw_material_id, batch_no, expiry_date, return_qty,
           input_unit_id, base_qty, base_unit_id, original_purchase_rate, supplier_credit_value, inventory_unit_cost, inventory_value, reason, remarks)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [returnId, it.grn_item_id, it.raw_material_id, it.batch_no || null, it.expiry_date || null, it.return_qty, it.input_unit_id,
-          comp.base_qty, comp.base_unit_id, comp.original_purchase_rate, comp.supplier_credit_value, comp.inventory_unit_cost, comp.inventory_value, it.reason, it.remarks || null]);
+      `, [returnId, it.grn_item_id || null, it.raw_material_id, it.batch_no || null, it.expiry_date || null, it.return_qty, it.input_unit_id,
+          comp.base_qty, comp.base_unit_id, comp.original_purchase_rate, comp.supplier_credit_value, comp.inventory_unit_cost, comp.inventory_value, it.reason || null, it.remarks || null]);
       totalQty += comp.base_qty;
       totalValue += comp.inventory_value;
     }
@@ -229,18 +283,19 @@ export const updateReturn = async (id, data, userId) => {
     await conn.execute(`
       UPDATE purchase_returns SET return_date=?, supplier_id=?, grn_id=?, warehouse_location_id=?, supplier_invoice_reference=?,
         supplier_credit_note_no=?, supplier_credit_note_date=?, return_reason=?, remarks=? WHERE id=?
-    `, [data.return_date, data.supplier_id, data.grn_id, data.warehouse_location_id, data.supplier_invoice_reference || null,
-        data.supplier_credit_note_no || null, data.supplier_credit_note_date || null, data.return_reason, data.remarks, id]);
+    `, [data.return_date, data.supplier_id, data.grn_id || null, data.warehouse_location_id, data.supplier_invoice_reference || null,
+        data.supplier_credit_note_no || null, data.supplier_credit_note_date || null, data.return_reason || null, data.remarks || null, id]);
     await conn.execute('DELETE FROM purchase_return_items WHERE purchase_return_id = ?', [id]);
+    const items = await validateReturnLinkage(data);
     let totalQty = 0, totalValue = 0;
-    for (const it of data.items) {
+    for (const it of items) {
       const comp = await computeItem(it, data.warehouse_location_id);
       await conn.execute(`
         INSERT INTO purchase_return_items (purchase_return_id, grn_item_id, raw_material_id, batch_no, expiry_date, return_qty,
           input_unit_id, base_qty, base_unit_id, original_purchase_rate, supplier_credit_value, inventory_unit_cost, inventory_value, reason, remarks)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [id, it.grn_item_id, it.raw_material_id, it.batch_no || null, it.expiry_date || null, it.return_qty, it.input_unit_id,
-          comp.base_qty, comp.base_unit_id, comp.original_purchase_rate, comp.supplier_credit_value, comp.inventory_unit_cost, comp.inventory_value, it.reason, it.remarks || null]);
+      `, [id, it.grn_item_id || null, it.raw_material_id, it.batch_no || null, it.expiry_date || null, it.return_qty, it.input_unit_id,
+          comp.base_qty, comp.base_unit_id, comp.original_purchase_rate, comp.supplier_credit_value, comp.inventory_unit_cost, comp.inventory_value, it.reason || null, it.remarks || null]);
       totalQty += comp.base_qty;
       totalValue += comp.inventory_value;
     }
@@ -312,6 +367,21 @@ export const postReturn = async (id, userId) => {
     if (!lockRows[0] || lockRows[0].status !== 'Approved') {
       await conn.rollback();
       throw new Error('Only Approved returns can be posted');
+    }
+    // A Posted return writes stock_ledger rows AND a supplier_credit - both
+    // effective immediately. Posting into a month whose P&L is already
+    // finalized would silently mutate a reported period, so the return
+    // date and the credit-note date (which is what buckets the outstanding
+    // reduction - see getCumulativeCredits) are both guarded. Central
+    // locations have no accounting outlet and therefore no period to lock -
+    // the same unowned rule the 6A3 bridge applies; no outlet is guessed.
+    const [locRows] = await conn.execute('SELECT outlet_id FROM locations WHERE id = ?', [existing.warehouse_location_id]);
+    const accountingOutletId = locRows[0] ? locRows[0].outlet_id : null;
+    if (accountingOutletId !== null && accountingOutletId !== undefined) {
+      await assertDateEditable(accountingOutletId, existing.return_date, 'A purchase return');
+      if (existing.supplier_credit_note_date) {
+        await assertDateEditable(accountingOutletId, existing.supplier_credit_note_date, 'A purchase return supplier credit');
+      }
     }
     const [itemRows] = await conn.execute('SELECT * FROM purchase_return_items WHERE purchase_return_id = ?', [id]);
     for (const it of itemRows) {
