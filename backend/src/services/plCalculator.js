@@ -323,6 +323,35 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
   if (rows.length === 0) return null;
 
   const s = rows[0];
+
+  // Snapshots store a more granular cost model than getOutletPL() returns.
+  // finalizeMonth() embeds the residual splits it cannot store in dedicated
+  // columns (daily cash expenses, non-billed utilities, uncategorized fixed
+  // costs, the dine-in share of combined tcs/tds) as JSON in `remarks` so the
+  // frozen report reconstructs exactly; snapshots without it degrade to a
+  // lumped but still total-correct read.
+  let detail = {};
+  try {
+    const marker = 'SNAPSHOT_DETAIL:';
+    const raw = String(s.remarks || '');
+    if (raw.startsWith(marker)) detail = JSON.parse(raw.slice(marker.length));
+  } catch { detail = {}; }
+
+  const totalPlatformCharges = num(s.total_platform_charges);
+  const dineInTcsTds = num(detail.dinein_tcs_tds);
+  const totalOnlineDeductions = totalPlatformCharges - num(s.dine_in_commission) - dineInTcsTds;
+  const totalDineInDeductions = num(s.dine_in_commission) + dineInTcsTds;
+  const adjustedSales = num(s.net_sales) - totalPlatformCharges;
+  const actualConsumption = num(s.cogs);
+  const utilityResidual = num(detail.utility_residual);
+  const dailyCash = num(detail.daily_cash_expenses);
+  const fixedCosts = num(s.rent) + num(s.accommodation) +
+    (detail.daily_cash_expenses !== undefined
+      ? num(detail.fixed_residual)
+      : num(s.other_expenses));
+  const totalUtilities = num(s.electricity) + num(s.maintenance) + num(s.water) + utilityResidual;
+  const totalOperatingExpenses = dailyCash + totalUtilities + num(s.total_payroll_cost) + fixedCosts;
+
   return {
     outlet_id: outletId,
     month,
@@ -331,48 +360,48 @@ export const getFinalizedSnapshot = async ({ outletId, month, year }) => {
     finalized_at: s.finalized_at,
     revenue: {
       gross_sales: num(s.gross_sales),
-      discounts: num(s.discounts),
-      taxes: num(s.taxes),
+      discounts: num(s.total_discount),
+      taxes: num(s.total_tax),
       net_sales: num(s.net_sales),
-      online_commission: num(s.online_commission),
-      payment_gateway_charges: num(s.payment_gateway_charges),
-      tcs_tds: num(s.tcs_tds),
-      total_online_deductions: num(s.total_online_deductions),
-      total_dinein_deductions: num(s.total_dinein_deductions),
-      adjusted_sales: num(s.adjusted_sales)
+      online_commission: num(s.zomato_commission) + num(s.swiggy_commission),
+      payment_gateway_charges: num(s.gateway_charges),
+      tcs_tds: num(s.tcs) + num(s.tds),
+      total_online_deductions: totalOnlineDeductions,
+      total_dinein_deductions: totalDineInDeductions,
+      adjusted_sales: adjustedSales
     },
     cost_of_goods: {
       opening_stock: num(s.opening_stock),
       purchases: num(s.purchases),
       closing_stock: num(s.closing_stock),
-      actual_consumption: num(s.actual_consumption)
+      actual_consumption: actualConsumption
     },
     operating_expenses: {
-      daily_cash_expenses: num(s.daily_cash_expenses),
-      electricity_bill: num(s.electricity_bill),
-      maintenance_cost: num(s.maintenance_cost),
-      water_bill: num(s.water_bill),
-      garbage: num(s.garbage),
-      internet: num(s.internet),
-      gas: num(s.gas),
-      other_utility: num(s.other_utility),
-      total_utilities: num(s.total_utilities),
+      daily_cash_expenses: dailyCash,
+      electricity_bill: num(s.electricity),
+      maintenance_cost: num(s.maintenance),
+      water_bill: num(s.water),
+      garbage: 0,
+      internet: 0,
+      gas: 0,
+      other_utility: utilityResidual,
+      total_utilities: totalUtilities,
       employee_salary: num(s.employee_salary),
-      incentive_bonus: num(s.incentive_bonus),
-      staff_accommodation: num(s.staff_accommodation),
-      other_staff_cost: num(s.other_staff_cost),
-      total_salary: num(s.total_salary),
-      fixed_costs: num(s.fixed_costs),
-      total_operating_expenses: num(s.total_operating_expenses)
+      incentive_bonus: num(s.incentives),
+      staff_accommodation: 0,
+      other_staff_cost: num(s.staff_benefits),
+      total_salary: num(s.total_payroll_cost),
+      fixed_costs: fixedCosts,
+      total_operating_expenses: totalOperatingExpenses
     },
     summary: {
-      total_revenue: num(s.total_revenue),
-      total_expenses: num(s.total_expenses),
-      profit_loss: num(s.profit_loss),
-      food_cost_percentage: Number(s.food_cost_percentage).toFixed(2),
-      salary_cost_percentage: Number(s.salary_cost_percentage).toFixed(2),
-      utility_cost_percentage: Number(s.utility_cost_percentage).toFixed(2),
-      net_profit_percentage: Number(s.net_profit_percentage).toFixed(2)
+      total_revenue: adjustedSales,
+      total_expenses: actualConsumption + totalOperatingExpenses,
+      profit_loss: num(s.net_profit),
+      food_cost_percentage: adjustedSales > 0 ? ((actualConsumption / adjustedSales) * 100).toFixed(2) : '0.00',
+      salary_cost_percentage: adjustedSales > 0 ? ((num(s.total_payroll_cost) / adjustedSales) * 100).toFixed(2) : '0.00',
+      utility_cost_percentage: adjustedSales > 0 ? ((totalUtilities / adjustedSales) * 100).toFixed(2) : '0.00',
+      net_profit_percentage: Number(s.net_profit_percentage || 0).toFixed(2)
     }
   };
 };
@@ -402,60 +431,134 @@ export const finalizeMonth = async ({ outletId, month, year, userId }) => {
 
   const pl = await getOutletPL({ outletId, month, year });
 
+  // The canonical monthly_pnl_snapshots schema stores a more granular cost
+  // model than getOutletPL() returns (per-platform commissions, tcs/tds
+  // split, payroll sub-types, categorized fixed costs, generated totals).
+  // Component values the P&L object does not carry are re-derived below from
+  // the same Verified source rows and filters getOutletPL() already uses -
+  // no new financial logic, only finer-grained reads of the same inputs.
+  const [platformSplit, onlineSplit, dineInSplit, fixedSplit] = await Promise.all([
+    query(
+      `SELECT op.platform_name, COALESCE(SUM(o.platform_commission), 0) AS commission
+       FROM online_payouts o
+       INNER JOIN online_platforms op ON op.id = o.platform_id
+       WHERE o.outlet_id = ? AND o.month = ? AND o.year = ? AND o.status = 'Verified'
+       GROUP BY op.platform_name`,
+      [outletId, month, year]
+    ),
+    query(
+      `SELECT COALESCE(SUM(tcs), 0) AS tcs, COALESCE(SUM(tds), 0) AS tds,
+              COALESCE(SUM(other_deductions), 0) AS other_deductions
+       FROM online_payouts
+       WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Verified'`,
+      [outletId, month, year]
+    ),
+    query(
+      `SELECT COALESCE(SUM(portal_commission), 0) AS commission,
+              COALESCE(SUM(tcs), 0) AS tcs, COALESCE(SUM(tds), 0) AS tds
+       FROM dine_in_payouts
+       WHERE outlet_id = ? AND month = ? AND year = ? AND status = 'Verified'`,
+      [outletId, month, year]
+    ),
+    query(
+      `SELECT category, COALESCE(SUM(amount), 0) AS amount
+       FROM outlet_fixed_costs
+       WHERE outlet_id = ? AND month = ? AND year = ?
+       GROUP BY category`,
+      [outletId, month, year]
+    )
+  ]);
+
+  const commissionFor = (name) =>
+    num((platformSplit.find((r) => r.platform_name === name) || {}).commission);
+  const zomatoCommission = commissionFor('Zomato');
+  const swiggyCommission = commissionFor('Swiggy');
+  const otherPlatformCommission = platformSplit.reduce(
+    (acc, r) => acc + (['Zomato', 'Swiggy'].includes(r.platform_name) ? 0 : num(r.commission)),
+    0
+  );
+  const online = onlineSplit[0] || {};
+  const dine = dineInSplit[0] || {};
+
+  let rent = 0;
+  let accommodation = 0;
+  let fixedResidual = 0;
+  for (const row of fixedSplit) {
+    const category = String(row.category || '').toLowerCase();
+    if (category.includes('rent')) rent += num(row.amount);
+    else if (category.includes('accommodat')) accommodation += num(row.amount);
+    else fixedResidual += num(row.amount);
+  }
+
+  const opex = pl.operating_expenses;
+  const utilityResidual =
+    num(opex.garbage) + num(opex.internet) + num(opex.gas) + num(opex.other_utility);
+  // other_expenses absorbs every expense component with no dedicated column
+  // (daily cash expenses, non-billed utilities, uncategorized fixed costs) so
+  // the stored buckets still sum to the P&L's real expense total.
+  const otherExpenses = num(opex.daily_cash_expenses) + utilityResidual + fixedResidual;
+  // staff_benefits = non-salary staff costs; with employee_salary + incentives
+  // this keeps generated total_payroll_cost equal to pl's total_salary.
+  const staffBenefits = num(opex.staff_accommodation) + num(opex.other_staff_cost);
+  // other_deductions = portal other_deductions + commission on platforms other
+  // than Zomato/Swiggy; with the named columns this keeps generated
+  // total_platform_charges equal to pl's combined online+dine-in deductions.
+  const otherDeductions = num(online.other_deductions) + otherPlatformCommission;
+
+  const netSales = num(pl.revenue.net_sales);
+  const cogs = num(pl.cost_of_goods.actual_consumption);
+  const grossProfitPercentage = netSales > 0 ? ((netSales - cogs) / netSales) * 100 : null;
+
+  const remarks = 'SNAPSHOT_DETAIL:' + JSON.stringify({
+    daily_cash_expenses: num(opex.daily_cash_expenses),
+    utility_residual: utilityResidual,
+    fixed_residual: fixedResidual,
+    dinein_tcs_tds: num(dine.tcs) + num(dine.tds)
+  });
+
   await query(
     `INSERT INTO monthly_pnl_snapshots (
       outlet_id, month, year,
-      gross_sales, discounts, taxes, net_sales, online_commission, payment_gateway_charges,
-      tcs_tds, total_online_deductions, total_dinein_deductions, adjusted_sales,
-      opening_stock, purchases, closing_stock, actual_consumption,
-      daily_cash_expenses, electricity_bill, maintenance_cost, water_bill, garbage, internet,
-      gas, other_utility, total_utilities, employee_salary, incentive_bonus,
-      staff_accommodation, other_staff_cost, total_salary, fixed_costs, total_operating_expenses,
-      total_revenue, total_expenses, profit_loss, food_cost_percentage,
-      salary_cost_percentage, utility_cost_percentage, net_profit_percentage,
-      is_finalized, finalized_by, finalized_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())
+      gross_sales, total_discount, net_sales, total_tax,
+      opening_stock, purchases, closing_stock, gross_profit_percentage,
+      employee_salary, incentives, overtime, staff_benefits,
+      rent, electricity, water, maintenance, accommodation, other_expenses,
+      zomato_commission, swiggy_commission, dine_in_commission,
+      gateway_charges, tds, tcs, other_deductions,
+      net_profit_percentage, is_finalized, finalized_by, finalized_at, remarks
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), ?)
     ON DUPLICATE KEY UPDATE
-      gross_sales = VALUES(gross_sales), discounts = VALUES(discounts), taxes = VALUES(taxes),
-      net_sales = VALUES(net_sales), online_commission = VALUES(online_commission),
-      payment_gateway_charges = VALUES(payment_gateway_charges), tcs_tds = VALUES(tcs_tds),
-      total_online_deductions = VALUES(total_online_deductions),
-      total_dinein_deductions = VALUES(total_dinein_deductions), adjusted_sales = VALUES(adjusted_sales),
+      gross_sales = VALUES(gross_sales), total_discount = VALUES(total_discount),
+      net_sales = VALUES(net_sales), total_tax = VALUES(total_tax),
       opening_stock = VALUES(opening_stock), purchases = VALUES(purchases),
-      closing_stock = VALUES(closing_stock), actual_consumption = VALUES(actual_consumption),
-      daily_cash_expenses = VALUES(daily_cash_expenses), electricity_bill = VALUES(electricity_bill),
-      maintenance_cost = VALUES(maintenance_cost), water_bill = VALUES(water_bill),
-      garbage = VALUES(garbage), internet = VALUES(internet), gas = VALUES(gas),
-      other_utility = VALUES(other_utility), total_utilities = VALUES(total_utilities),
-      employee_salary = VALUES(employee_salary), incentive_bonus = VALUES(incentive_bonus),
-      staff_accommodation = VALUES(staff_accommodation), other_staff_cost = VALUES(other_staff_cost),
-      total_salary = VALUES(total_salary), fixed_costs = VALUES(fixed_costs),
-      total_operating_expenses = VALUES(total_operating_expenses),
-      total_revenue = VALUES(total_revenue), total_expenses = VALUES(total_expenses),
-      profit_loss = VALUES(profit_loss), food_cost_percentage = VALUES(food_cost_percentage),
-      salary_cost_percentage = VALUES(salary_cost_percentage),
-      utility_cost_percentage = VALUES(utility_cost_percentage),
+      closing_stock = VALUES(closing_stock),
+      gross_profit_percentage = VALUES(gross_profit_percentage),
+      employee_salary = VALUES(employee_salary), incentives = VALUES(incentives),
+      overtime = VALUES(overtime), staff_benefits = VALUES(staff_benefits),
+      rent = VALUES(rent), electricity = VALUES(electricity), water = VALUES(water),
+      maintenance = VALUES(maintenance), accommodation = VALUES(accommodation),
+      other_expenses = VALUES(other_expenses),
+      zomato_commission = VALUES(zomato_commission),
+      swiggy_commission = VALUES(swiggy_commission),
+      dine_in_commission = VALUES(dine_in_commission),
+      gateway_charges = VALUES(gateway_charges), tds = VALUES(tds), tcs = VALUES(tcs),
+      other_deductions = VALUES(other_deductions),
       net_profit_percentage = VALUES(net_profit_percentage),
-      is_finalized = 1, finalized_by = VALUES(finalized_by), finalized_at = NOW()`,
+      is_finalized = 1, finalized_by = VALUES(finalized_by),
+      finalized_at = NOW(), remarks = VALUES(remarks)`,
     [
       outletId, month, year,
-      pl.revenue.gross_sales, pl.revenue.discounts, pl.revenue.taxes, pl.revenue.net_sales,
-      pl.revenue.online_commission, pl.revenue.payment_gateway_charges, pl.revenue.tcs_tds,
-      pl.revenue.total_online_deductions, pl.revenue.total_dinein_deductions, pl.revenue.adjusted_sales,
-      pl.cost_of_goods.opening_stock, pl.cost_of_goods.purchases, pl.cost_of_goods.closing_stock,
-      pl.cost_of_goods.actual_consumption,
-      pl.operating_expenses.daily_cash_expenses, pl.operating_expenses.electricity_bill,
-      pl.operating_expenses.maintenance_cost, pl.operating_expenses.water_bill,
-      pl.operating_expenses.garbage, pl.operating_expenses.internet, pl.operating_expenses.gas,
-      pl.operating_expenses.other_utility, pl.operating_expenses.total_utilities,
-      pl.operating_expenses.employee_salary, pl.operating_expenses.incentive_bonus,
-      pl.operating_expenses.staff_accommodation, pl.operating_expenses.other_staff_cost,
-      pl.operating_expenses.total_salary, pl.operating_expenses.fixed_costs,
-      pl.operating_expenses.total_operating_expenses,
-      pl.summary.total_revenue, pl.summary.total_expenses, pl.summary.profit_loss,
-      pl.summary.food_cost_percentage, pl.summary.salary_cost_percentage,
-      pl.summary.utility_cost_percentage, pl.summary.net_profit_percentage,
-      userId
+      pl.revenue.gross_sales, pl.revenue.discounts, netSales, pl.revenue.taxes,
+      pl.cost_of_goods.opening_stock, pl.cost_of_goods.purchases,
+      pl.cost_of_goods.closing_stock, grossProfitPercentage,
+      opex.employee_salary, opex.incentive_bonus, 0, staffBenefits,
+      rent, opex.electricity_bill, opex.water_bill, opex.maintenance_cost,
+      accommodation, otherExpenses,
+      zomatoCommission, swiggyCommission, num(dine.commission),
+      pl.revenue.payment_gateway_charges,
+      num(online.tds) + num(dine.tds), num(online.tcs) + num(dine.tcs),
+      otherDeductions,
+      num(pl.summary.net_profit_percentage), userId, remarks
     ]
   );
 
