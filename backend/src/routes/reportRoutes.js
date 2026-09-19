@@ -17,6 +17,7 @@ import {
 import { saveConsumptionVarianceRun } from '../services/consumptionVarianceService.js';
 import { getConsumptionVarianceDiagnostics } from '../services/consumptionVarianceDiagnosticsService.js';
 import { getOutletWastageByCategoryReport } from '../services/outletWastageByCategoryService.js';
+import { getPhysicalAccountingReconciliation } from '../services/physicalAccountingReconciliationService.js';
 
 const router = express.Router();
 
@@ -82,6 +83,27 @@ router.get('/wastage-by-category', protect, applyOutletScope, checkPermission('r
   } catch (error) {
     console.error('Get wastage by category report error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating wastage by category report' });
+  }
+});
+
+// Phase 6A2: SHADOW physical <-> accounting reconciliation. Read-only
+// diagnostics - returns comparison data only, never writes, never makes a
+// physical transaction financially effective.
+router.get('/physical-accounting-reconciliation', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, from_date, to_date, supplier_id, raw_material_id } = req.query;
+    const data = await getPhysicalAccountingReconciliation({
+      outletId: outlet_id ? Number(outlet_id) : null,
+      fromDate: from_date,
+      toDate: to_date,
+      supplierId: supplier_id ? Number(supplier_id) : null,
+      rawMaterialId: raw_material_id ? Number(raw_material_id) : null,
+      outletScope: req.outletScope,
+    });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get physical-accounting reconciliation error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating reconciliation' });
   }
 });
 
