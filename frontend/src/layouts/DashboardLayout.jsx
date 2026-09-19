@@ -328,6 +328,7 @@ const DashboardLayout = () => {
   );
 
   const sidebarNavRef = useRef(null);
+  const notificationRef = useRef(null);
   const stableScrollRef = useRef({
     pageTop: 0,
     pageLeft: 0,
@@ -412,7 +413,7 @@ const DashboardLayout = () => {
   const effectiveSidebarDark = isDark || semiDark;
 
   const roleName = user?.role_name || user?.role || "User";
-  const dbPermissions = user?.permissions || {};
+  const dbPermissions = useMemo(() => user?.permissions || {}, [user?.permissions]);
   const legacyPermissions = useMemo(() => buildPermissions(roleName), [roleName]);
   const permissions = useMemo(
     () => ({
@@ -586,6 +587,17 @@ const DashboardLayout = () => {
   }, [permissions.isOutletLocked, selectedOutletId, user]);
 
   useEffect(() => {
+    if (!notificationOpen) return undefined;
+    const onDown = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setNotificationOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [notificationOpen]);
+
+  useEffect(() => {
     const keyHandler = (event) => {
       const isSearchKey =
         (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
@@ -636,28 +648,28 @@ const DashboardLayout = () => {
         // Receive flow, respectively - no new backend entities.
         submenu: [
           ...(canView("sales_target") ? [{ title: t.outletDashboard, path: "/outlet-dashboard", group: "Dashboard" }] : []),
-          ...(canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) ? [{ title: t.cashbook, path: "/daily-accounts/cashbook", group: "Daily Accounts" }] : []),
-          ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: t.expenses, path: "/daily-accounts/expenses", group: "Daily Accounts" }] : []),
-          ...(canView("bank_deposits", false) ? [{ title: t.bankDeposits, path: "/daily-accounts/bank-deposits", group: "Daily Accounts" }] : []),
-          ...(canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) ? [{ title: t.dayClosing, path: "/daily-accounts/day-closing", group: "Daily Accounts" }] : []),
-          ...(canView("daily_checklist", legacyCanView("daily_checklist", false)) ? [{ title: t.checklist, path: "/daily-accounts/checklist", group: "Daily Accounts" }] : []),
+          ...(canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) ? [{ title: t.cashbook, path: "/daily-accounts/cashbook", group: "Daily Accounts", alias: true }] : []),
+          ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: t.expenses, path: "/daily-accounts/expenses", group: "Daily Accounts", alias: true }] : []),
+          ...(canView("bank_deposits", false) ? [{ title: t.bankDeposits, path: "/daily-accounts/bank-deposits", group: "Daily Accounts", alias: true }] : []),
+          ...(canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) ? [{ title: t.dayClosing, path: "/daily-accounts/day-closing", group: "Daily Accounts", alias: true }] : []),
+          ...(canView("daily_checklist", legacyCanView("daily_checklist", false)) ? [{ title: t.checklist, path: "/daily-accounts/checklist", group: "Daily Accounts", alias: true }] : []),
           ...(canView("sales_target") ? [{ title: t.outletSalesAnalysis, path: "/outlet-dashboard/sales", group: "Sales" }] : []),
-          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload", group: "Sales" }] : []),
-          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload", group: "Sales" }] : []),
-          ...(canView("outlet_vendors") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases", group: "Purchase" }] : []),
-          ...(canView("outlet_vendors") ? [{ title: t.vendorLedgerPayments, path: "/daily-accounts/vendor-ledger-payments", group: "Purchase" }] : []),
-          ...(canView("warehouse_purchase_orders") ? [{ title: "Vivin Store - Purchase Order", path: "/warehouse/purchase-orders", group: "Purchase" }] : []),
-          ...(canView("grn") ? [{ title: "Vivin Store - Goods Received", path: "/warehouse/grn", group: "Purchase" }] : []),
-          ...(canView("production_requests") ? [{ title: "Big Bean Bake House - Request", path: "/central-kitchen/requests", group: "Purchase" }] : []),
-          ...(canView("production_dispatch") ? [{ title: "Big Bean Bake House - Receive", path: "/central-kitchen-receive", group: "Purchase" }] : []),
-          ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock", group: "Stock" }] : []),
-          ...(canView("closing_stock", legacyCanView("closing_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.closingStock, path: "/stock/closing-stock", group: "Stock" }] : []),
-          ...(canView("outlet_consumption") ? [{ title: "Outlet Consumption", path: "/outlet-consumption", group: "Stock" }] : []),
-          ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials", group: "Master" }] : []),
-          ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories", group: "Master" }] : []),
-          ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers", group: "Master" }] : []),
+          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload", group: "Sales", alias: true }] : []),
+          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload", group: "Sales", alias: true }] : []),
+          ...(canView("outlet_vendors") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases", group: "Purchase", alias: true }] : []),
+          ...(canView("outlet_vendors") ? [{ title: t.vendorLedgerPayments, path: "/daily-accounts/vendor-ledger-payments", group: "Purchase", alias: true }] : []),
+          ...(canView("warehouse_purchase_orders") ? [{ title: "Vivin Store - Purchase Order", path: "/warehouse/purchase-orders", group: "Purchase", alias: true }] : []),
+          ...(canView("grn") ? [{ title: "Vivin Store - Goods Received", path: "/warehouse/grn", group: "Purchase", alias: true }] : []),
+          ...(canView("production_requests") ? [{ title: "Big Bean Bake House - Request", path: "/central-kitchen/requests", group: "Purchase", alias: true }] : []),
+          ...(canView("production_dispatch") ? [{ title: "Big Bean Bake House - Receive", path: "/central-kitchen-receive", group: "Purchase", alias: true }] : []),
+          ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock", group: "Stock", alias: true }] : []),
+          ...(canView("closing_stock", legacyCanView("closing_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.closingStock, path: "/stock/closing-stock", group: "Stock", alias: true }] : []),
+          ...(canView("outlet_consumption") ? [{ title: "Outlet Consumption", path: "/outlet-consumption", group: "Stock", alias: true }] : []),
+          ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials", group: "Master", alias: true }] : []),
+          ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories", group: "Master", alias: true }] : []),
+          ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers", group: "Master", alias: true }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.outletWastageByCategory, path: "/outlet-dashboard/wastage-by-category", group: "Wastage" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Reports Home", path: "/reports", group: "Reports" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Reports Home", path: "/reports", group: "Reports", alias: true }] : []),
         ],
       },
       {
@@ -880,7 +892,11 @@ const DashboardLayout = () => {
   useEffect(() => {
     const activeMenus = {};
     menuItems.forEach((item) => {
-      if (item.submenu?.some((sub) => sub.path === location.pathname)) {
+      // Alias entries are shortcut copies of canonical routes that live in
+      // their own sidebar group - they must not expand or light up this
+      // parent (otherwise e.g. /daily-accounts/cashbook would auto-open both
+      // "Daily Accounts" and "Outlet Sales Overview").
+      if (item.submenu?.some((sub) => !sub.alias && sub.path === location.pathname)) {
         activeMenus[item.key] = true;
       }
     });
@@ -908,9 +924,13 @@ const DashboardLayout = () => {
     return location.pathname === path;
   };
 
+  // A parent group is only "active" when the current route belongs to a
+  // child that canonically lives here. Alias children are outlet-facing
+  // shortcuts to routes owned by other groups - they never make this group
+  // the active destination.
   const isParentActive = (item) => {
     if (item.path) return isActive(item.path);
-    return item.submenu?.some((sub) => isActive(sub.path));
+    return item.submenu?.some((sub) => !sub.alias && isActive(sub.path));
   };
 
   const masterRouteModuleMap = {
@@ -970,6 +990,11 @@ const DashboardLayout = () => {
   };
 
   useEffect(() => {
+    // Do not enforce module guards until the permission matrix has actually
+    // loaded - otherwise a transient empty permissions object would bounce
+    // the user back to "/" mid-navigation.
+    if (!user?.permissions) return;
+
     const masterModuleKey = masterRouteModuleMap[location.pathname];
     if (masterModuleKey) {
       if (!canAccessMasterRoute(masterModuleKey)) {
@@ -1001,7 +1026,7 @@ const DashboardLayout = () => {
         navigate("/", { replace: true });
       }
     }
-  }, [location.pathname, dbPermissions]);
+  }, [location.pathname, dbPermissions, user]);
 
   const searchItems = useMemo(() => {
     const items = [];
@@ -1487,9 +1512,6 @@ const DashboardLayout = () => {
   };
 
   const NotificationDropdown = () => {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const prefersReduced = useReducedMotion();
-
     const borderColor = isDark ? "border-[#3B405A]" : "border-[#DBDADE]";
     const unreadRowBg = isDark ? "bg-[#3B405A]/40" : "bg-[#F8F7FA]";
     const hoverBg    = isDark ? "hover:bg-[#3B405A]/60" : "hover:bg-[#F3F2F7]";
@@ -1500,23 +1522,12 @@ const DashboardLayout = () => {
       info:    { bg: `${primaryColor}18`, fg: primaryColor },
     };
 
-    const STACK = 3;
-    const peekCount = Math.max(0, Math.min(STACK, notifications.length) - 1);
-    const spring = prefersReduced
-      ? { duration: 0 }
-      : { type: "spring", stiffness: 360, damping: 26, mass: 0.8 };
-    const fade = prefersReduced ? { duration: 0 } : { duration: 0.13 };
-
     return (
-      <motion.div
-        layout="size"
-        className={`absolute right-0 top-14 z-50 w-[calc(100vw-2rem)] max-w-[380px] overflow-hidden rounded-md border shadow-xl dropdown-enter ${cardClass}`}
-        onMouseEnter={() => setIsExpanded(true)}
-        onMouseLeave={() => setIsExpanded(false)}
-        transition={spring}
+      <div
+        className={`absolute right-0 top-14 z-50 flex w-[calc(100vw-2rem)] max-w-[380px] flex-col overflow-hidden rounded-md border shadow-xl dropdown-enter ${cardClass}`}
       >
         {/* ── Header ── */}
-        <div className={`flex items-center justify-between border-b ${borderColor} px-5 py-4`}>
+        <div className={`flex shrink-0 items-center justify-between border-b ${borderColor} px-5 py-4`}>
           <div>
             <p className={`text-[17px] font-semibold ${textMain}`}>Notifications</p>
             <p className={`text-[13px] ${textMuted}`}>
@@ -1524,13 +1535,13 @@ const DashboardLayout = () => {
             </p>
           </div>
           {unreadCount > 0 && (
-            <button type="button" onClick={markAllNotificationsRead} className="text-[13px] font-semibold" style={{ color: primaryColor }}>
+            <button type="button" onClick={markAllNotificationsRead} className="shrink-0 text-[13px] font-semibold" style={{ color: primaryColor }}>
               Mark all read
             </button>
           )}
         </div>
 
-        {/* ── Body ── */}
+        {/* ── Scrollable list ── */}
         {notificationsLoading && notifications.length === 0 ? (
           <div className="flex items-center justify-center px-5 py-10">
             <RefreshCw size={24} className="animate-spin text-[#A8AAAE]" />
@@ -1542,131 +1553,45 @@ const DashboardLayout = () => {
             <p className={`mt-1 text-[13px] ${textMuted}`}>New alerts will appear here.</p>
           </div>
         ) : (
-          <AnimatePresence mode="wait" initial={false}>
-            {!isExpanded ? (
-              /* ── STACKED (collapsed) view ── */
-              <motion.div
-                key="stacked"
-                initial={prefersReduced ? {} : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={prefersReduced ? {} : { opacity: 0 }}
-                transition={fade}
-                className="relative cursor-pointer select-none"
-                style={{ paddingBottom: peekCount * 8 }}
-                onClick={() => setIsExpanded(true)}
-              >
-                {/* Front card – in normal flow so it sets the container height */}
-                {(() => {
-                  const item = notifications[0];
-                  const Icon = getNotificationIcon(item.type);
-                  const colors = iconColors[item.type] || iconColors.info;
-                  return (
-                    <div
-                      className={`relative flex items-center gap-3 border-b ${borderColor} px-5 py-4 ${!item.is_read ? unreadRowBg : ""}`}
-                      style={{ zIndex: STACK }}
-                    >
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
-                        <Icon size={20} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={`truncate text-[15px] font-semibold ${textMain}`}>{item.title}</p>
-                        <p className={`mt-0.5 truncate text-[13px] ${textMuted}`}>{item.message}</p>
-                      </div>
-                      {!item.is_read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
+          <div className="max-h-[360px] overflow-y-auto">
+            {notifications.map((item) => {
+              const Icon = getNotificationIcon(item.type);
+              const colors = iconColors[item.type] || iconColors.info;
+              const isUnread = !item.is_read;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => { setNotificationOpen(false); markNotificationAsRead(item.id, item.nav_path); }}
+                  className={`flex w-full items-start gap-3 border-b ${borderColor} px-5 py-3.5 text-left transition last:border-b-0 ${hoverBg} ${isUnread ? unreadRowBg : ""}`}
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
+                    <Icon size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className={`min-w-0 break-words text-[15px] font-semibold leading-snug ${textMain}`}>{item.title}</p>
+                      {isUnread && <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
                     </div>
-                  );
-                })()}
-
-                {/* Back cards – absolute, peek below front card */}
-                {notifications.slice(1, STACK).map((item, i) => {
-                  const stackIdx = i + 1;
-                  const Icon = getNotificationIcon(item.type);
-                  const colors = iconColors[item.type] || iconColors.info;
-                  return (
-                    <motion.div
-                      key={item.id}
-                      className={`absolute inset-x-0 top-0 flex items-center gap-3 border-b ${borderColor} px-5 py-4 ${!item.is_read ? unreadRowBg : ""}`}
-                      style={{ zIndex: STACK - stackIdx, transformOrigin: "50% 0%" }}
-                      animate={prefersReduced ? {} : {
-                        y: stackIdx * 8,
-                        scale: 1 - stackIdx * 0.03,
-                        opacity: 1 - stackIdx * 0.22,
-                      }}
-                      transition={spring}
-                    >
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
-                        <Icon size={20} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={`truncate text-[15px] font-semibold ${textMain}`}>{item.title}</p>
-                        <p className={`mt-0.5 truncate text-[13px] ${textMuted}`}>{item.message}</p>
-                      </div>
-                      {!item.is_read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
-            ) : (
-              /* ── EXPANDED view ── */
-              <motion.div
-                key="expanded"
-                initial={prefersReduced ? {} : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={prefersReduced ? {} : { opacity: 0 }}
-                transition={fade}
-                className="max-h-[360px] overflow-y-auto"
-              >
-                {notifications.map((item) => {
-                  const Icon = getNotificationIcon(item.type);
-                  const colors = iconColors[item.type] || iconColors.info;
-                  const isUnread = !item.is_read;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => { setNotificationOpen(false); markNotificationAsRead(item.id, item.nav_path); }}
-                      className={`flex w-full gap-4 border-b ${borderColor} px-5 py-4 text-left transition ${hoverBg} ${isUnread ? unreadRowBg : ""}`}
-                    >
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: colors.bg, color: colors.fg }}>
-                        <Icon size={20} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
-                          <p className={`text-[15px] font-semibold ${textMain}`}>{item.title}</p>
-                          {isUnread && <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#FF4C51]" />}
-                        </div>
-                        <p className={`mt-1 text-[13px] ${textMuted}`}>{item.message}</p>
-                        <div className="mt-2 flex items-center gap-2 text-[12px] font-medium text-[#A8AAAE]">
-                          <span>{timeAgo(item.created_at)}</span>
-                          {item.outlet_name && <><span>·</span><span>{item.outlet_name}</span></>}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                    <p className={`mt-1 break-words text-[13px] leading-snug ${textMuted}`}>{item.message}</p>
+                    <div className="mt-2 flex items-center gap-2 text-[12px] font-medium text-[#A8AAAE]">
+                      <span>{timeAgo(item.created_at)}</span>
+                      {item.outlet_name && <><span>·</span><span className="truncate">{item.outlet_name}</span></>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {/* ── Footer ── */}
         {notifications.length > 0 && (
-          <div className={`border-t ${borderColor} px-5 py-3 text-center`}>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.p
-                key={isExpanded ? "viewall" : "notifs"}
-                className={`text-[13px] font-medium ${textMuted}`}
-                initial={prefersReduced ? {} : { opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={prefersReduced ? {} : { opacity: 0, y: -4 }}
-                transition={{ duration: 0.12 }}
-              >
-                {isExpanded ? "View all" : "Notifications"}
-              </motion.p>
-            </AnimatePresence>
+          <div className={`shrink-0 border-t ${borderColor} px-5 py-3 text-center`}>
+            <p className={`text-[13px] font-medium ${textMuted}`}>Notifications</p>
           </div>
         )}
-      </motion.div>
+      </div>
     );
   };
 
@@ -1987,17 +1912,18 @@ const DashboardLayout = () => {
                       title={!expandedView ? item.title : undefined}
                       className={`group relative flex w-full items-center overflow-hidden rounded-md py-2.5 text-[15px] ${
                         expandedView ? "justify-between px-4" : "justify-center px-0"
-                      } ${active ? "text-white" : `${menuTextClass} ${menuHoverClass}`}`}
+                      } ${active ? "font-semibold" : `${menuTextClass} ${menuHoverClass}`}`}
+                      style={active ? { color: primaryColor } : undefined}
                     >
                       {active && (
-                        <motion.span
-                          layoutId={highlightId}
+                        // Group headers have no page of their own - they get a
+                        // subtle tint marking "contains the active child", not
+                        // the solid fill that marks a real active destination.
+                        // No layoutId here: the shared highlight must never be
+                        // rendered by two rows at once.
+                        <span
                           className="absolute inset-0 rounded-md"
-                          style={{
-                            backgroundColor: primaryColor,
-                            boxShadow: `0 3px 12px ${primaryColor}55`,
-                          }}
-                          transition={highlightTransition}
+                          style={{ backgroundColor: `${primaryColor}14` }}
                         />
                       )}
 
@@ -2078,7 +2004,9 @@ const DashboardLayout = () => {
                             {(() => {
                               let lastSubGroup = null;
                               return item.submenu.flatMap((sub) => {
-                              const subActive = isActive(sub.path);
+                              // Alias rows are shortcuts to routes owned by
+                              // another group - never render them as active.
+                              const subActive = !sub.alias && isActive(sub.path);
                               const showGroupHeader = sub.group && sub.group !== lastSubGroup;
                               if (sub.group) lastSubGroup = sub.group;
                               const groupHeader = showGroupHeader ? (
@@ -2406,7 +2334,7 @@ const DashboardLayout = () => {
                     <Settings size={23} />
                   </button>
 
-                  <div className="relative">
+                  <div className="relative" ref={notificationRef}>
                     <button
                       type="button"
                       onClick={() => {
