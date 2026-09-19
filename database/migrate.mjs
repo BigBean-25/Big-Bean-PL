@@ -77,6 +77,7 @@ const MIGRATIONS = [
   { name: 'add_supplier_credits_return_unique.sql', file: 'database/add_supplier_credits_return_unique.sql', why: 'Phase 6A4: UNIQUE(purchase_return_id) on supplier_credits - database-level one-credit-per-return guarantee, additive, zero duplicates verified first' },
   { name: 'add_outlet_consumption_module.sql', file: 'database/add_outlet_consumption_module.sql', why: 'Phase 6A7: outlet_consumptions/outlet_consumption_items + outlet_consumption permission seed - explicit controlled physical consumption document' },
   { name: 'add_outlet_cogs_mode.sql', file: 'database/add_outlet_cogs_mode.sql', why: 'Phase 6A8: outlet_cogs_settings PERIODIC/PHYSICAL cutover + snapshot cogs_source/official_cogs columns - additive, historical snapshots numerically unchanged' },
+  { name: 'add_controlled_exception_framework.sql', file: 'database/add_controlled_exception_framework.sql', why: 'Phase 6A9: controlled_exceptions workflow plus reversal-link columns for supplier payments, purchase returns and accounting effects - additive, original records stay immutable' },
 ];
 
 async function ensureTrackingTable(conn) {

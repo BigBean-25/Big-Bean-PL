@@ -510,6 +510,17 @@ export const reportAPI = {
   getGSTR1: (params) => api.get("/reports/gstr1", { params }),
 };
 
+export const exceptionAPI = {
+  list: (params) => api.get("/exceptions", { params }),
+  detail: (id) => api.get(`/exceptions/${id}`),
+  create: (data) => api.post("/exceptions", data),
+  submit: (id) => api.post(`/exceptions/${id}/submit`),
+  verify: (id) => api.post(`/exceptions/${id}/verify`),
+  approve: (id) => api.post(`/exceptions/${id}/approve`),
+  reject: (id, data) => api.post(`/exceptions/${id}/reject`, data),
+  execute: (id) => api.post(`/exceptions/${id}/execute`),
+};
+
 export const recipeAPI = {
   getRecipes: (params) => api.get("/recipes", { params }),
   getRecipe: (id, params) => api.get(`/recipes/${id}`, { params }),

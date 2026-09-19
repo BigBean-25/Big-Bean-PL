@@ -40,7 +40,8 @@ export const MANUAL_EFFECTIVE_WHERE = `
 // effects are never financially effective - they are unresolved central
 // warehouse/kitchen activity awaiting an explicit future owner decision.
 export const BRIDGE_EFFECTIVE_WHERE = `
-  ae.source_type = 'GRN' AND ae.effect_type = 'PURCHASE'
+  ae.source_type IN ('GRN', 'CONTROLLED_EXCEPTION')
+  AND ae.effect_type = 'PURCHASE'
   AND ae.status = 'Posted' AND ae.outlet_id IS NOT NULL`;
 
 /**

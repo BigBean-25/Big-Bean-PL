@@ -85,7 +85,12 @@ export const getPhysicalCogs = async ({ outletId, month, year, outletScope = nul
   const recon = await getHybridCogsReconciliation({ outletId, month, year, outletScope });
   const p = recon.physical;
 
-  const outletConsumptionCogs = num(p.outlet_consumption.value_out);
+  // Net of out-direction consumption minus in-direction controlled reversals
+  // (Phase 6A9 reversal rows post as OUTLET_CONSUMPTION qty_in/value_in on the
+  // same class). Ordinary postings never carry in-direction value on this
+  // class, so on non-reversed periods value_in is 0 and this is identical to
+  // the pre-6A9 figure.
+  const outletConsumptionCogs = num(p.outlet_consumption.value_out) - num(p.outlet_consumption.value_in);
   const wastageCost = num(p.wastage.value_out);
   // Net adjustment variance: negative adjustments + physical-count shortfalls
   // are costs (out direction); positive adjustments / count overages are

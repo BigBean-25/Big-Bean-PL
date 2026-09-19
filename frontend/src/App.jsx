@@ -71,6 +71,7 @@ import GSTR1Report from "./pages/reports/GSTR1Report";
 import ReportsHub from "./pages/reports/ReportsHub";
 import ConsumptionVarianceReport from "./pages/reports/ConsumptionVarianceReport";
 import OutletComparisonReport from "./pages/reports/OutletComparisonReport";
+import ControlledExceptions from "./pages/reports/ControlledExceptions";
 import DailyCashbookReport from "./pages/reports/DailyCashbookReport";
 import ClosingReconciliationReport from "./pages/reports/ClosingReconciliationReport";
 import HybridCogsReport from "./pages/reports/HybridCogsReport";
@@ -413,6 +414,10 @@ function App() {
             <Route
               path="consumption-reconciliation"
               element={<ConsumptionReconciliationReport />}
+            />
+            <Route
+              path="exceptions"
+              element={<ControlledExceptions />}
             />
           </Route>
 

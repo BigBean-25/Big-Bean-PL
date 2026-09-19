@@ -24,6 +24,7 @@ import petpoojaItemTaxRoutes from './petpoojaItemTaxRoutes.js';
 import salesTargetRoutes from './salesTargetRoutes.js';
 import accountingEffectRoutes from './accountingEffectRoutes.js';
 import outletConsumptionRoutes from './outletConsumptionRoutes.js';
+import controlledExceptionRoutes from './controlledExceptionRoutes.js';
 
 const router = express.Router();
 
@@ -52,5 +53,6 @@ router.use('/sales', petpoojaItemTaxRoutes);
 router.use('/outlet-dashboard', salesTargetRoutes);
 router.use('/accounting-effects', accountingEffectRoutes);
 router.use('/outlet-consumption', outletConsumptionRoutes);
+router.use('/exceptions', controlledExceptionRoutes);
 
 export default router;

@@ -807,6 +807,7 @@ const DashboardLayout = () => {
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Physical vs Theoretical", path: "/reports/consumption-reconciliation" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) && permissions.canAccessAllOutlets ? [{ title: t.outletComparison, path: "/reports/outlet-comparison" }] : []),
+          ...(canView("controlled_exceptions") ? [{ title: "Exceptions & Reversals", path: "/reports/exceptions" }] : []),
         ],
       },
       {
