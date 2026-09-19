@@ -58,6 +58,7 @@ export const ROLE_PERMISSION_MODULES = [
   { module_key: 'physical_stock_counts', module_name: 'Physical Stock Count' },
   { module_key: 'stock_adjustments', module_name: 'Stock Adjustments' },
   { module_key: 'warehouse_wastage', module_name: 'Warehouse Wastage & Damage' },
+  { module_key: 'outlet_consumption', module_name: 'Outlet Consumption' },
   { module_key: 'warehouse_batch_expiry', module_name: 'Batch & Expiry' },
   { module_key: 'warehouse_purchase_returns', module_name: 'Purchase Returns' },
   { module_key: 'warehouse_purchase_orders', module_name: 'Purchase Orders' },
@@ -102,7 +103,7 @@ const WAREHOUSE_WORKFLOW_MODULES = [
   'warehouse_requisitions', 'warehouse_transfers', 'physical_stock_counts', 'stock_adjustments',
   'warehouse_wastage', 'warehouse_batch_expiry', 'warehouse_purchase_returns',
   'warehouse_purchase_orders', 'warehouse_supplier_history', 'warehouse_reorder',
-  'warehouse_reports', 'warehouse_settings'
+  'warehouse_reports', 'warehouse_settings', 'outlet_consumption'
 ];
 const PRODUCTION_WORKFLOW_MODULES = [
   'production_requests', 'production_planning', 'production_batches',
@@ -142,6 +143,7 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     setModules(matrix, ['item_sales_tax'], { can_view: 1, can_create: 1, can_upload: 1, can_export: 1, can_delete: 1 });
     setModules(matrix, MONTH_END_MODULES, { can_view: 1, can_create: 1, can_edit: 1, can_verify: 1, can_export: 1 });
     setModules(matrix, ['sales_target'], { can_view: 1, can_export: 1 });
+    setModules(matrix, ['outlet_consumption'], { can_view: 1, can_export: 1 });
     setModules(matrix, PAYOUT_MODULES, { can_view: 1, can_edit: 1, can_export: 1 });
     setModules(matrix, ['recipe_list'], viewExport());
     setModules(matrix, REPORT_MODULES, { can_view: 1, can_lock: 1, can_export: 1 });
@@ -221,6 +223,10 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     // with Accountant.
     setModules(matrix, ['warehouse_stock'], viewExport());
     setModules(matrix, ['warehouse_requisitions'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    // Outlet consumption: the outlet raises and submits the document, but the
+    // verify/approve/post checker steps stay with all-outlet roles - same
+    // maker-only shape as warehouse_requisitions above.
+    setModules(matrix, ['outlet_consumption'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1, can_export: 1 });
     setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_export: 1 });
     setModules(matrix, ['production_dashboard'], { can_view: 1 });
     setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });

@@ -36,7 +36,9 @@ export const applyLocationScope = async (req, res, next) => {
       if (assignedOutletIds.length === 0) {
         return res.status(403).json({ success: false, message: 'No inventory location assigned to this user' });
       }
-      const rows = await query("SELECT id, outlet_id FROM locations WHERE outlet_id IN (?) AND is_active = 1", [assignedOutletIds]);
+      // pool.execute does not expand `IN (?)` array bindings (it binds the
+      // array's string form, which matches nothing) - join sanitized ints.
+      const rows = await query(`SELECT id, outlet_id FROM locations WHERE outlet_id IN (${assignedOutletIds.join(',')}) AND is_active = 1`);
       allowedLocationIds = rows.map((r) => Number(r.id));
     }
 
@@ -97,7 +99,7 @@ export const isLocationAccessible = async (user, locationId) => {
   }
   const assignedOutletIds = (user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
   if (assignedOutletIds.length === 0) return false;
-  const rows = await query("SELECT id FROM locations WHERE id = ? AND outlet_id IN (?) AND is_active = 1", [locationId, assignedOutletIds]);
+  const rows = await query(`SELECT id FROM locations WHERE id = ? AND outlet_id IN (${assignedOutletIds.join(',')}) AND is_active = 1`, [locationId]);
   return rows.length > 0;
 };
 
@@ -171,7 +173,9 @@ export const checkLocationAccess = (param = 'location_id') => async (req, res, n
     }
 
     const assignedOutletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    const rows = await query("SELECT id FROM locations WHERE id = ? AND outlet_id IN (?) AND is_active = 1", [locationId, assignedOutletIds]);
+    const rows = assignedOutletIds.length
+      ? await query(`SELECT id FROM locations WHERE id = ? AND outlet_id IN (${assignedOutletIds.join(',')}) AND is_active = 1`, [locationId])
+      : [];
     if (rows.length === 0) {
       return res.status(403).json({ success: false, message: 'You do not have access to this location' });
     }

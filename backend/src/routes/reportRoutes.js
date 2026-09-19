@@ -20,6 +20,9 @@ import { getOutletWastageByCategoryReport } from '../services/outletWastageByCat
 import { getPhysicalAccountingReconciliation } from '../services/physicalAccountingReconciliationService.js';
 import { getClosingReconciliation } from '../services/closingReconciliationService.js';
 import { getHybridCogsReconciliation } from '../services/hybridCogsReconciliationService.js';
+import { getOutletConsumptionReconciliation } from '../services/outletConsumptionService.js';
+import { getProductionValuation } from '../services/productionValuationService.js';
+import { canAccessAllOutlets } from '../utils/roleAccess.js';
 
 const router = express.Router();
 
@@ -146,6 +149,54 @@ router.get('/hybrid-cogs-reconciliation', protect, applyOutletScope, checkPermis
   } catch (error) {
     console.error('Get hybrid COGS reconciliation error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating hybrid COGS reconciliation' });
+  }
+});
+
+// Phase 6A7: physical vs theoretical outlet consumption reconciliation.
+// Read-only - Posted OUTLET_CONSUMPTION ledger rows vs canonical theoretical
+// consumption. Variance is diagnostic only, never posted.
+router.get('/outlet-consumption-reconciliation', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, month, year } = req.query;
+    if (!outlet_id || !month || !year) {
+      return res.status(400).json({ success: false, message: 'Outlet, month, and year are required' });
+    }
+    if (req.outletScope && !req.outletScope.all && !(req.outletScope.outletIds || []).map(Number).includes(Number(outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+    }
+    const data = await getOutletConsumptionReconciliation({ outletId: Number(outlet_id), month: Number(month), year: Number(year) });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get outlet consumption reconciliation error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating outlet consumption reconciliation' });
+  }
+});
+
+// Phase 6A7: production valuation diagnostics. Read-only - surfaces the
+// deterministic physical cost trail postProductionBatch already writes.
+// Scoped by Central Kitchen location rather than outlet_id: full-access roles
+// see any kitchen; Warehouse Admin is blocked (Central Warehouse scope);
+// outlet-locked roles may view a kitchen only where their role permits
+// production reporting (gated by the reports.can_view check above plus the
+// location check below).
+router.get('/production-valuation', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { central_kitchen_id, from_date, to_date } = req.query;
+    if (!central_kitchen_id) {
+      return res.status(400).json({ success: false, message: 'central_kitchen_id is required' });
+    }
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      // Outlet-locked roles have no production-report permission in the
+      // matrix - a report spanning a kitchen they don't own is not theirs to
+      // see. They can view only if the kitchen is mapped to their outlet,
+      // which Central Kitchen locations never are.
+      return res.status(403).json({ success: false, message: 'You do not have access to this report' });
+    }
+    const data = await getProductionValuation({ centralKitchenId: Number(central_kitchen_id), fromDate: from_date || null, toDate: to_date || null });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get production valuation error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating production valuation' });
   }
 });
 

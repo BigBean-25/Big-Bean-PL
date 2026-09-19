@@ -145,6 +145,7 @@ const HybridCogsReport = () => {
                 <Row label="Transfers In / Out" value={`${fmtINR(p?.internal_transfer_in?.value_in)} / −${fmtINR(p?.internal_transfer_out?.value_out)}`} />
                 <Row label="Production Receipt / Issue" value={`${fmtINR(p?.production_receipt?.value_in)} / −${fmtINR(p?.production_issue?.value_out)}`} />
                 <Row label="Purchase Returns" value={`−${fmtINR(p?.purchase_return?.value_out)}`} />
+                <Row label="Outlet Consumption (Posted)" value={`−${fmtINR(p?.outlet_consumption?.value_out)}`} />
                 <Row label="Wastage" value={`−${fmtINR(p?.wastage?.value_out)}`} />
                 <Row label="Adjustments (+ / −)" value={`${fmtINR(p?.adjustment_positive?.value_in)} / −${fmtINR((p?.adjustment_negative?.value_out || 0) + (p?.physical_count_adjustment?.value_out || 0))}`} />
                 <Row label="Physical Closing" value={fmtINR(p?.closing?.value)} />
@@ -172,8 +173,13 @@ const HybridCogsReport = () => {
                 <p className={`text-[18px] font-bold ${mainCls}`}>{fmtINR(p?.unexplained_residual_value)}</p>
               </div>
             </div>
-            {p?.consumption?.model === 'INCOMPLETE' && (
-              <p className={`mt-3 text-[12px] ${mutedCls}`}>{p.consumption.note}</p>
+            {p?.consumption?.model && (
+              <p className={`mt-3 text-[12px] ${mutedCls}`}>
+                <span className={`mr-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.consumption.model === 'EXPLICIT' ? 'bg-[#28C76F]/15 text-[#28C76F]' : 'bg-[#FF9F43]/15 text-[#FF9F43]'}`}>
+                  {p.consumption.model === 'EXPLICIT' ? 'EXPLICIT CONSUMPTION' : 'INCOMPLETE'}
+                </span>
+                {p.consumption.note}
+              </p>
             )}
             {(data.unowned_physical_activity || []).length > 0 && (
               <p className={`mt-2 text-[12px] ${mutedCls}`}>

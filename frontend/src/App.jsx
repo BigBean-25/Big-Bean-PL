@@ -74,6 +74,8 @@ import OutletComparisonReport from "./pages/reports/OutletComparisonReport";
 import DailyCashbookReport from "./pages/reports/DailyCashbookReport";
 import ClosingReconciliationReport from "./pages/reports/ClosingReconciliationReport";
 import HybridCogsReport from "./pages/reports/HybridCogsReport";
+import ConsumptionReconciliationReport from "./pages/reports/ConsumptionReconciliationReport";
+import OutletConsumption from "./pages/warehouse/OutletConsumption";
 import ExpenseReport from "./pages/reports/ExpenseReport";
 
 import UserManagement from "./pages/users/UserManagement";
@@ -408,11 +410,16 @@ function App() {
               path="hybrid-cogs"
               element={<HybridCogsReport />}
             />
+            <Route
+              path="consumption-reconciliation"
+              element={<ConsumptionReconciliationReport />}
+            />
           </Route>
 
           <Route path="warehouse/:tab?" element={<Warehouse />} />
           <Route path="central-kitchen/:tab?" element={<CentralKitchen />} />
           <Route path="central-kitchen-receive" element={<ReceiveDispatch />} />
+          <Route path="outlet-consumption" element={<OutletConsumption />} />
 
           <Route path="*" element={<NotFound />} />
         </Route>

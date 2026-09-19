@@ -58,14 +58,17 @@ const MOVEMENT_CLASS = {
   ADJUSTMENT_POSITIVE: 'ADJUSTMENT_POSITIVE',
   ADJUSTMENT_NEGATIVE: 'ADJUSTMENT_NEGATIVE',
   PHYSICAL_ADJUSTMENT: 'PHYSICAL_COUNT_ADJUSTMENT',
+  OUTLET_CONSUMPTION: 'OUTLET_CONSUMPTION',
   TRANSIT_SHORT: 'INFORMATIONAL',
   TRANSIT_DAMAGE: 'INFORMATIONAL',
 };
 
-// Movement classes that count as physical consumption candidates. There is
-// deliberately no outlet sales-issue transaction type - the consumption
-// model stays INCOMPLETE regardless.
-const CONSUMPTION_CLASSES = new Set(['WASTAGE', 'ADJUSTMENT_NEGATIVE', 'PHYSICAL_COUNT_ADJUSTMENT', 'PRODUCTION_ISSUE']);
+// Movement classes that count as physical consumption candidates.
+// OUTLET_CONSUMPTION (Phase 6A7) is the explicit controlled sales-consumption
+// channel - Posted outlet_consumptions documents only. Its presence upgrades
+// the consumption model from INCOMPLETE to EXPLICIT; it is never synthesized
+// from sales data.
+const CONSUMPTION_CLASSES = new Set(['WASTAGE', 'ADJUSTMENT_NEGATIVE', 'PHYSICAL_COUNT_ADJUSTMENT', 'PRODUCTION_ISSUE', 'OUTLET_CONSUMPTION']);
 const EXCLUDED_TYPES = new Set(['TRANSIT_DAMAGE', 'TRANSIT_SHORT']);
 
 export const getHybridCogsReconciliation = async ({ outletId, month, year, outletScope = null }) => {
@@ -197,10 +200,15 @@ export const getHybridCogsReconciliation = async ({ outletId, month, year, outle
   const consumptionUnvalued = consumptionClasses.reduce((s, c) => s + num(classes[c].unvalued_rows), 0);
   const consumptionValue = consumptionClasses.reduce((s, c) => s + num(classes[c].value_out), 0);
   const hasConsumptionActivity = consumptionRows > 0;
+  const outletConsumptionRows = num(classes.OUTLET_CONSUMPTION?.rows);
 
-  // There is no outlet sales-issue transaction type in the ledger, so a
-  // complete physical consumption figure cannot exist for an outlet.
-  const physicalConsumptionModel = 'INCOMPLETE';
+  // EXPLICIT once at least one Posted outlet_consumptions document has written
+  // OUTLET_CONSUMPTION rows in the period - the structural gap (no sales-
+  // consumption transaction type) is closed by an explicit controlled posting,
+  // never by deriving usage from sales. Whether the Posted documents cover
+  // every sales day cannot be verified, so EXPLICIT is the ceiling here -
+  // the model never claims full coverage.
+  const physicalConsumptionModel = outletConsumptionRows > 0 ? 'EXPLICIT' : 'INCOMPLETE';
 
   const totalUnvalued =
     physicalOpening.unvalued_rows + physicalClosing.unvalued_rows +
@@ -294,6 +302,7 @@ export const getHybridCogsReconciliation = async ({ outletId, month, year, outle
       production_issue: bucket('PRODUCTION_ISSUE'),
       purchase_return: bucket('PURCHASE_RETURN'),
       wastage: bucket('WASTAGE'),
+      outlet_consumption: bucket('OUTLET_CONSUMPTION'),
       adjustment_positive: bucket('ADJUSTMENT_POSITIVE'),
       adjustment_negative: bucket('ADJUSTMENT_NEGATIVE'),
       physical_count_adjustment: bucket('PHYSICAL_COUNT_ADJUSTMENT'),
@@ -309,7 +318,7 @@ export const getHybridCogsReconciliation = async ({ outletId, month, year, outle
         value: hasConsumptionActivity ? round2(consumptionValue) : null,
         rows: consumptionRows,
         unvalued_rows: consumptionUnvalued,
-        note: 'No outlet sales-issue transaction exists - physical consumption cannot capture sales-driven usage. Value shown is wastage/adjustment/production-issue movements only.',
+        note: 'Value shown is explicitly posted physical movements (wastage/adjustment/production-issue/OUTLET_CONSUMPTION). Sales uploads never deduct stock automatically - consumption requires a Posted outlet_consumptions document.',
       },
       diagnostic_cogs: physicalDiagnosticCogs,
       valuation_state: valuationState,

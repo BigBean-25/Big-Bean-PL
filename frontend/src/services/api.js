@@ -625,6 +625,7 @@ export const warehouseAPI = {
   lockWarehouseWastage: (id) => api.post(`/warehouse/warehouse-wastage/${id}/lock`),
 
   getBatches: (params) => api.get("/warehouse/batches", { params }),
+
   getAvailableBatches: (materialId, params) => api.get(`/warehouse/batches/${materialId}/available`, { params }),
   getFEFOAllocation: (materialId, params) => api.get(`/warehouse/batches/${materialId}/fefo`, { params }),
   getExpiryAlerts: (params) => api.get("/warehouse/expiry-alerts", { params }),
@@ -724,6 +725,20 @@ export const productionAPI = {
   postProductionDispatch: (id) => api.post(`/production/dispatch/${id}/post`),
   receiveProductionDispatch: (id, data) => api.post(`/production/dispatch/${id}/receive`, data),
   exportProductionDispatches: (params) => api.get("/production/dispatch-export", { params, responseType: "blob" }),
+};
+
+export const outletConsumptionAPI = {
+  list: (params) => api.get("/outlet-consumption", { params }),
+  get: (id) => api.get(`/outlet-consumption/${id}`),
+  prefill: (params) => api.get("/outlet-consumption/prefill", { params }),
+  create: (data) => api.post("/outlet-consumption", data),
+  update: (id, data) => api.put(`/outlet-consumption/${id}`, data),
+  remove: (id) => api.delete(`/outlet-consumption/${id}`),
+  submit: (id) => api.post(`/outlet-consumption/${id}/submit`),
+  verify: (id) => api.post(`/outlet-consumption/${id}/verify`),
+  approve: (id) => api.post(`/outlet-consumption/${id}/approve`),
+  post: (id) => api.post(`/outlet-consumption/${id}/post`),
+  lock: (id) => api.post(`/outlet-consumption/${id}/lock`),
 };
 
 export const outletVendorAPI = {
