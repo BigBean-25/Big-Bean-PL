@@ -19,6 +19,7 @@ import { getConsumptionVarianceDiagnostics } from '../services/consumptionVarian
 import { getOutletWastageByCategoryReport } from '../services/outletWastageByCategoryService.js';
 import { getPhysicalAccountingReconciliation } from '../services/physicalAccountingReconciliationService.js';
 import { getClosingReconciliation } from '../services/closingReconciliationService.js';
+import { getHybridCogsReconciliation } from '../services/hybridCogsReconciliationService.js';
 
 const router = express.Router();
 
@@ -126,6 +127,25 @@ router.get('/closing-reconciliation', protect, applyOutletScope, checkPermission
   } catch (error) {
     console.error('Get closing reconciliation error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating closing reconciliation' });
+  }
+});
+
+// Phase 6A6: hybrid COGS reconciliation. Read-only - FINANCIAL COGS
+// (Verified Opening + Effective Purchases - Verified Closing) remains the
+// official P&L figure; physical values are diagnostics, never posted.
+router.get('/hybrid-cogs-reconciliation', protect, applyOutletScope, checkPermission('reports', 'can_view'), async (req, res) => {
+  try {
+    const { outlet_id, month, year } = req.query;
+    const data = await getHybridCogsReconciliation({
+      outletId: outlet_id ? Number(outlet_id) : null,
+      month: month ? Number(month) : null,
+      year: year ? Number(year) : null,
+      outletScope: req.outletScope,
+    });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get hybrid COGS reconciliation error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error generating hybrid COGS reconciliation' });
   }
 });
 

@@ -73,6 +73,7 @@ import ConsumptionVarianceReport from "./pages/reports/ConsumptionVarianceReport
 import OutletComparisonReport from "./pages/reports/OutletComparisonReport";
 import DailyCashbookReport from "./pages/reports/DailyCashbookReport";
 import ClosingReconciliationReport from "./pages/reports/ClosingReconciliationReport";
+import HybridCogsReport from "./pages/reports/HybridCogsReport";
 import ExpenseReport from "./pages/reports/ExpenseReport";
 
 import UserManagement from "./pages/users/UserManagement";
@@ -402,6 +403,10 @@ function App() {
             <Route
               path="closing-reconciliation"
               element={<ClosingReconciliationReport />}
+            />
+            <Route
+              path="hybrid-cogs"
+              element={<HybridCogsReport />}
             />
           </Route>
 

@@ -21,13 +21,14 @@ const REPORTS = [
   { title: "Theoretical Consumption Report", path: "/reports/theoretical-consumption", module: "reports" },
   { title: "Consumption Variance Report", path: "/reports/consumption-variance", module: "reports" },
   { title: "Closing Reconciliation", path: "/reports/closing-reconciliation", module: "reports" },
+  { title: "Hybrid COGS Reconciliation", path: "/reports/hybrid-cogs", module: "reports" },
 ];
 
 const CATEGORIES = [
   { key: "favourite", label: "Favourites", icon: Star, iconColor: "#FF9F43", reports: REPORTS.filter((r) => r.favourite) },
   { key: "gst", label: "GST", icon: Receipt, iconColor: "#EA5455", reports: REPORTS.filter((r) => r.path.includes("gst")) },
   { key: "financial", label: "Financial", icon: Wallet, iconColor: "#28C76F", reports: REPORTS.filter((r) => ["/reports/monthly-pl", "/reports/outlet-comparison", "/reports/expense-report", "/reports/supplier-pending"].includes(r.path)) },
-  { key: "operational", label: "Operational", icon: BarChart3, iconColor: "#00CFE8", reports: REPORTS.filter((r) => ["/reports/daily-cashbook", "/reports/actual-consumption", "/reports/theoretical-consumption", "/reports/consumption-variance", "/reports/closing-reconciliation"].includes(r.path)) },
+  { key: "operational", label: "Operational", icon: BarChart3, iconColor: "#00CFE8", reports: REPORTS.filter((r) => ["/reports/daily-cashbook", "/reports/actual-consumption", "/reports/theoretical-consumption", "/reports/consumption-variance", "/reports/closing-reconciliation", "/reports/hybrid-cogs"].includes(r.path)) },
 ];
 
 const ReportsHub = () => {

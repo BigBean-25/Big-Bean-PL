@@ -345,6 +345,26 @@ export const getClosingReconciliation = async ({ outletId, month = null, year = 
 
   const readinessStatus = blockers.length > 0 ? 'NOT_READY' : varianceRowCount > 0 ? 'READY_WITH_VARIANCE' : 'READY';
 
+  // Phase 6A6: hybrid-COGS diagnostic state is attached to readiness as
+  // advisory context only - a physical/financial COGS difference never
+  // blocks readiness and never changes financial COGS.
+  let hybridCogs = null;
+  try {
+    const { getHybridCogsReconciliation } = await import('./hybridCogsReconciliationService.js');
+    const h = await getHybridCogsReconciliation({ outletId: Number(outletId), month, year });
+    hybridCogs = {
+      state: h.physical.physical_cogs_state,
+      classification: h.classification,
+      financial_cogs: h.financial.financial_cogs,
+      physical_diagnostic_cogs: h.physical.diagnostic_cogs,
+      cogs_variance: h.cogs_variance,
+      valuation_state: h.physical.valuation_state,
+      consumption_model: h.physical.consumption.model,
+    };
+  } catch {
+    hybridCogs = { state: 'UNAVAILABLE' };
+  }
+
   return {
     read_only: true,
     disclaimer: 'RECONCILIATION ONLY - ACCOUNTING CLOSING REMAINS THE VERIFIED UPLOAD. Physical ledger and physical counts are diagnostics; nothing here writes or adjusts COGS.',
@@ -356,6 +376,7 @@ export const getClosingReconciliation = async ({ outletId, month = null, year = 
       blockers,
       variance_rows: varianceRowCount,
       advisory_only: true,
+      hybrid_cogs_state: hybridCogs,
       note: 'Advisory diagnostics only - finalization is not blocked by variance. Only an objectively missing Verified closing is reported as a structural gap.',
     },
     closing_upload_state: closingUploadState,
