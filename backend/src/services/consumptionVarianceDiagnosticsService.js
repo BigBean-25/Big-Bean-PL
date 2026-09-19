@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { resolveActiveRecipe } from './recipeService.js';
 import { findConversionFactor } from '../utils/uomUtils.js';
+import { MANUAL_EFFECTIVE_WHERE, BRIDGE_EFFECTIVE_WHERE } from './effectivePurchaseService.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 const toInt = (value) => Number.parseInt(String(value), 10);
@@ -49,6 +50,10 @@ const loadActualUploadCount = async (tableName, outletId, month, year) => {
   return Number(rows[0]?.upload_count || 0);
 };
 
+// Phase 6A3: coverage counts effective purchases - a Posted GRN bridge
+// effect is purchase data even with no manual upload, and a manual item
+// claimed+replaced by a Posted bridge still counts (exactly once, via the
+// bridge row - the claimed manual row is excluded so it is not double-counted).
 const loadPurchaseCoverage = async ({ outletId, startDate, endDate }) => {
   const rows = await query(
     `SELECT
@@ -60,16 +65,28 @@ const loadPurchaseCoverage = async ({ outletId, startDate, endDate }) => {
      FROM material_purchase_items mpi
      INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
      WHERE mpi.outlet_id = ? AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'`,
+     AND ${MANUAL_EFFECTIVE_WHERE}`,
+    [outletId, startDate, endDate]
+  );
+  const bridge = await query(
+    `SELECT
+       COUNT(*) AS item_count,
+       COUNT(DISTINCT CASE WHEN ae.raw_material_id IS NOT NULL THEN ae.raw_material_id END) AS mapped_material_count,
+       SUM(CASE WHEN ae.raw_material_id IS NULL THEN 1 ELSE 0 END) AS unmapped_material_count,
+       COUNT(DISTINCT ae.unit_id) AS unit_count
+     FROM accounting_effects ae
+     WHERE ${BRIDGE_EFFECTIVE_WHERE}
+       AND ae.outlet_id = ? AND ae.effective_date >= ? AND ae.effective_date <= ?`,
     [outletId, startDate, endDate]
   );
   const row = rows[0] || {};
+  const b = bridge[0] || {};
   return {
     upload_count: Number(row.upload_count || 0),
-    item_count: Number(row.item_count || 0),
-    mapped_material_count: Number(row.mapped_material_count || 0),
-    unmapped_material_count: Number(row.unmapped_material_count || 0),
-    unit_count: Number(row.unit_count || 0),
+    item_count: Number(row.item_count || 0) + Number(b.item_count || 0),
+    mapped_material_count: Number(row.mapped_material_count || 0) + Number(b.mapped_material_count || 0),
+    unmapped_material_count: Number(row.unmapped_material_count || 0) + Number(b.unmapped_material_count || 0),
+    unit_count: Number(row.unit_count || 0) + Number(b.unit_count || 0),
   };
 };
 
@@ -86,18 +103,37 @@ const loadOpeningRows = async ({ outletId, month, year }) => query(
   [outletId, month, year]
 );
 
+// Phase 6A3: the actual-consumption side uses effective purchase rows -
+// manual Verified items not replaced by a Posted claimed bridge, UNION ALL
+// Posted GRN->PURCHASE accounting_effects (upload_id NULL marks the bridge
+// origin). Keeps this diagnostic consistent with consumptionService.
 const loadPurchaseRows = async ({ outletId, startDate, endDate }) => query(
-  `SELECT mpi.upload_id, mpi.raw_material_id, mpi.raw_material_name, mpi.qty, mpi.unit_id, u.unit_name,
-          mpi.total_amount AS value, rm.material_code, rm.material_name, rm.unit_id AS base_unit_id, bu.unit_name AS base_unit_name
-   FROM material_purchase_uploads mpu
-   INNER JOIN material_purchase_items mpi ON mpi.upload_id = mpu.id
-   LEFT JOIN raw_materials rm ON rm.id = mpi.raw_material_id
-   LEFT JOIN units u ON u.id = mpi.unit_id
-   LEFT JOIN units bu ON bu.id = rm.unit_id
-   WHERE mpu.outlet_id = ? AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
-     AND mpi.date BETWEEN ? AND ?
-   ORDER BY mpi.id`,
-  [outletId, startDate, endDate]
+  `SELECT upload_id, raw_material_id, raw_material_name, qty, unit_id, unit_name,
+          value, material_code, material_name, base_unit_id, base_unit_name
+   FROM (
+     SELECT mpi.upload_id, mpi.raw_material_id, mpi.raw_material_name, mpi.qty, mpi.unit_id, u.unit_name,
+            mpi.total_amount AS value, rm.material_code, rm.material_name, rm.unit_id AS base_unit_id, bu.unit_name AS base_unit_name,
+            mpi.id AS sort_id
+     FROM material_purchase_uploads mpu
+     INNER JOIN material_purchase_items mpi ON mpi.upload_id = mpu.id
+     LEFT JOIN raw_materials rm ON rm.id = mpi.raw_material_id
+     LEFT JOIN units u ON u.id = mpi.unit_id
+     LEFT JOIN units bu ON bu.id = rm.unit_id
+     WHERE mpu.outlet_id = ? AND ${MANUAL_EFFECTIVE_WHERE}
+       AND mpi.date BETWEEN ? AND ?
+     UNION ALL
+     SELECT NULL AS upload_id, ae.raw_material_id, rm.material_name AS raw_material_name, ae.quantity AS qty, ae.unit_id, u.unit_name,
+            ae.total_amount AS value, rm.material_code, rm.material_name, rm.unit_id AS base_unit_id, bu.unit_name AS base_unit_name,
+            ae.id AS sort_id
+     FROM accounting_effects ae
+     LEFT JOIN raw_materials rm ON rm.id = ae.raw_material_id
+     LEFT JOIN units u ON u.id = ae.unit_id
+     LEFT JOIN units bu ON bu.id = rm.unit_id
+     WHERE ${BRIDGE_EFFECTIVE_WHERE}
+       AND ae.outlet_id = ? AND ae.effective_date BETWEEN ? AND ?
+   ) purchase_rows
+   ORDER BY sort_id`,
+  [outletId, startDate, endDate, outletId, startDate, endDate]
 );
 
 const loadClosingRows = async ({ outletId, month, year }) => query(

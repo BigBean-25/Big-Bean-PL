@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { getEffectivePurchaseValue } from './effectivePurchaseService.js';
 
 const num = (value) => Number(value || 0);
 
@@ -28,7 +29,7 @@ export const getOutletPL = async ({ outletId, month, year }) => {
   const psiOutlet = outletWhere('psi', outletId);
   const osiOutlet = outletWhere('osi', outletId);
   const csiOutlet = outletWhere('csi', outletId);
-  const mpiOutlet = outletWhere('mpi', outletId);
+
   const expenseOutlet = outletWhere('daily_cash_expenses', outletId);
   const utilityOutlet = outletWhere('utility_bills', outletId);
   const salaryOutlet = outletWhere('employee_salary_monthly', outletId);
@@ -97,14 +98,11 @@ export const getOutletPL = async ({ outletId, month, year }) => {
     [...csiOutlet.params, month, year]
   );
 
-  const purchases = await query(
-    `SELECT COALESCE(SUM(total_amount), 0) as purchase_value
-     FROM material_purchase_items mpi
-     INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-     WHERE ${mpiOutlet.sql} AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'`,
-    [...mpiOutlet.params, startDate, endDate]
-  );
+  // Phase 6A3: "purchases" means EFFECTIVE purchases - Verified manual
+  // upload items not replaced by a Posted claimed GRN bridge effect, plus
+  // Posted GRN->PURCHASE accounting effects. A Draft bridge has zero effect
+  // here; a Posted claimed bridge and its manual item can never both count.
+  const purchases = [{ purchase_value: await getEffectivePurchaseValue({ outletId, fromDate: startDate, toDate: endDate }) }];
 
   const actualConsumption =
     num(openingStock[0].opening_stock_value) +

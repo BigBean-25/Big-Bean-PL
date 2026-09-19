@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import { getCumulativeEffectivePurchases } from './effectivePurchaseService.js';
 
 const num = (value) => Number(value || 0);
 
@@ -12,19 +13,13 @@ const num = (value) => Number(value || 0);
  * the previous payment (exclusive boundary). A pure cumulative-to-date sum
  * avoids the boundary entirely and is always safe to recompute.
  */
-const getCumulativePurchases = async (outletId, supplierId, asOfDate) => {
-  const rows = await query(
-    `SELECT COALESCE(SUM(mpi.total_amount), 0) AS total
-     FROM material_purchase_items mpi
-     INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-     WHERE mpi.outlet_id = ?
-       AND mpi.supplier_id = ?
-       AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
-       AND mpi.date <= ?`,
-    [outletId, supplierId, asOfDate]
-  );
-  return num(rows[0]?.total);
-};
+// Phase 6A3: liability comes from EFFECTIVE purchases - the same canonical
+// rule the P&L uses (effectivePurchaseService). A Draft GRN bridge effect
+// adds nothing; a Posted one adds its amount exactly once; a manual item
+// claimed by a Posted bridge stops counting here at the same moment it
+// stops counting in the P&L, so the two can never diverge or double-count.
+const getCumulativePurchases = async (outletId, supplierId, asOfDate) =>
+  getCumulativeEffectivePurchases({ outletId, supplierId, asOfDate });
 
 /**
  * Cumulative sum of all VERIFIED supplier payments for an outlet+supplier,

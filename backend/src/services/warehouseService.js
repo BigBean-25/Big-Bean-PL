@@ -6,6 +6,7 @@ import { getSettingValue } from './warehouseSettingService.js';
 import { validateContactFields } from '../utils/validators.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import { assertNotOwnDocument } from '../utils/makerChecker.js';
+import { createEffectInTransaction, resolveAccountingOwner } from './accountingEffectService.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -407,6 +408,33 @@ export const postGRN = async (grnId, postedBy) => {
          VALUES (?, ?, ?, 'PURCHASE_GRN', 'GRN', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
         [grn.warehouse_location_id, it.raw_material_id, grn.grn_date, grnId, it.id, qtyIn, baseUnit.id, unitCost, valueIn, it.batch_no || null, it.expiry_date || null, postedBy]
       );
+    }
+    // Phase 6A3: every accepted GRN item creates a Draft PURCHASE accounting
+    // effect in the SAME transaction. GRN Posting itself is still not a
+    // financial event - the effect stays Draft until an accounting checker
+    // (who cannot be this poster) runs verify-post. Owner resolution never
+    // guesses: an unmapped central location yields outlet_id NULL, and such
+    // effects can never be posted financially.
+    const accountingOwner = await resolveAccountingOwner(grn.warehouse_location_id);
+    for (const it of items) {
+      if (num(it.accepted_qty) <= 0) continue; // fully-rejected items carry no purchase
+      await createEffectInTransaction(connection, {
+        effect_type: 'PURCHASE',
+        source_type: 'GRN',
+        source_id: grnId,
+        source_item_id: it.id,
+        outlet_id: accountingOwner.accounting_outlet_id,
+        location_id: grn.warehouse_location_id,
+        supplier_id: grn.supplier_id,
+        raw_material_id: it.raw_material_id,
+        effective_date: grn.grn_date,
+        quantity: it.accepted_qty,
+        unit_id: it.unit_id,
+        base_amount: num(it.accepted_qty) * num(it.rate),
+        tax_amount: num(it.tax_amount),
+        total_amount: num(it.total_amount),
+        metadata_json: { grn_no: grn.grn_no, invoice_reference: grn.invoice_reference || null },
+      }, postedBy);
     }
     await connection.execute("UPDATE grn SET status = 'Posted' WHERE id = ?", [grnId]);
     if (grn.purchase_order_id) await updatePOStatusAfterGRN(connection, grn.purchase_order_id);

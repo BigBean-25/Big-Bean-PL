@@ -47,6 +47,7 @@ import OpeningStockUpload from "./pages/stock/OpeningStockUpload";
 import ClosingStockUpload from "./pages/stock/ClosingStockUpload";
 
 import MaterialPurchaseUpload from "./pages/purchases/MaterialPurchaseUpload";
+import PurchaseAccountingReview from "./pages/purchases/PurchaseAccountingReview";
 import SupplierPayments from "./pages/purchases/SupplierPayments";
 
 import ItemSalesUpload from "./pages/sales/ItemSalesUpload";
@@ -331,6 +332,7 @@ function App() {
               element={<MaterialPurchaseUpload />}
             />
             <Route path="supplier-payments" element={<SupplierPayments />} />
+            <Route path="grn-accounting-review" element={<PurchaseAccountingReview />} />
           </Route>
 
           <Route path="sales">

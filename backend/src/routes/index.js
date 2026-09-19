@@ -22,6 +22,7 @@ import fixedCostsRoutes from './fixedCostsRoutes.js';
 import outletVendorRoutes from './outletVendorRoutes.js';
 import petpoojaItemTaxRoutes from './petpoojaItemTaxRoutes.js';
 import salesTargetRoutes from './salesTargetRoutes.js';
+import accountingEffectRoutes from './accountingEffectRoutes.js';
 
 const router = express.Router();
 
@@ -48,5 +49,6 @@ router.use('/fixed-costs', fixedCostsRoutes);
 router.use('/outlet-vendors', outletVendorRoutes);
 router.use('/sales', petpoojaItemTaxRoutes);
 router.use('/outlet-dashboard', salesTargetRoutes);
+router.use('/accounting-effects', accountingEffectRoutes);
 
 export default router;

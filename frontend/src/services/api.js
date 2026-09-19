@@ -556,6 +556,14 @@ export const fixedCostsAPI = {
   deleteFixedCost: (id) => api.delete(`/fixed-costs/${id}`),
 };
 
+export const accountingEffectsAPI = {
+  listPurchases: (params) => api.get("/accounting-effects/purchases", { params }),
+  get: (id) => api.get(`/accounting-effects/${id}`),
+  claim: (id, uploadItemId) => api.post(`/accounting-effects/${id}/claim`, { upload_item_id: uploadItemId }),
+  unclaim: (id) => api.post(`/accounting-effects/${id}/unclaim`),
+  verifyPost: (id) => api.post(`/accounting-effects/${id}/verify-post`),
+};
+
 export const warehouseAPI = {
   getLocations: (params) => api.get("/warehouse/locations", { params }),
   createLocation: (data) => api.post("/warehouse/locations", data),

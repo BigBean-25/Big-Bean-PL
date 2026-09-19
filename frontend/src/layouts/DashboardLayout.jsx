@@ -734,6 +734,7 @@ const DashboardLayout = () => {
         show: canView("material_purchase", permissions.canUploadPurchase || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("supplier_payments", false),
         submenu: [
           ...(canView("material_purchase") ? [{ title: t.materialPurchase, path: "/purchases/material-purchase" }] : []),
+          ...(canView("material_purchase") ? [{ title: "GRN Accounting Review", path: "/purchases/grn-accounting-review" }] : []),
           ...(canView("supplier_payments") ? [{ title: t.supplierPayments, path: "/purchases/supplier-payments" }] : []),
         ],
       },

@@ -270,6 +270,38 @@ export const getPhysicalAccountingReconciliation = async ({
       difference: r.grns.reduce((s, g) => s + num(g.total_amount), 0) - r.uploads.reduce((s, u) => s + num(u.total_amount), 0),
     }));
 
+  // ---------------- BRIDGE STATE (Phase 6A3) ----------------
+  // Still read-only: each Posted-GRN row is annotated with the lifecycle of
+  // its accounting_effect, if the 6A3 bridge created one. Legacy GRNs posted
+  // before the bridge show NO_EFFECT - they are never backfilled.
+  const bridgeEffects = await query(
+    `SELECT id, source_id, source_item_id, status, claim_upload_item_id
+     FROM accounting_effects
+     WHERE source_type = 'GRN' AND effect_type = 'PURCHASE'`
+  );
+  const effectByGrnItem = new Map(bridgeEffects.map((e) => [`${e.source_id}|${e.source_item_id}`, e]));
+  for (const row of purchaseReconciliation) {
+    const eff = effectByGrnItem.get(`${row.grn_id}|${row.grn_item_id}`);
+    row.accounting_effect_id = eff ? eff.id : null;
+    row.bridge_state = !eff
+      ? 'NO_EFFECT'
+      : eff.status === 'Posted'
+        ? (eff.claim_upload_item_id ? 'CLAIMED_POSTED_EFFECT' : 'POSTED_EFFECT')
+        : eff.claim_upload_item_id ? 'CLAIMED_DRAFT_EFFECT' : 'DRAFT_EFFECT';
+  }
+  // A duplicate-invoice risk counts as resolved only when a Posted effect
+  // explicitly claims one of the involved upload items - the manual side
+  // then stops contributing exactly as the bridge starts.
+  for (const r of duplicateInvoiceRisks) {
+    const grnIds = new Set(r.grns.map((g) => g.grn_id));
+    const itemIds = new Set(r.uploads.map((u) => u.upload_item_id));
+    const resolving = bridgeEffects.filter((e) =>
+      grnIds.has(e.source_id) && e.status === 'Posted' &&
+      e.claim_upload_item_id !== null && itemIds.has(e.claim_upload_item_id));
+    r.resolved_by_claim = resolving.length > 0;
+    r.resolving_effect_ids = resolving.map((e) => e.id);
+  }
+
   // ---------------- OPENING RECONCILIATION ----------------
   // Physical: stock_ledger OPENING rows per mapped location.
   // Accounting: Verified opening_stock uploads for the month of fromDate.

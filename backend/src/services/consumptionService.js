@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import { resolveActiveRecipe } from './recipeService.js';
+import { getEffectivePurchasesByMaterial } from './effectivePurchaseService.js';
 
 // Extracted from reportController.js's getActualConsumptionReport/
 // getTheoreticalConsumptionReport so the calculation can be reused - originally
@@ -47,18 +48,10 @@ export async function getActualConsumption({ outletId, month, year }) {
   const endDate = new Date(year, month, 0);
   const endDateStr = `${year}-${String(month).padStart(2, '0')}-${endDate.getDate()}`;
 
-  const purchases = await query(
-    `SELECT
-      mpi.raw_material_id,
-      COALESCE(SUM(mpi.qty), 0) as purchase_qty,
-      COALESCE(SUM(mpi.total_amount), 0) as purchase_value
-     FROM material_purchase_items mpi
-     INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-     WHERE mpi.outlet_id = ? AND mpi.date >= ? AND mpi.date <= ?
-     AND mpu.status = 'Completed' AND mpu.approval_status = 'Verified'
-     GROUP BY mpi.raw_material_id`,
-    [outletId, startDate, endDateStr]
-  );
+  // Phase 6A3: purchases are EFFECTIVE purchases (same canonical rule as
+  // the P&L - effectivePurchaseService): Verified manual items not replaced
+  // by a Posted claimed GRN bridge, plus Posted GRN->PURCHASE effects.
+  const purchases = await getEffectivePurchasesByMaterial({ outletId, fromDate: startDate, toDate: endDateStr });
 
   const closingMap = Object.fromEntries(closingStock.map((item) => [item.raw_material_id, item]));
   const purchaseMap = Object.fromEntries(purchases.map((item) => [item.raw_material_id, item]));

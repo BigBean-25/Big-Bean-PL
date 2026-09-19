@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { getOutletPL, getOutletComparison, getFinalizedSnapshot, finalizeMonth } from '../services/plCalculator.js';
 import { getSupplierLedgerSummary } from '../services/supplierLedgerService.js';
+import { MANUAL_EFFECTIVE_WHERE, BRIDGE_EFFECTIVE_WHERE } from '../services/effectivePurchaseService.js';
 import { getActualConsumption, getTheoreticalConsumption } from '../services/consumptionService.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 
@@ -284,16 +285,32 @@ export const getSupplierPendingReport = async (req, res) => {
     // qualifying purchase history in scope. Outstanding for each pair is then
     // computed via the SAME canonical getSupplierLedgerSummary() used by the
     // Supplier Payments ledger-summary endpoint, so both surfaces always agree.
+    // Phase 6A3: "purchase history" means EFFECTIVE purchases - the same
+    // canonical fragments as the ledger/P&L: Verified manual items not
+    // replaced by a Posted claimed GRN bridge, plus Posted GRN->PURCHASE
+    // accounting_effects (a bridged supplier can exist with no manual upload).
+    const purchaseParams = [
+      ...(outlet_id && outlet_id !== 'all' ? [outlet_id] : []),
+      ...(supplier_id && supplier_id !== 'all' ? [supplier_id] : []),
+    ];
     const pairs = await query(
       `SELECT outlet_id, supplier_id FROM supplier_payments WHERE ${scopeWhere} AND status = 'Verified'
        UNION
-       SELECT mpi.outlet_id, mpi.supplier_id
-       FROM material_purchase_items mpi
-       INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
-       WHERE mpu.status = 'Completed' AND mpu.approval_status = 'Verified' AND mpi.supplier_id IS NOT NULL
-         ${outlet_id && outlet_id !== 'all' ? 'AND mpi.outlet_id = ?' : ''}
-         ${supplier_id && supplier_id !== 'all' ? 'AND mpi.supplier_id = ?' : ''}`,
-      [...scopeParams, ...scopeParams]
+       SELECT outlet_id, supplier_id FROM (
+         SELECT mpi.outlet_id, mpi.supplier_id
+         FROM material_purchase_items mpi
+         INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
+         WHERE ${MANUAL_EFFECTIVE_WHERE} AND mpi.supplier_id IS NOT NULL
+           ${outlet_id && outlet_id !== 'all' ? 'AND mpi.outlet_id = ?' : ''}
+           ${supplier_id && supplier_id !== 'all' ? 'AND mpi.supplier_id = ?' : ''}
+         UNION
+         SELECT ae.outlet_id, ae.supplier_id
+         FROM accounting_effects ae
+         WHERE ${BRIDGE_EFFECTIVE_WHERE} AND ae.supplier_id IS NOT NULL
+           ${outlet_id && outlet_id !== 'all' ? 'AND ae.outlet_id = ?' : ''}
+           ${supplier_id && supplier_id !== 'all' ? 'AND ae.supplier_id = ?' : ''}
+       ) purchase_pairs`,
+      [...scopeParams, ...purchaseParams, ...purchaseParams]
     );
 
     if (pairs.length === 0) {
