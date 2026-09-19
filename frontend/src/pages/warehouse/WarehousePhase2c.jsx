@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { warehouseAPI } from "../../services/api";
+import { warehouseAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, getInputClass, StatusBadge } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { Search, RotateCcw, Plus, X, Eye, Send, CheckCircle, ShieldCheck, Lock, Trash2, FileText } from "lucide-react";
@@ -100,6 +101,12 @@ const initialItem = (module) => ({
 export default function WarehousePhase2c({ module, locationId, locations, materials, units, isDark }) {
   const config = MODULE_CONFIG[module];
   const inputClass = getInputClass(isDark);
+  const { user } = useAuthStore();
+  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const modulePerms = getStoredPermissions()?.[module] || {};
+  const can = (a) => isAdminRole || Boolean(modulePerms[a]);
+  const isOwn = (d) =>
+    Boolean(user?.id && d?.created_by && Number(user.id) === Number(d.created_by));
   const [loading, setLoading] = useState(true);
   const [docs, setDocs] = useState([]);
   const [filters, setFilters] = useState({ search: "", status: "" });
@@ -325,9 +332,11 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
           <button onClick={resetFilters} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
-          <button onClick={openCreate} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
-            <Plus size={16} /> New {config.title}
-          </button>
+          {can("can_create") && (
+            <button onClick={openCreate} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
+              <Plus size={16} /> New {config.title}
+            </button>
+          )}
         </div>
       </SectionCard>
 
@@ -365,13 +374,13 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={() => setViewing(d)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} /></button>
-                            {d.status === "Draft" && <button onClick={() => onEdit(d)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Edit"><FileText size={16} /></button>}
-                            {d.status === "Draft" && <button onClick={() => runAction(d, "submit", "Submit")} className="rounded-md bg-blue-500 px-2 py-1 text-[11px] font-semibold text-white">Submit</button>}
-                            {d.status === "Submitted" && <button onClick={() => runAction(d, "verify", "Verify")} className="rounded-md bg-sky-500 px-2 py-1 text-[11px] font-semibold text-white">Verify</button>}
-                            {d.status === "Verified" && <button onClick={() => runAction(d, "approve", "Approve")} className="rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white">Approve</button>}
-                            {d.status === "Approved" && <button onClick={() => runAction(d, "post", "Post")} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
-                            {d.status === "Posted" && <button onClick={() => runAction(d, "lock", "Lock")} className="rounded-md bg-amber-500 px-2 py-1 text-[11px] font-semibold text-white"><Lock size={12} className="inline" /></button>}
-                            {d.status === "Draft" && <button onClick={() => onDelete(d)} className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50" title="Delete"><Trash2 size={16} /></button>}
+                            {d.status === "Draft" && can("can_edit") && <button onClick={() => onEdit(d)} className={`rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Edit"><FileText size={16} /></button>}
+                            {d.status === "Draft" && can("can_submit") && <button onClick={() => runAction(d, "submit", "Submit")} className="rounded-md bg-blue-500 px-2 py-1 text-[11px] font-semibold text-white">Submit</button>}
+                            {d.status === "Submitted" && can("can_verify") && !isOwn(d) && <button onClick={() => runAction(d, "verify", "Verify")} className="rounded-md bg-sky-500 px-2 py-1 text-[11px] font-semibold text-white">Verify</button>}
+                            {d.status === "Verified" && can("can_approve") && !isOwn(d) && <button onClick={() => runAction(d, "approve", "Approve")} className="rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white">Approve</button>}
+                            {d.status === "Approved" && can("can_approve") && <button onClick={() => runAction(d, "post", "Post")} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
+                            {d.status === "Posted" && can("can_lock") && <button onClick={() => runAction(d, "lock", "Lock")} className="rounded-md bg-amber-500 px-2 py-1 text-[11px] font-semibold text-white"><Lock size={12} className="inline" /></button>}
+                            {d.status === "Draft" && can("can_delete") && <button onClick={() => onDelete(d)} className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50" title="Delete"><Trash2 size={16} /></button>}
                           </div>
                         </td>
                       </tr>

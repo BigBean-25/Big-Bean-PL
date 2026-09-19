@@ -731,12 +731,19 @@ export const getReconciliations = async (req, res) => {
          psu.file_name,
          psu.total_items,
          psu.status as upload_status,
+         psu.uploaded_by,
+         uploader.full_name as uploaded_by_name,
+         psu.approved_by,
+         approver.full_name as approved_by_name,
+         psu.rejection_reason,
          psu.created_at,
          psu.approved_at
        FROM sales_reconciliation_batches srb
        JOIN petpooja_sales_uploads psu ON srb.upload_id = psu.id
        JOIN outlets o ON srb.outlet_id = o.id
        LEFT JOIN users u ON srb.reconciled_by = u.id
+       LEFT JOIN users uploader ON psu.uploaded_by = uploader.id
+       LEFT JOIN users approver ON psu.approved_by = approver.id
        WHERE ${whereClause}
        ORDER BY srb.created_at DESC`,
       params

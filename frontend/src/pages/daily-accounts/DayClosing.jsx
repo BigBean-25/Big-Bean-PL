@@ -630,7 +630,9 @@ const DayClosing = () => {
   const renderActions = (closing) => {
     const common = "flex h-10 w-10 items-center justify-center rounded-md transition hover:opacity-80 disabled:opacity-50";
     const items = [];
-    const isSelf = closing.submitted_by === user?.id;
+    const isSelf = Boolean(
+      user?.id && closing.submitted_by && Number(user.id) === Number(closing.submitted_by)
+    );
     const canVerify = (permissions.can_verify || isAdmin) && !isSelf;
     const canReject = (permissions.can_reject || isAdmin) && !isSelf;
     const canDelete = permissions.can_delete || isAdmin;
@@ -642,13 +644,11 @@ const DayClosing = () => {
     if (closing.status === "Open") {
       if (canEdit) items.push({ icon: Pencil, onClick: () => openEdit(closing), label: "Edit", cls: "bg-[#E6FAFD] text-[#00A6B7]" });
       if (canSubmit) items.push({ icon: Send, onClick: () => promptSubmit(closing.id), label: "Submit", cls: "bg-[#FFF4E5] text-[#FF9F43]", loading: `${closing.id}-submit` });
+      if (canDelete) items.push({ icon: Trash2, onClick: () => handleDelete(closing.id), label: "Delete", cls: "bg-[#FCEAEA] text-[#EA5455]", loading: `${closing.id}-delete`, danger: true });
     } else if (closing.status === "Rejected") {
-      if (isAdmin) {
-        if (canDelete) items.push({ icon: Trash2, onClick: () => handleDelete(closing.id), label: "Delete", cls: "bg-[#FCEAEA] text-[#EA5455]", loading: `${closing.id}-delete`, danger: true });
-      } else {
-        if (canEdit) items.push({ icon: Pencil, onClick: () => openEdit(closing), label: "Edit", cls: "bg-[#E6FAFD] text-[#00A6B7]" });
-        if (canSubmit) items.push({ icon: Send, onClick: () => promptSubmit(closing.id), label: "Resubmit", cls: "bg-[#FFF4E5] text-[#FF9F43]", loading: `${closing.id}-submit` });
-      }
+      if (canEdit) items.push({ icon: Pencil, onClick: () => openEdit(closing), label: "Edit", cls: "bg-[#E6FAFD] text-[#00A6B7]" });
+      if (canSubmit) items.push({ icon: Send, onClick: () => promptSubmit(closing.id), label: "Resubmit", cls: "bg-[#FFF4E5] text-[#FF9F43]", loading: `${closing.id}-submit` });
+      if (canDelete) items.push({ icon: Trash2, onClick: () => handleDelete(closing.id), label: "Delete", cls: "bg-[#FCEAEA] text-[#EA5455]", loading: `${closing.id}-delete`, danger: true });
     } else if (closing.status === "Submitted" && (canVerify || canReject)) {
       if (canVerify) items.push({ icon: Check, onClick: () => promptVerify(closing.id), label: "Verify", cls: "bg-[#E9F9EF] text-[#28C76F]", loading: `${closing.id}-verify` });
       if (canReject) items.push({ icon: X, onClick: () => promptReject(closing.id), label: "Reject", cls: "bg-[#FCEAEA] text-[#EA5455]", loading: `${closing.id}-reject` });

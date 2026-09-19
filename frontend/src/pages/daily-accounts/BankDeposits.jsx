@@ -198,6 +198,12 @@ const BankDeposits = () => {
   const permissions = useMemo(() => getStoredPermissions()?.bank_deposits || {}, []);
   const can = (action) => Boolean(permissions[action]);
   const isOutletRole = ["Outlet Admin", "Outlet Staff"].includes(user?.role_name);
+  const isOwn = (deposit) =>
+    Boolean(
+      user?.id &&
+        deposit?.entered_by &&
+        Number(user.id) === Number(deposit.entered_by),
+    );
 
   const isAdmin = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const userOutlets = useMemo(() => (user?.outlets || []).map((o) => String(o.id || o.outlet_id)), [user]);
@@ -403,10 +409,10 @@ const BankDeposits = () => {
         onClick: () => runAction(deposit.id, "submit"),
       });
     }
-    if (deposit.status === "Submitted" && !isOutletRole && can("can_verify")) {
+    if (deposit.status === "Submitted" && !isOutletRole && !isOwn(deposit) && can("can_verify")) {
       items.push({ icon: CheckCircle2, label: "Verify", onClick: () => setVerifyId(deposit.id) });
     }
-    if (deposit.status === "Submitted" && !isOutletRole && can("can_reject")) {
+    if (deposit.status === "Submitted" && !isOutletRole && !isOwn(deposit) && can("can_reject")) {
       items.push({ icon: X, label: "Reject", onClick: () => setRejectId(deposit.id), danger: true });
     }
     if (["Draft", "Rejected"].includes(deposit.status) && !isOutletRole && can("can_delete")) {
@@ -438,13 +444,13 @@ const BankDeposits = () => {
           </button>
         )}
 
-        {deposit.status === "Submitted" && !isOutletRole && can("can_verify") && (
+        {deposit.status === "Submitted" && !isOutletRole && !isOwn(deposit) && can("can_verify") && (
           <button disabled={loading("verify")} onClick={() => setVerifyId(id)} className={`${common} ${isDark ? "bg-[#2F3349] text-[#28C76F]" : "bg-[#E9F9EF] text-[#28C76F]"}`} title="Verify">
             {loading("verify") ? <LoadingSpinner size={17} /> : <CheckCircle2 size={17} />}
           </button>
         )}
 
-        {deposit.status === "Submitted" && !isOutletRole && can("can_reject") && (
+        {deposit.status === "Submitted" && !isOutletRole && !isOwn(deposit) && can("can_reject") && (
           <button onClick={() => setRejectId(id)} className={`${common} ${isDark ? "bg-[#3B405A] text-[#EA5455]" : "bg-[#FCEAEA] text-[#EA5455]"}`} title="Reject">
             <X size={17} />
           </button>
@@ -719,12 +725,12 @@ const BankDeposits = () => {
                 <Edit2 size={17} /> Edit
               </button>
             )}
-            {selectedDeposit.status === "Submitted" && !isOutletRole && can("can_verify") && (
+            {selectedDeposit.status === "Submitted" && !isOutletRole && !isOwn(selectedDeposit) && can("can_verify") && (
               <button onClick={() => setVerifyId(selectedDeposit.id)} className="flex items-center gap-2 rounded-md bg-[#28C76F] px-4 py-2.5 text-[14px] font-semibold text-white">
                 <CheckCircle2 size={17} /> Verify
               </button>
             )}
-            {selectedDeposit.status === "Submitted" && !isOutletRole && can("can_reject") && (
+            {selectedDeposit.status === "Submitted" && !isOutletRole && !isOwn(selectedDeposit) && can("can_reject") && (
               <button onClick={() => setRejectId(selectedDeposit.id)} className="flex items-center gap-2 rounded-md bg-[#EA5455] px-4 py-2.5 text-[14px] font-semibold text-white">
                 <X size={17} /> Reject
               </button>

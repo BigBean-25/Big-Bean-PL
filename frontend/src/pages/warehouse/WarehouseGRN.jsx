@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { warehouseAPI } from "../../services/api";
+import { warehouseAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
@@ -21,6 +22,13 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
   const [pageSize] = useState(25);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
+
+  const { user } = useAuthStore();
+  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const grnPerms = getStoredPermissions()?.grn || {};
+  const can = (a) => isAdminRole || Boolean(grnPerms[a]);
+  const isOwn = (g) =>
+    Boolean(user?.id && g?.created_by && Number(user.id) === Number(g.created_by));
 
   const getMaterialGstRate = (rawMaterialId) => {
     const mat = materials.find((m) => String(m.id) === String(rawMaterialId));
@@ -169,7 +177,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
   };
   const removeItem = (idx) => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) });
 
-  const save = async (post = false) => {
+  const save = async () => {
     if (saving) return;
     if (form.items.some((it) => num(it.received_qty) < 0 || num(it.rejected_qty) < 0 || num(it.rate) < 0)) {
       toast.error("Quantities and rate cannot be negative");
@@ -192,9 +200,8 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
           expiry_date: it.expiry_date || null,
         })),
       };
-      const created = await warehouseAPI.createGRN(payload);
-      if (post && created?.data?.data?.id) await warehouseAPI.postGRN(created.data.data.id);
-      toast.success(post ? "Goods Receipt posted" : "Goods Receipt saved");
+      await warehouseAPI.createGRN(payload);
+      toast.success("Goods Receipt saved");
       setShowCreate(false);
       setForm(emptyForm());
       fetchGRNs();
@@ -240,9 +247,11 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
           <button onClick={reset} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
-          <button onClick={() => { setForm(emptyForm()); setPrefilling(false); setShowCreate(true); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
-            <Plus size={16} /> New Goods Receipt
-          </button>
+          {can("can_create") && (
+            <button onClick={() => { setForm(emptyForm()); setPrefilling(false); setShowCreate(true); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
+              <Plus size={16} /> New Goods Receipt
+            </button>
+          )}
         </div>
       </SectionCard>
 
@@ -279,7 +288,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         <td className="px-3 py-2.5 text-right">{fmtCurrency(g.total_amount)}</td>
                         <td className="px-3 py-2.5 text-center"><StatusBadge status={g.status} /></td>
                         <td className="sticky right-0 px-3 py-2.5 text-center" style={{ background: isDark ? "#2F3349" : "white" }}>
-                          {g.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(() => fetchGRNs()), { loading: "Posting...", success: "Goods Receipt posted", error: "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
+                          {g.status === "Draft" && can("can_edit") && !isOwn(g) && <button onClick={() => { toast.promise(warehouseAPI.postGRN(g.id).then(() => fetchGRNs()), { loading: "Posting...", success: "Goods Receipt posted", error: (e) => e?.response?.data?.message || "Post failed" }); }} className="rounded-md bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white">Post</button>}
                           <button onClick={() => openPrint(g.id)} title="View / Print" className={`ml-1 rounded-md p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                         </td>
                       </tr>
@@ -390,7 +399,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowCreate(false)} disabled={saving || prefilling} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
                 <button onClick={() => save(false)} disabled={saving || prefilling} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{prefilling ? "Loading PO…" : (saving ? "Saving…" : "Save Draft")}</button>
-                <button onClick={() => save(true)} disabled={saving || prefilling} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{prefilling ? "Loading PO…" : (saving ? "Posting…" : "Post Goods Receipt")}</button>
+                {/* A GRN can only be posted by a different user than its creator (backend-enforced), so the create form only saves a draft. */}
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { productionAPI } from "../../../services/api";
+import { productionAPI, getStoredPermissions } from "../../../services/api";
+import useAuthStore from "../../../store/authStore";
 import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, Send, CheckCircle, XCircle, Eye } from "lucide-react";
 import toast from "react-hot-toast";
@@ -8,6 +9,18 @@ const emptyItem = () => ({ raw_material_id: "", requested_qty: "", unit_id: "", 
 
 export default function RequestsTab({ requests, kitchenId, outlets, materials, units, isDark, canCreate, canEdit, onRefresh }) {
   const inputClass = getInputClass(isDark);
+  const { user } = useAuthStore();
+  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const reqPerms = getStoredPermissions()?.production_requests || {};
+  const can = (a) => isAdminRole || Boolean(reqPerms[a]);
+  const isOwn = (r) =>
+    Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
+  // Backend: submit accepts can_submit OR can_edit; approve/reject accept
+  // can_approve/can_reject OR can_edit - and the creator can never
+  // review/approve/reject their own request.
+  const canSubmit = canEdit || can("can_submit");
+  const canApprove = canEdit || can("can_approve");
+  const canReject = canEdit || can("can_reject");
   const [showCreate, setShowCreate] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -113,13 +126,20 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openView(r)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} className="text-[#7367F0]" /></button>
-                        {canEdit && r.status === "Draft" && (
+                        {canSubmit && r.status === "Draft" && (
                           <button onClick={() => transition(r.id, "Submitted")} className="rounded p-1.5 text-blue-500" title="Submit"><Send size={16} /></button>
                         )}
-                        {canEdit && (r.status === "Submitted" || r.status === "Reviewed") && (
+                        {canEdit && r.status === "Submitted" && !isOwn(r) && (
+                          <button onClick={() => transition(r.id, "Reviewed")} className="rounded p-1.5 text-sky-500" title="Review"><CheckCircle size={16} /></button>
+                        )}
+                        {(r.status === "Submitted" || r.status === "Reviewed") && !isOwn(r) && (
                           <>
-                            <button onClick={() => transition(r.id, "Approved")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>
-                            <button onClick={() => transition(r.id, "Rejected")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>
+                            {canApprove && (
+                              <button onClick={() => transition(r.id, "Approved")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>
+                            )}
+                            {canReject && (
+                              <button onClick={() => transition(r.id, "Rejected")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>
+                            )}
                           </>
                         )}
                       </div>

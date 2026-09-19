@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   FileText,
   Trash2,
+  Send,
 } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import api, { masterAPI, deleteUtilityBill } from "../../services/api";
@@ -134,6 +135,9 @@ const UtilityBills = () => {
 
   const { user } = useAuthStore();
   const canDelete = Boolean(user?.permissions?.utility_bills?.can_delete);
+  const canVerify = Boolean(user?.permissions?.utility_bills?.can_verify);
+  const isOwn = (record) =>
+    record && Number(record.created_by) === Number(user?.id);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [outletFilter, setOutletFilter] = useState("all");
@@ -875,7 +879,23 @@ const UtilityBills = () => {
               </button>
             )}
 
-            {selectedBill.status === "Submitted" && (
+            {selectedBill.status === "Draft" && canVerify && (
+              <button
+                type="button"
+                onClick={() => handleVerify(selectedBill.id, "Submitted")}
+                disabled={verifyingId === selectedBill.id}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#E6FAFD] px-5 py-2.5 text-[15px] font-semibold text-[#00CFE8]"
+              >
+                {verifyingId === selectedBill.id ? (
+                  <Loader2 size={17} className="animate-spin" />
+                ) : (
+                  <Send size={17} />
+                )}
+                Submit
+              </button>
+            )}
+
+            {selectedBill.status === "Submitted" && canVerify && !isOwn(selectedBill) && (
               <button
                 type="button"
                 onClick={() => handleVerify(selectedBill.id, "Verified")}
@@ -1110,7 +1130,18 @@ const UtilityBills = () => {
                             </button>
                           )}
 
-                          {bill.status === "Submitted" && (
+                          {bill.status === "Draft" && canVerify && (
+                            <button
+                              type="button"
+                              onClick={() => handleVerify(bill.id, "Submitted")}
+                              disabled={verifyingId === bill.id}
+                              className="text-[13px] font-semibold text-[#00CFE8] disabled:opacity-50"
+                            >
+                              {verifyingId === bill.id ? "Submitting..." : "Submit"}
+                            </button>
+                          )}
+
+                          {bill.status === "Submitted" && canVerify && !isOwn(bill) && (
                             <button
                               type="button"
                               onClick={() => handleVerify(bill.id, "Verified")}
@@ -1121,7 +1152,7 @@ const UtilityBills = () => {
                             </button>
                           )}
 
-                          {canDelete && (
+                          {canDelete && bill.status !== "Verified" && (
                             <button
                               type="button"
                               onClick={() => handleDelete(bill)}

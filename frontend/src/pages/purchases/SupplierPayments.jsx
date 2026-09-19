@@ -51,6 +51,18 @@ const formatDisplayDate = (value) => {
   return `${d}-${m}-${y}`;
 };
 
+const formatDisplayDateTime = (value) => {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+};
+
 const todayInputValue = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -933,6 +945,7 @@ const SupplierPayments = () => {
             </div>
             <div className="rounded-md bg-[#F8F7FA] p-5">
               <DetailItem label="Submitted By:" value={selectedPayment.submitted_by_name} />
+              <DetailItem label="Submitted At:" value={selectedPayment.submitted_at ? formatDisplayDateTime(selectedPayment.submitted_at) : "-"} />
               <DetailItem
                 label="Verified By:"
                 value={
@@ -941,10 +954,12 @@ const SupplierPayments = () => {
                     : selectedPayment.verified_by_name
                 }
               />
+              <DetailItem label="Verified At:" value={selectedPayment.verified_at ? formatDisplayDateTime(selectedPayment.verified_at) : "-"} />
             </div>
             {selectedPayment.status === "Rejected" && (
               <div className="rounded-md bg-[#FCEAEA] p-5">
                 <DetailItem label="Rejected By:" value={selectedPayment.rejected_by_name} />
+                <DetailItem label="Rejected At:" value={selectedPayment.rejected_at ? formatDisplayDateTime(selectedPayment.rejected_at) : "-"} />
                 <DetailItem label="Rejection Reason:" value={selectedPayment.rejection_reason} />
               </div>
             )}

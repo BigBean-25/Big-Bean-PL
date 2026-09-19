@@ -513,7 +513,21 @@ const ItemTaxUpload = () => {
                     <td className="px-4 py-3 text-right text-[14px] text-[#6F6B7D]">{formatINR(row.total_cgst)}</td>
                     <td className="px-4 py-3 text-right text-[14px] text-[#6F6B7D]">{formatINR(row.total_sgst)}</td>
                     <td className="px-4 py-3 text-right text-[14px] font-medium text-[#28C76F]">{formatINR(row.total_tax)}</td>
-                    <td className="px-4 py-3"><StatusBadge status={row.approval_status} /></td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={row.approval_status} />
+                      {row.approval_status === "Verified" && (
+                        <p className={`mt-1 text-[11px] ${muted}`}>{row.verified_by_name || "Legacy record"}</p>
+                      )}
+                      {row.approval_status === "Submitted" && row.submitted_by_name && (
+                        <p className={`mt-1 text-[11px] ${muted}`}>by {row.submitted_by_name}</p>
+                      )}
+                      {row.approval_status === "Rejected" && (
+                        <p className={`mt-1 max-w-[160px] truncate text-[11px] text-[#EA5455]`} title={row.rejection_reason || ""}>
+                          {row.rejected_by_name ? `by ${row.rejected_by_name}` : ""}
+                          {row.rejection_reason ? `${row.rejected_by_name ? " — " : ""}${row.rejection_reason}` : ""}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-[13px] text-[#6F6B7D]">{formatDateTime(row.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">

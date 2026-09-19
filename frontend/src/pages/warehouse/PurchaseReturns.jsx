@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import ExcelJS from "exceljs";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, getThemeMode, getInputClass, FilterBar, StatusBadge } from "../../components/ui";
 import { KpiCard, fmtQty, fmtDate } from "./WarehouseShared";
@@ -23,8 +24,14 @@ export default function PurchaseReturns({ locationId, isDark }) {
   const [exporting, setExporting] = useState(false);
   const inputClass = getInputClass(isDark);
   const permissions = getStoredPermissions();
-  const canCreate = Boolean(permissions?.warehouse_purchase_returns?.can_create);
-  const canExport = Boolean(permissions?.warehouse_purchase_returns?.can_export);
+  const { user } = useAuthStore();
+  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const can = (a) => isAdminRole || Boolean(permissions?.warehouse_purchase_returns?.[a]);
+  const isOwn = (r) =>
+    Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
+  const canCreate = can("can_create");
+  const canExport = can("can_export");
+  const [rejectModal, setRejectModal] = useState({ open: false, reason: "" });
   const fileInputRef = useRef(null);
 
   const fetchReturns = async () => {
@@ -90,6 +97,20 @@ export default function PurchaseReturns({ locationId, isDark }) {
 
   const action = async (apiFn, id, msg) => {
     try { await apiFn(id); toast.success(msg); fetchReturns(); if (detail) openDetail(detail); } catch (error) { toast.error(error.response?.data?.message || msg + " failed"); }
+  };
+
+  const handleReject = async () => {
+    const reason = rejectModal.reason.trim();
+    if (!reason) { toast.error("Rejection reason is required"); return; }
+    try {
+      await warehouseAPI.rejectPurchaseReturn(detail.id, { rejection_reason: reason });
+      toast.success("Purchase return rejected");
+      setRejectModal({ open: false, reason: "" });
+      fetchReturns();
+      if (detail) openDetail(detail);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Rejection failed");
+    }
   };
 
   const updateCredit = async (newStatus) => {
@@ -406,10 +427,13 @@ export default function PurchaseReturns({ locationId, isDark }) {
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier: <b>{detail.supplier_name}</b> &bull; Goods Receipt: <b>{detail.grn_no}</b> &bull; Date: <b>{fmtDate(detail.return_date)}</b></p>
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Status: <StatusBadge status={detail.status} /> &bull; Qty: <b>{fmtQty(detail.total_return_qty)}</b> &bull; Inventory Value: <b>₹{Number(detail.total_return_value).toFixed(2)}</b> &bull; Supplier Credit: <b>₹{Number(detail.credit_amount).toFixed(2)}</b></p>
               <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Credit Note: <b>{detail.supplier_credit_note_no || "—"}</b></p>
+              {detail.status === "Rejected" && detail.rejection_reason && (
+                <p className="text-[13px] text-[#EA5455]">Rejection Reason: <b>{detail.rejection_reason}</b></p>
+              )}
               {detail.status === "Posted" && (
                 <div className={`flex items-center gap-2 text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
                   <span>Credit Status:</span>
-                  <select value={detail.credit_status || "Pending"} onChange={e => updateCredit(e.target.value)} disabled={!permissions?.warehouse_purchase_returns?.can_edit} className={`rounded-md px-2 py-1 text-sm ${inputClass}`}>
+                  <select value={detail.credit_status || "Pending"} onChange={e => updateCredit(e.target.value)} disabled={!can("can_edit")} className={`rounded-md px-2 py-1 text-sm ${inputClass}`}>
                     <option value="Pending">Pending</option>
                     <option value="Received">Received</option>
                     <option value="Reconciled">Reconciled</option>
@@ -417,13 +441,34 @@ export default function PurchaseReturns({ locationId, isDark }) {
                 </div>
               )}
               <div className="flex flex-wrap gap-2 pt-2">
-                {detail.status === "Draft" && <button onClick={() => action(warehouseAPI.submitPurchaseReturn, detail.id, "Submitted")} className="h-10 rounded-lg bg-[#00CFE8] px-4 text-[14px] font-semibold text-white">Submit</button>}
-                {detail.status === "Submitted" && <button onClick={() => action(warehouseAPI.verifyPurchaseReturn, detail.id, "Verified")} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white">Verify</button>}
-                {detail.status === "Verified" && <button onClick={() => action(warehouseAPI.approvePurchaseReturn, detail.id, "Approved")} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white">Approve</button>}
-                {detail.status === "Approved" && <button onClick={() => action(warehouseAPI.postPurchaseReturn, detail.id, "Posted")} className="h-10 rounded-lg bg-[#FF9F43] px-4 text-[14px] font-semibold text-white">Post</button>}
-                {detail.status === "Posted" && <button onClick={() => action(warehouseAPI.lockPurchaseReturn, detail.id, "Locked")} className="h-10 rounded-lg bg-[#6F6B7D] px-4 text-[14px] font-semibold text-white">Lock</button>}
+                {detail.status === "Draft" && can("can_submit") && <button onClick={() => action(warehouseAPI.submitPurchaseReturn, detail.id, "Submitted")} className="h-10 rounded-lg bg-[#00CFE8] px-4 text-[14px] font-semibold text-white">Submit</button>}
+                {detail.status === "Submitted" && can("can_verify") && !isOwn(detail) && <button onClick={() => action(warehouseAPI.verifyPurchaseReturn, detail.id, "Verified")} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white">Verify</button>}
+                {detail.status === "Verified" && can("can_approve") && !isOwn(detail) && <button onClick={() => action(warehouseAPI.approvePurchaseReturn, detail.id, "Approved")} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white">Approve</button>}
+                {["Submitted", "Verified"].includes(detail.status) && can("can_reject") && !isOwn(detail) && <button onClick={() => setRejectModal({ open: true, reason: "" })} className="h-10 rounded-lg bg-[#FCEAEA] px-4 text-[14px] font-semibold text-[#EA5455]">Reject</button>}
+                {detail.status === "Approved" && can("can_approve") && <button onClick={() => action(warehouseAPI.postPurchaseReturn, detail.id, "Posted")} className="h-10 rounded-lg bg-[#FF9F43] px-4 text-[14px] font-semibold text-white">Post</button>}
+                {detail.status === "Posted" && can("can_lock") && <button onClick={() => action(warehouseAPI.lockPurchaseReturn, detail.id, "Locked")} className="h-10 rounded-lg bg-[#6F6B7D] px-4 text-[14px] font-semibold text-white">Lock</button>}
                 <button onClick={() => setDetail(null)} className="h-10 rounded-lg border px-4 text-[14px]">Close</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectModal.open && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+          <div className={`w-full max-w-md rounded-md border p-5 shadow-2xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+            <h3 className={`text-[17px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Reject Purchase Return</h3>
+            <textarea
+              autoFocus
+              rows={3}
+              value={rejectModal.reason}
+              onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+              placeholder="Reason for rejection *"
+              className={`mt-3 w-full rounded-md border p-3 text-[14px] outline-none ${inputClass}`}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setRejectModal({ open: false, reason: "" })} className="h-10 rounded-lg border px-4 text-[14px]">Cancel</button>
+              <button onClick={handleReject} className="h-10 rounded-lg bg-[#EA5455] px-4 text-[14px] font-semibold text-white">Reject</button>
             </div>
           </div>
         </div>

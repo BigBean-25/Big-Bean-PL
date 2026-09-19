@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, FilterBar, StatusBadge } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
@@ -59,6 +60,9 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const permissions = getStoredPermissions();
+  const { user } = useAuthStore();
+  const isOwn = (po) =>
+    Boolean(user?.id && po?.created_by && Number(user.id) === Number(po.created_by));
   const [filters, setFilters] = useState({ search: "", status: "", supplier_id: "" });
   const [myLocation, setMyLocation] = useState(null);
   const inputClass = getInputClass(isDark);
@@ -329,8 +333,9 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                       <button onClick={() => openDetail(p.id)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Eye size={16} /></button>
                       {p.status === 'Draft' && permissions?.warehouse_purchase_orders?.can_edit && <button onClick={() => openEdit(p)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Edit size={16} /></button>}
                       {p.status === 'Draft' && permissions?.warehouse_purchase_orders?.can_submit && <button onClick={() => action(warehouseAPI.submitPurchaseOrder, p.id, "Submitted")} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Send size={16} /></button>}
-                      {p.status === 'Submitted' && permissions?.warehouse_purchase_orders?.can_approve && <button onClick={() => action(warehouseAPI.approvePurchaseOrder, p.id, "Approved")} className={`p-1.5 rounded text-[#28C76F] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><CheckCircle size={16} /></button>}
-                      {p.status === 'Submitted' && permissions?.warehouse_purchase_orders?.can_reject && <button onClick={() => { const r = prompt("Rejection reason"); if (r) action(warehouseAPI.rejectPurchaseOrder, p.id, "Rejected", { rejection_reason: r }); }} className={`p-1.5 rounded text-[#EA5455] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><XCircle size={16} /></button>}
+                      {p.status === 'Submitted' && permissions?.warehouse_purchase_orders?.can_approve && !isOwn(p) && <button onClick={() => action(warehouseAPI.approvePurchaseOrder, p.id, "Approved")} className={`p-1.5 rounded text-[#28C76F] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><CheckCircle size={16} /></button>}
+                      {['Submitted','Approved'].includes(p.status) && permissions?.warehouse_purchase_orders?.can_reject && !isOwn(p) && <button onClick={() => { const r = prompt("Rejection reason"); if (r) action(warehouseAPI.rejectPurchaseOrder, p.id, "Rejected", { rejection_reason: r }); }} className={`p-1.5 rounded text-[#EA5455] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><XCircle size={16} /></button>}
+                      {p.status === 'Draft' && permissions?.warehouse_purchase_orders?.can_delete && <button onClick={() => { if (window.confirm("Delete this Draft purchase order?")) action(warehouseAPI.deletePurchaseOrder, p.id, "Deleted"); }} title="Delete" className={`p-1.5 rounded text-[#EA5455] ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Trash2 size={16} /></button>}
                       {p.status === 'Approved' && permissions?.warehouse_purchase_orders?.can_edit && <button onClick={() => action(warehouseAPI.sendPurchaseOrder, p.id, "Sent")} title="Send to Supplier" className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Send size={16} /></button>}
                       {['Approved','Sent','Partially Received'].includes(p.status) && permissions?.grn?.can_create && <button onClick={() => createGRN(p)} className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Create Goods Receipt"><ClipboardCheck size={16} /></button>}
                       {['Approved','Sent','Partially Received'].includes(p.status) && permissions?.warehouse_purchase_orders?.can_lock && <button onClick={() => { const r = prompt("Close reason"); if (r) action(warehouseAPI.closePurchaseOrder, p.id, "Closed", { close_reason: r }); }} title="Close PO" className={`p-1.5 rounded ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`}><Lock size={16} /></button>}

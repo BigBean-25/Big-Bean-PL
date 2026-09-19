@@ -272,6 +272,12 @@ const DailyCashbook = () => {
   const isDark = getThemeMode() === "dark";
   const permissions = getStoredPermissions();
   const can = (action) => Boolean(permissions?.daily_cashbook?.[action]);
+  const isOwn = (cashbook) =>
+    Boolean(
+      user?.id &&
+        cashbook?.entered_by &&
+        Number(user.id) === Number(cashbook.entered_by),
+    );
 
   const { selectedOutletId, selectedOutletLabel } = useSelectedOutlet((nextId) => {
     if (editId || !showForm) return;
@@ -775,7 +781,7 @@ const DailyCashbook = () => {
       row.actual_cash_in_hand,
       row.cash_difference,
       row.status,
-      row.submitted_by_name,
+      row.entered_by_name,
       row.verified_by_name,
       row.remarks,
     ]);
@@ -1570,7 +1576,9 @@ const DailyCashbook = () => {
                               </button>
                             )}
 
-                          {cashbook.status === "Draft" && can("can_edit") && (
+                          {(cashbook.status === "Draft" ||
+                            cashbook.status === "Rejected") &&
+                            can("can_edit") && (
                             <button
                               type="button"
                               onClick={() => handleEdit(cashbook)}
@@ -1581,7 +1589,8 @@ const DailyCashbook = () => {
                           )}
 
                           {cashbook.status === "Submitted" &&
-                            can("can_verify") && (
+                            can("can_verify") &&
+                            !isOwn(cashbook) && (
                               <>
                                 <button
                                   type="button"

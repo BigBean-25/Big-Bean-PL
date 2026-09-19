@@ -164,6 +164,10 @@ const MonthlySalesUpload = () => {
   };
 
   const canUpload = hasPermission("item_sales_monthly", "can_upload");
+  const isOwnUpload = (row) =>
+    Boolean(
+      user?.id && row?.uploaded_by && Number(user.id) === Number(row.uploaded_by)
+    );
 
   const isOutletLocked = selectedOutletId !== "all";
 
@@ -437,7 +441,12 @@ const MonthlySalesUpload = () => {
         });
       }
     }
-    if (hasPermission("item_sales", "can_approve") && row.is_matched && row.reconciliation_status === "Matched") {
+    if (
+      hasPermission("item_sales", "can_approve") &&
+      !isOwnUpload(row) &&
+      row.is_matched &&
+      row.reconciliation_status === "Matched"
+    ) {
       actions.push({
         label: "Approve",
         icon: Check,
@@ -450,7 +459,11 @@ const MonthlySalesUpload = () => {
           }),
       });
     }
-    if (hasPermission("item_sales", "can_reject") && !["Approved", "Rejected"].includes(row.upload_status)) {
+    if (
+      hasPermission("item_sales", "can_reject") &&
+      !isOwnUpload(row) &&
+      !["Approved", "Rejected"].includes(row.upload_status)
+    ) {
       actions.push({
         label: "Reject",
         icon: XCircle,
@@ -839,6 +852,11 @@ const MonthlySalesUpload = () => {
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={row.upload_status} />
+                        {row.upload_status === "Rejected" && (row.rejection_reason || row.remarks) && (
+                          <p className={`mt-1 max-w-[220px] text-[12px] ${muted}`} title={row.rejection_reason || row.remarks}>
+                            Reason: {row.rejection_reason || row.remarks}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">
                         {formatDateTime(row.created_at)}
@@ -902,6 +920,32 @@ const MonthlySalesUpload = () => {
             </div>
 
             <div className="overflow-y-auto p-6">
+              <div className={`mb-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border px-4 py-3 ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#F8F7FA]"}`}>
+                <span className="flex items-center gap-2 text-[13px]">
+                  <span className={muted}>Upload:</span>
+                  <StatusBadge status={selectedUploadDetail.upload_status} />
+                </span>
+                <span className="flex items-center gap-2 text-[13px]">
+                  <span className={muted}>Reconciliation:</span>
+                  <StatusBadge status={selectedUploadDetail.reconciliation_status} />
+                </span>
+                <span className={`text-[13px] ${muted}`}>
+                  Uploaded By: <span className={`font-medium ${main}`}>{selectedUploadDetail.uploaded_by_name || "-"}</span>
+                </span>
+                {(selectedUploadDetail.approved_by_name || selectedUploadDetail.approved_at) && (
+                  <span className={`text-[13px] ${muted}`}>
+                    Approved By: <span className={`font-medium ${main}`}>{selectedUploadDetail.approved_by_name || "-"}</span>
+                    {selectedUploadDetail.approved_at ? ` · ${formatDateTime(selectedUploadDetail.approved_at)}` : ""}
+                  </span>
+                )}
+                {(selectedUploadDetail.upload_status === "Rejected" || selectedUploadDetail.reconciliation_status === "Rejected") &&
+                  (selectedUploadDetail.rejection_reason || selectedUploadDetail.remarks) && (
+                    <span className={`text-[13px] ${muted}`}>
+                      Rejection Reason: <span className="font-medium text-[#EA5455]">{selectedUploadDetail.rejection_reason || selectedUploadDetail.remarks}</span>
+                    </span>
+                  )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 {[
                   { label: "Gross Sales", value: formatINR(selectedUploadDetail.petpooja_gross_sales) },
@@ -1077,6 +1121,7 @@ const MonthlySalesUpload = () => {
 
               <div className="flex gap-2">
                 {hasPermission("item_sales", "can_reject") &&
+                  !isOwnUpload(selectedUploadDetail) &&
                   !["Approved", "Rejected"].includes(selectedUploadDetail.upload_status) && (
                     <button
                       type="button"
@@ -1093,6 +1138,7 @@ const MonthlySalesUpload = () => {
                     </button>
                   )}
                 {hasPermission("item_sales", "can_approve") &&
+                  !isOwnUpload(selectedUploadDetail) &&
                   selectedUploadDetail.is_matched &&
                   selectedUploadDetail.reconciliation_status === "Matched" && (
                     <button

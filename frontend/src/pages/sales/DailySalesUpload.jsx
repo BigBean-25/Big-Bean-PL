@@ -16,6 +16,7 @@ import {
   Check,
   XCircle,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import {
   PageHeader,
@@ -146,7 +147,11 @@ const DailySalesUpload = () => {
     return !!permissions[module]?.[action];
   };
 
-  const canUpload = hasPermission("item_sales", "can_upload");
+  const canUpload = hasPermission("item_sales_daily", "can_upload");
+  const isOwnUpload = (row) =>
+    Boolean(
+      user?.id && row?.uploaded_by && Number(user.id) === Number(row.uploaded_by)
+    );
   const isOutletLocked = selectedOutletId !== "all";
 
   useEffect(() => {
@@ -288,6 +293,17 @@ const DailySalesUpload = () => {
     }
   };
 
+  const handleRollback = async (row) => {
+    try {
+      await salesAPI.rollbackPetPoojaUpload(row.upload_id);
+      toast.success("Daily sales upload rolled back");
+      await fetchUploads();
+      if (detail?.id === row.id) setDetail(null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Rollback failed");
+    }
+  };
+
   const handleUpload = async (event) => {
     event.preventDefault();
 
@@ -407,7 +423,12 @@ const DailySalesUpload = () => {
         });
       }
     }
-    if (hasPermission("item_sales", "can_approve") && row.is_matched && row.reconciliation_status === "Matched") {
+    if (
+      hasPermission("item_sales", "can_approve") &&
+      !isOwnUpload(row) &&
+      row.is_matched &&
+      row.reconciliation_status === "Matched"
+    ) {
       actions.push({
         label: "Approve",
         icon: Check,
@@ -419,7 +440,11 @@ const DailySalesUpload = () => {
           }),
       });
     }
-    if (hasPermission("item_sales", "can_reject") && !["Approved", "Rejected"].includes(row.upload_status)) {
+    if (
+      hasPermission("item_sales", "can_reject") &&
+      !isOwnUpload(row) &&
+      !["Approved", "Rejected"].includes(row.upload_status)
+    ) {
       actions.push({
         label: "Reject",
         icon: XCircle,
@@ -428,6 +453,18 @@ const DailySalesUpload = () => {
             type: "reject",
             row,
             message: "Reject this Daily Sales reconciliation?",
+          }),
+      });
+    }
+    if (hasPermission("item_sales", "can_delete") && ["Pending", "Reconciling"].includes(row.upload_status)) {
+      actions.push({
+        label: "Rollback",
+        icon: RotateCcw,
+        onClick: () =>
+          setConfirmAction({
+            type: "rollback",
+            row,
+            message: "Rollback this Daily Sales upload? The uploaded file and reconciliation data will be removed.",
           }),
       });
     }
@@ -790,6 +827,11 @@ const DailySalesUpload = () => {
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={row.upload_status} />
+                        {row.upload_status === "Rejected" && (row.rejection_reason || row.remarks) && (
+                          <p className={`mt-1 max-w-[220px] text-[12px] ${muted}`} title={row.rejection_reason || row.remarks}>
+                            Reason: {row.rejection_reason || row.remarks}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-[14px] text-[#6F6B7D]">
                         {formatDateTime(row.created_at)}
@@ -850,6 +892,32 @@ const DailySalesUpload = () => {
             </div>
 
             <div className="overflow-y-auto p-6">
+              <div className={`mb-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border px-4 py-3 ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#F8F7FA]"}`}>
+                <span className="flex items-center gap-2 text-[13px]">
+                  <span className={muted}>Upload:</span>
+                  <StatusBadge status={detail.upload_status} />
+                </span>
+                <span className="flex items-center gap-2 text-[13px]">
+                  <span className={muted}>Reconciliation:</span>
+                  <StatusBadge status={detail.reconciliation_status} />
+                </span>
+                <span className={`text-[13px] ${muted}`}>
+                  Uploaded By: <span className={`font-medium ${main}`}>{detail.uploaded_by_name || "-"}</span>
+                </span>
+                {(detail.approved_by_name || detail.approved_at) && (
+                  <span className={`text-[13px] ${muted}`}>
+                    Approved By: <span className={`font-medium ${main}`}>{detail.approved_by_name || "-"}</span>
+                    {detail.approved_at ? ` · ${formatDateTime(detail.approved_at)}` : ""}
+                  </span>
+                )}
+                {(detail.upload_status === "Rejected" || detail.reconciliation_status === "Rejected") &&
+                  (detail.rejection_reason || detail.remarks) && (
+                    <span className={`text-[13px] ${muted}`}>
+                      Rejection Reason: <span className={`font-medium text-[#EA5455]`}>{detail.rejection_reason || detail.remarks}</span>
+                    </span>
+                  )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 {[
                   { label: "Gross Sales", value: formatINR(detail.petpooja_gross_sales) },
@@ -1021,6 +1089,7 @@ const DailySalesUpload = () => {
 
               <div className="flex gap-2">
                 {hasPermission("item_sales", "can_reject") &&
+                  !isOwnUpload(detail) &&
                   !["Approved", "Rejected"].includes(detail.upload_status) && (
                     <button
                       type="button"
@@ -1037,6 +1106,7 @@ const DailySalesUpload = () => {
                     </button>
                   )}
                 {hasPermission("item_sales", "can_approve") &&
+                  !isOwnUpload(detail) &&
                   detail.is_matched &&
                   detail.reconciliation_status === "Matched" && (
                     <button
@@ -1065,6 +1135,7 @@ const DailySalesUpload = () => {
             <h3 className={`text-lg font-bold ${main}`}>
               {confirmAction.type === "approve" && "Approve Daily Sales?"}
               {confirmAction.type === "reject" && "Reject Daily Sales"}
+              {confirmAction.type === "rollback" && "Rollback Daily Sales Upload?"}
             </h3>
             <p className={`mt-2 text-[14px] ${muted}`}>{confirmAction.message}</p>
 
@@ -1095,6 +1166,7 @@ const DailySalesUpload = () => {
                   const { type, row, reason } = confirmAction;
                   setConfirmAction(null);
                   if (type === "approve") handleApprove(row);
+                  if (type === "rollback") handleRollback(row);
                   if (type === "reject") {
                     if (!reason?.trim()) {
                       toast.error("Rejection reason is required");
@@ -1104,13 +1176,14 @@ const DailySalesUpload = () => {
                   }
                 }}
                 className={`h-10 rounded-lg px-4 text-[14px] font-semibold transition ${
-                  confirmAction.type === "reject"
+                  confirmAction.type === "reject" || confirmAction.type === "rollback"
                     ? "bg-[#EA5455] text-white hover:bg-[#D14545]"
                     : "bg-[#28C76F] text-white hover:bg-[#20B360]"
                 }`}
               >
                 {confirmAction.type === "approve" && "Approve"}
                 {confirmAction.type === "reject" && "Reject"}
+                {confirmAction.type === "rollback" && "Rollback"}
               </button>
             </div>
           </div>

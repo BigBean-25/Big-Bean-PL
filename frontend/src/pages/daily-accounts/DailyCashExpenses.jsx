@@ -575,8 +575,9 @@ const DailyCashExpenses = () => {
       if (can("can_submit")) actions.push({ icon: RefreshCw, onClick: () => handleSubmitExpense(id), title: "Resubmit", cls: "bg-[#FFF4E5] text-[#FF9F43]" });
       if (can("can_delete")) actions.push({ icon: Trash2, onClick: () => setConfirmModal({ type: "delete", id, title: "Delete this Daily Cash Expense draft?", message: "This action cannot be undone." }), title: "Delete", cls: "bg-[#FCEAEA] text-[#EA5455]" });
     } else if (expense.status === "Submitted") {
-      if (can("can_approve")) actions.push({ icon: Check, onClick: () => setConfirmModal({ type: "approve", id, title: "Approve this Daily Cash Expense?", message: "Approved expenses are included in Daily Cashbook reconciliation and P&L." }), title: "Approve", cls: "bg-[#E9F9EF] text-[#28C76F]" });
-      if (can("can_reject")) actions.push({ icon: X, onClick: () => setRejectModal({ open: true, id, reason: "" }), title: "Reject", cls: "bg-[#FCEAEA] text-[#EA5455]" });
+      const own = Boolean(user?.id && expense?.entered_by && Number(user.id) === Number(expense.entered_by));
+      if (!own && can("can_approve")) actions.push({ icon: Check, onClick: () => setConfirmModal({ type: "approve", id, title: "Approve this Daily Cash Expense?", message: "Approved expenses are included in Daily Cashbook reconciliation and P&L." }), title: "Approve", cls: "bg-[#E9F9EF] text-[#28C76F]" });
+      if (!own && can("can_reject")) actions.push({ icon: X, onClick: () => setRejectModal({ open: true, id, reason: "" }), title: "Reject", cls: "bg-[#FCEAEA] text-[#EA5455]" });
     }
 
     return (
@@ -919,7 +920,14 @@ const DailyCashExpenses = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3"><StatusBadge status={expense.status} /></td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={expense.status} />
+                      {expense.status === "Rejected" && expense.admin_remarks && (
+                        <p className={`mt-1 max-w-[220px] text-[12px] ${mutedClass}`} title={expense.admin_remarks}>
+                          Reason: {expense.admin_remarks}
+                        </p>
+                      )}
+                    </td>
                     <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.entered_by_name || "-"}</td>
                     <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.verified_by_name || "-"}</td>
                     <td className="px-4 py-3">{renderActions(expense)}</td>

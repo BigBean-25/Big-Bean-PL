@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { productionAPI } from "../../../services/api";
+import { productionAPI, getStoredPermissions } from "../../../services/api";
+import useAuthStore from "../../../store/authStore";
 import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, Send, CheckCircle, XCircle, ShieldCheck, Lock, Eye, Download } from "lucide-react";
 import toast from "react-hot-toast";
@@ -8,6 +9,9 @@ const emptyItem = () => ({ raw_material_id: "", wastage_scope: "RAW_MATERIAL", q
 
 export default function WastageTab({ wastage, kitchenId, batches, materials, units, isDark, canCreate, canEdit, onRefresh }) {
   const inputClass = getInputClass(isDark);
+  const user = useAuthStore((s) => s.user);
+  const can = (key) => !!(getStoredPermissions()?.production_wastage?.[key]);
+  const isOwn = (w) => Number(w.created_by) === Number(user?.id);
   const [showCreate, setShowCreate] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [form, setForm] = useState({
@@ -113,12 +117,12 @@ export default function WastageTab({ wastage, kitchenId, batches, materials, uni
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => openView(w)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} className="text-[#7367F0]" /></button>
-                        {canEdit && w.status === "Draft" && <button onClick={() => runAction(w.id, "submitProductionWastage", "Submit")} className="rounded p-1.5 text-blue-500" title="Submit"><Send size={16} /></button>}
-                        {canEdit && w.status === "Submitted" && <button onClick={() => runAction(w.id, "verifyProductionWastage", "Verify")} className="rounded p-1.5 text-sky-500" title="Verify"><CheckCircle size={16} /></button>}
-                        {canEdit && w.status === "Verified" && <button onClick={() => runAction(w.id, "approveProductionWastage", "Approve")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>}
-                        {canEdit && ["Draft", "Submitted", "Verified"].includes(w.status) && <button onClick={() => runAction(w.id, "rejectProductionWastage", "Reject")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>}
-                        {canEdit && w.status === "Approved" && <button onClick={() => runAction(w.id, "postProductionWastage", "Post")} className="rounded p-1.5 text-[#7367F0]" title="Post"><ShieldCheck size={16} /></button>}
-                        {canEdit && w.status === "Posted" && <button onClick={() => runAction(w.id, "lockProductionWastage", "Lock")} className="rounded p-1.5 text-amber-500" title="Lock"><Lock size={16} /></button>}
+                        {can("can_submit") && w.status === "Draft" && <button onClick={() => runAction(w.id, "submitProductionWastage", "Submit")} className="rounded p-1.5 text-blue-500" title="Submit"><Send size={16} /></button>}
+                        {can("can_verify") && !isOwn(w) && w.status === "Submitted" && <button onClick={() => runAction(w.id, "verifyProductionWastage", "Verify")} className="rounded p-1.5 text-sky-500" title="Verify"><CheckCircle size={16} /></button>}
+                        {can("can_approve") && !isOwn(w) && w.status === "Verified" && <button onClick={() => runAction(w.id, "approveProductionWastage", "Approve")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>}
+                        {can("can_reject") && ["Draft", "Submitted", "Verified"].includes(w.status) && (w.status === "Draft" || !isOwn(w)) && <button onClick={() => runAction(w.id, "rejectProductionWastage", "Reject")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>}
+                        {can("can_approve") && w.status === "Approved" && <button onClick={() => runAction(w.id, "postProductionWastage", "Post")} className="rounded p-1.5 text-[#7367F0]" title="Post"><ShieldCheck size={16} /></button>}
+                        {can("can_lock") && w.status === "Posted" && <button onClick={() => runAction(w.id, "lockProductionWastage", "Lock")} className="rounded p-1.5 text-amber-500" title="Lock"><Lock size={16} /></button>}
                       </div>
                     </td>
                   </tr>

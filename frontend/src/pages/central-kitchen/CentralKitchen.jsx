@@ -76,6 +76,7 @@ export default function CentralKitchen() {
   const dispatchPermissions = getStoredPermissions()?.production_dispatch || {};
   const canCreateDispatch = dispatchPermissions?.can_create || false;
   const canEditDispatch = dispatchPermissions?.can_edit || false;
+  const canSubmitDispatch = dispatchPermissions?.can_submit || false;
   const canViewDispatch = dispatchPermissions?.can_view || false;
   const inputClass = getInputClass(isDark);
 
@@ -411,15 +412,19 @@ export default function CentralKitchen() {
         remarks: newDispatchForm.remarks,
         items,
       });
-      await productionAPI.postProductionDispatch(d?.data?.data?.id || d?.data?.id);
-      toast.success("Dispatch created and posted");
+      if (canSubmitDispatch) {
+        await productionAPI.postProductionDispatch(d?.data?.data?.id || d?.data?.id);
+        toast.success("Dispatch created and posted");
+      } else {
+        toast.success("Dispatch created as Draft");
+      }
       setShowNewDispatch(false);
       fetchAll();
     } catch (error) { toast.error(error?.response?.data?.message || "Dispatch failed"); }
   };
 
   const handlePostDispatch = async (id) => {
-    if (!canEditDispatch) return toast.error("Permission denied");
+    if (!canSubmitDispatch) return toast.error("Permission denied");
     try { await productionAPI.postProductionDispatch(id); toast.success("Dispatch posted"); fetchAll(); }
     catch (error) { toast.error(error?.response?.data?.message || "Post failed"); }
   };
@@ -766,7 +771,7 @@ export default function CentralKitchen() {
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1">
                             <button onClick={() => handleViewDispatch(d.id)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="View"><Eye size={16} className="text-[#7367F0]" /></button>
-                            {d.status === "Draft" && canCreateDispatch && (
+                            {d.status === "Draft" && canSubmitDispatch && (
                               <button onClick={() => handlePostDispatch(d.id)} className={`rounded p-1.5 ${isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F3F2F7]"}`} title="Post"><Send size={16} className="text-[#28C76F]" /></button>
                             )}
                           </div>

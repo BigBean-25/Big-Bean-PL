@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { productionAPI } from "../../../services/api";
+import useAuthStore from "../../../store/authStore";
 import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, CheckCircle, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function PlanningTab({ plans, kitchenId, materials, units, recipes, isDark, canCreate, canEdit, onRefresh }) {
   const inputClass = getInputClass(isDark);
+  const { user } = useAuthStore();
+  const isOwn = (p) =>
+    Boolean(user?.id && p?.created_by && Number(user.id) === Number(p.created_by));
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
     plan_no: "",
@@ -82,7 +86,7 @@ export default function PlanningTab({ plans, kitchenId, materials, units, recipe
                     <td className="px-3 py-3">{p.planned_production_qty} {p.unit_name}</td>
                     <td className="px-3 py-3"><StatusBadge status={p.status} /></td>
                     <td className="px-3 py-3">
-                      {canEdit && p.status === "Draft" && (
+                      {canEdit && !isOwn(p) && p.status === "Draft" && (
                         <div className="flex items-center gap-1">
                           <button onClick={() => transition(p.id, "Approved")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>
                           <button onClick={() => transition(p.id, "Rejected")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>

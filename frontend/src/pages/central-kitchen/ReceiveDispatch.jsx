@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { productionAPI, warehouseAPI } from "../../services/api";
+import { productionAPI, warehouseAPI, getStoredPermissions } from "../../services/api";
 import { PageHeader, SectionCard, TableWrapper, EmptyState, LoadingSpinner, getThemeMode, getInputClass } from "../../components/ui";
 import { Truck, X, PackageCheck } from "lucide-react";
 import toast from "react-hot-toast";
@@ -15,6 +15,7 @@ export default function ReceiveDispatch() {
   const [dispatches, setDispatches] = useState([]);
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState({});
+  const canReceive = !!(getStoredPermissions()?.production_dispatch?.can_edit);
 
   const fetchOutletLocations = async () => {
     try {
@@ -106,7 +107,9 @@ export default function ReceiveDispatch() {
                         <td className="px-3 py-3">{d.from_location}</td>
                         <td className="px-3 py-3"><span className="rounded-full bg-[#FFEAC2] px-2 py-0.5 text-[11px] font-medium text-[#FF9F43]">{d.status}</span></td>
                         <td className="px-3 py-3">
-                          <button onClick={() => openDetail(d)} className="inline-flex items-center gap-1 rounded bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white"><PackageCheck size={12} /> Receive</button>
+                          {canReceive ? (
+                            <button onClick={() => openDetail(d)} className="inline-flex items-center gap-1 rounded bg-[#7367F0] px-2 py-1 text-[11px] font-semibold text-white"><PackageCheck size={12} /> Receive</button>
+                          ) : <span className="text-[11px] text-[#A5A8B6]">-</span>}
                         </td>
                       </tr>
                     ))}

@@ -232,7 +232,7 @@ export const getItemTaxUploads = async (req, res) => {
               DATE_FORMAT(itu.upload_date_to, '%Y-%m-%d') AS upload_date_to,
               itu.file_name, itu.total_items, itu.total_net_amount, itu.total_cgst,
               itu.total_sgst, itu.total_tax, itu.total_amount, itu.created_at,
-              itu.approval_status, itu.submitted_at, itu.verified_at, itu.rejected_at,
+              itu.approval_status, itu.submitted_by, itu.submitted_at, itu.verified_at, itu.rejected_at,
               itu.rejection_reason, itu.uploaded_by,
               u.full_name AS uploaded_by_name,
               su.full_name AS submitted_by_name,

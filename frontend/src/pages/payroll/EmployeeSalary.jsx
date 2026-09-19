@@ -17,9 +17,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Store,
+  Send,
 } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import api, { masterAPI } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
 
 const getRows = (response) => {
@@ -119,6 +121,16 @@ const EmployeeSalary = () => {
   const [yearFilter, setYearFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(10);
+
+  const { user } = useAuthStore();
+  const payrollPerms = user?.permissions?.payroll || {};
+  const canCreate = Boolean(payrollPerms.can_create);
+  const canEdit = Boolean(payrollPerms.can_edit);
+  const canVerify = Boolean(payrollPerms.can_verify);
+  // Backend restricts salary delete to the Super Admin role (payrollRoutes).
+  const isSuperAdmin = user?.role_name === "Super Admin";
+  const isOwn = (record) =>
+    record && Number(record.created_by) === Number(user?.id);
 
   const isDark = getThemeMode() === "dark";
   const primaryColor = getPrimaryColor();
@@ -630,15 +642,17 @@ const EmployeeSalary = () => {
             Export
           </button>
 
-          <button
-            type="button"
-            onClick={openCreateForm}
-            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
-            style={{ backgroundColor: primaryColor }}
-          >
-            <Plus size={18} />
-            Add Salary Record
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <Plus size={18} />
+              Add Salary Record
+            </button>
+          )}
         </div>
       </div>
 
@@ -1006,30 +1020,46 @@ const EmployeeSalary = () => {
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            {selectedSalary.status === "Draft" && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleEdit(selectedSalary)}
-                  className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  <Edit2 size={17} />
-                  Edit
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDelete(selectedSalary.id)}
-                  className="flex items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-5 py-2.5 text-[15px] font-semibold text-[#EA5455]"
-                >
-                  <Trash2 size={17} />
-                  Delete
-                </button>
-              </>
+            {selectedSalary.status !== "Verified" && canEdit && (
+              <button
+                type="button"
+                onClick={() => handleEdit(selectedSalary)}
+                className="flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-[15px] font-semibold text-white"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Edit2 size={17} />
+                Edit
+              </button>
             )}
 
-            {selectedSalary.status === "Submitted" && (
+            {selectedSalary.status === "Draft" && canVerify && (
+              <button
+                type="button"
+                onClick={() => handleVerify(selectedSalary.id, "Submitted")}
+                disabled={verifyingId === selectedSalary.id}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#E6FAFD] px-5 py-2.5 text-[15px] font-semibold text-[#00CFE8]"
+              >
+                {verifyingId === selectedSalary.id ? (
+                  <Loader2 size={17} className="animate-spin" />
+                ) : (
+                  <Send size={17} />
+                )}
+                Submit
+              </button>
+            )}
+
+            {selectedSalary.status !== "Verified" && isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => handleDelete(selectedSalary.id)}
+                className="flex items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-5 py-2.5 text-[15px] font-semibold text-[#EA5455]"
+              >
+                <Trash2 size={17} />
+                Delete
+              </button>
+            )}
+
+            {selectedSalary.status === "Submitted" && canVerify && !isOwn(selectedSalary) && (
               <button
                 type="button"
                 onClick={() => handleVerify(selectedSalary.id, "Verified")}
@@ -1144,15 +1174,17 @@ const EmployeeSalary = () => {
               Export
             </button>
 
-            <button
-              type="button"
-              onClick={openCreateForm}
-              className="flex h-12 items-center justify-center gap-2 rounded-md px-5 text-[15px] font-semibold text-white"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <Plus size={18} />
-              Add Salary Record
-            </button>
+            {canCreate && (
+              <button
+                type="button"
+                onClick={openCreateForm}
+                className="flex h-12 items-center justify-center gap-2 rounded-md px-5 text-[15px] font-semibold text-white"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Plus size={18} />
+                Add Salary Record
+              </button>
+            )}
           </div>
         </div>
 
@@ -1275,7 +1307,7 @@ const EmployeeSalary = () => {
 
                       <td className={`sticky right-0 z-10 px-6 py-4 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                         <div className="flex items-center gap-3 text-[#6F6B7D]">
-                          {salary.status === "Draft" && (
+                          {salary.status !== "Verified" && isSuperAdmin && (
                             <button
                               type="button"
                               onClick={() => handleDelete(salary.id)}
@@ -1300,7 +1332,7 @@ const EmployeeSalary = () => {
                             <Eye size={20} />
                           </button>
 
-                          {salary.status === "Draft" && (
+                          {salary.status !== "Verified" && canEdit && (
                             <button
                               type="button"
                               onClick={() => handleEdit(salary)}
@@ -1311,7 +1343,18 @@ const EmployeeSalary = () => {
                             </button>
                           )}
 
-                          {salary.status === "Submitted" && (
+                          {salary.status === "Draft" && canVerify && (
+                            <button
+                              type="button"
+                              onClick={() => handleVerify(salary.id, "Submitted")}
+                              disabled={verifyingId === salary.id}
+                              className="text-[13px] font-semibold text-[#00CFE8] disabled:opacity-50"
+                            >
+                              {verifyingId === salary.id ? "Submitting..." : "Submit"}
+                            </button>
+                          )}
+
+                          {salary.status === "Submitted" && canVerify && !isOwn(salary) && (
                             <button
                               type="button"
                               onClick={() => handleVerify(salary.id, "Verified")}

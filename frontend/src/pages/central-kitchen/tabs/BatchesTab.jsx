@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { productionAPI } from "../../../services/api";
+import useAuthStore from "../../../store/authStore";
 import { SectionCard, TableWrapper, EmptyState, getInputClass, StatusBadge } from "../../../components/ui";
 import { Plus, X, CheckCircle, Settings } from "lucide-react";
 import toast from "react-hot-toast";
@@ -13,6 +14,9 @@ export default function BatchesTab({ batches, kitchenId, materials, units, recip
   const [outputForm, setOutputForm] = useState({ actual_qty: "", gross_output_qty: "", rejected_output_qty: "", accepted_output_qty: "" });
   const [saving, setSaving] = useState(false);
   const isBatchPosted = managing ? (managing.is_posted == 1 || managing.status === "Posted") : false;
+  const { user } = useAuthStore();
+  const isOwn = (b) =>
+    Boolean(user?.id && b?.created_by && Number(user.id) === Number(b.created_by));
   const [form, setForm] = useState({
     batch_no: "", recipe_id: "", finished_product_id: "", planned_qty: "", unit_id: "",
     batch_no_output: "", mfg_date: new Date().toISOString().split("T")[0], expiry_date: "",
@@ -260,7 +264,9 @@ export default function BatchesTab({ batches, kitchenId, materials, units, recip
 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setManaging(null)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Close</button>
-                <button onClick={() => handlePost(managing.id)} disabled={saving} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white hover:bg-[#22A860] disabled:opacity-50">{saving ? "Posting…" : "Post Batch"}</button>
+                {!isOwn(managing) && (
+                  <button onClick={() => handlePost(managing.id)} disabled={saving} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white hover:bg-[#22A860] disabled:opacity-50">{saving ? "Posting…" : "Post Batch"}</button>
+                )}
               </div>
             </div>
           </div>

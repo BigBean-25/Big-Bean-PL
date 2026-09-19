@@ -1501,26 +1501,32 @@ const OnlinePayouts = () => {
                         <div className="flex items-center gap-3 text-[#6F6B7D]">
                           {(payout.status === 'Draft' || payout.status === 'Rejected') && (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => handleEdit(payout)}
-                                className="transition hover:text-[#00A6B7]"
-                                title="Edit"
-                              >
-                                <Edit2 size={20} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleWorkflow(payout.id, 'submit')}
-                                disabled={actioningId === payout.id}
-                                className="transition hover:text-[#00CFE8] disabled:opacity-50"
-                                title="Submit"
-                              >
-                                {actioningId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
-                              </button>
+                              {can('can_edit') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleEdit(payout)}
+                                  className="transition hover:text-[#00A6B7]"
+                                  title="Edit"
+                                >
+                                  <Edit2 size={20} />
+                                </button>
+                              )}
+                              {can('can_submit') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleWorkflow(payout.id, 'submit')}
+                                  disabled={actioningId === payout.id}
+                                  className="transition hover:text-[#00CFE8] disabled:opacity-50"
+                                  title="Submit"
+                                >
+                                  {actioningId === payout.id ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                                </button>
+                              )}
                             </>
                           )}
-                          {payout.status === 'Submitted' && payout.submitted_by !== user?.id && (
+                          {payout.status === 'Submitted' &&
+                            Number(payout.submitted_by) !== Number(user?.id) &&
+                            can('can_verify') && (
                             <>
                               <button
                                 type="button"
@@ -1542,7 +1548,7 @@ const OnlinePayouts = () => {
                               </button>
                             </>
                           )}
-                          {(payout.status === 'Draft' || payout.status === 'Rejected') && (
+                          {(payout.status === 'Draft' || payout.status === 'Rejected') && can('can_delete') && (
                             <button
                               type="button"
                               onClick={() => handleDelete(payout.id)}

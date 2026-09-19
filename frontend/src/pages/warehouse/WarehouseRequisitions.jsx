@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { warehouseAPI } from "../../services/api";
+import { warehouseAPI, getStoredPermissions } from "../../services/api";
+import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
@@ -19,6 +20,12 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   const [pageSize] = useState(25);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
+  const { user } = useAuthStore();
+  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const reqPerms = getStoredPermissions()?.warehouse_requisitions || {};
+  const can = (a) => isAdminRole || Boolean(reqPerms[a]);
+  const isOwn = (r) =>
+    Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
 
   const warehouses = locations.filter((l) => l.location_type === "Central Warehouse");
   const outlets = locations.filter((l) => l.location_type === "Outlet");
@@ -175,9 +182,11 @@ export default function WarehouseRequisitions({ locationId, locations, materials
           <button onClick={reset} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
-          <button onClick={() => { setShowCreate(true); fetchWarehouseStock(form.from_location_id); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
-            <Plus size={16} /> New Outlet Purchase Order
-          </button>
+          {can("can_create") && (
+            <button onClick={() => { setShowCreate(true); fetchWarehouseStock(form.from_location_id); }} className="flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[13px] font-semibold text-white hover:bg-[#6354D8]">
+              <Plus size={16} /> New Outlet Purchase Order
+            </button>
+          )}
         </div>
       </SectionCard>
 
@@ -354,10 +363,10 @@ export default function WarehouseRequisitions({ locationId, locations, materials
 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setDetail(null)} className="h-10 rounded-lg border px-4 text-[14px] font-medium">Close</button>
-                {detail.status === "Draft" && <button onClick={() => { toast.promise(warehouseAPI.submitRequisition(detail.id).then(() => { openDetail(detail); fetchRequisitions(); }), { loading: "Submitting...", success: "Submitted", error: "Failed" }); }} className="h-10 rounded-lg bg-[#00CFE8] px-4 text-[14px] font-semibold text-white">Submit</button>}
-                {(detail.status === "Submitted" || detail.status === "Partially Approved") && <button onClick={() => setApproval({ ...approval, open: true })} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white"><CheckCircle size={16} className="inline mr-1" /> Approve</button>}
-                {detail.status === "Submitted" && <button onClick={() => approve(true)} className="h-10 rounded-lg bg-[#EA5455] px-4 text-[14px] font-semibold text-white"><XCircle size={16} className="inline mr-1" /> Reject</button>}
-                {detail.status === "Approved" && <button onClick={() => setApproval({ ...approval, open: true, mode: "dispatch" })} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white"><Truck size={16} className="inline mr-1" /> Dispatch</button>}
+                {detail.status === "Draft" && can("can_submit") && <button onClick={() => { toast.promise(warehouseAPI.submitRequisition(detail.id).then(() => { openDetail(detail); fetchRequisitions(); }), { loading: "Submitting...", success: "Submitted", error: "Failed" }); }} className="h-10 rounded-lg bg-[#00CFE8] px-4 text-[14px] font-semibold text-white">Submit</button>}
+                {detail.status === "Submitted" && can("can_approve") && !isOwn(detail) && <button onClick={() => setApproval({ ...approval, open: true })} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white"><CheckCircle size={16} className="inline mr-1" /> Approve</button>}
+                {detail.status === "Submitted" && can("can_approve") && !isOwn(detail) && <button onClick={() => approve(true)} className="h-10 rounded-lg bg-[#EA5455] px-4 text-[14px] font-semibold text-white"><XCircle size={16} className="inline mr-1" /> Reject</button>}
+                {detail.status === "Approved" && can("can_edit") && <button onClick={() => setApproval({ ...approval, open: true, mode: "dispatch" })} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white"><Truck size={16} className="inline mr-1" /> Dispatch</button>}
               </div>
             </div>
           </div>

@@ -670,7 +670,21 @@ const OpeningStockUpload = () => {
                 />
                 <DetailItem
                   label="Approval Status"
-                  value={selectedUpload.approval_status || "-"}
+                  value={selectedUpload.status === "Completed" ? selectedUpload.approval_status || "Draft" : "-"}
+                />
+                <DetailItem
+                  label="Submitted At"
+                  value={selectedUpload.submitted_at ? formatDate(selectedUpload.submitted_at) : "-"}
+                />
+                <DetailItem
+                  label="Verified At"
+                  value={
+                    selectedUpload.verified_at
+                      ? formatDate(selectedUpload.verified_at)
+                      : selectedUpload.approval_status === "Verified"
+                      ? "Legacy record"
+                      : "-"
+                  }
                 />
                 {selectedUpload.approval_status === "Rejected" && (
                   <DetailItem
@@ -876,7 +890,9 @@ const OpeningStockUpload = () => {
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusBadge status={upload.status || "Pending"} />
-                        {upload.approval_status && <StatusBadge status={upload.approval_status} />}
+                        {upload.status === "Completed" && upload.approval_status && (
+                          <StatusBadge status={upload.approval_status} />
+                        )}
                       </div>
                     </td>
                     <td
