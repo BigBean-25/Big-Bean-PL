@@ -1,11 +1,76 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList } from "lucide-react";
+import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X } from "lucide-react";
 import toast from "react-hot-toast";
+
+// Searchable material picker for Outlet PO line items. Matches on
+// material_name and material_code, is keyboard-usable (arrows + Enter +
+// Escape), supports clearing, and hides materials already picked on other
+// rows so a duplicate line can't be created through the UI (the backend
+// still rejects duplicates deterministically as a second guard).
+const MaterialCombobox = ({ value, onSelect, materials, excludeIds, stockById, isDark, inputClass }) => {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [hi, setHi] = useState(0);
+  const boxRef = useRef(null);
+  const selected = materials.find((m) => String(m.id) === String(value));
+
+  useEffect(() => {
+    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const q = term.trim().toLowerCase();
+  const options = materials
+    .filter((m) => !excludeIds.has(String(m.id)))
+    .filter((m) => !q || (m.material_name || "").toLowerCase().includes(q) || (m.material_code || "").toLowerCase().includes(q))
+    .slice(0, 50);
+
+  const pick = (m) => { onSelect(String(m.id)); setTerm(""); setOpen(false); };
+
+  return (
+    <div ref={boxRef} className="relative">
+      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+      <input
+        value={open ? term : (selected ? `${selected.material_name}${selected.material_code ? ` (${selected.material_code})` : ""}` : "")}
+        onFocus={() => { setOpen(true); setTerm(""); setHi(0); }}
+        onChange={(e) => { setTerm(e.target.value); setOpen(true); setHi(0); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHi((h) => Math.min(h + 1, Math.max(options.length - 1, 0))); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter") { e.preventDefault(); if (open && options[hi]) pick(options[hi]); }
+          else if (e.key === "Escape") { setOpen(false); }
+        }}
+        className={`h-10 w-full rounded-lg border pl-9 pr-8 text-[14px] outline-none ${inputClass}`}
+        placeholder="Search material name or code"
+      />
+      {selected && !open && (
+        <button type="button" onClick={() => onSelect("")} title="Clear material" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-rose-500"><X size={14} /></button>
+      )}
+      {open && (
+        <div className={`absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+          {options.length === 0 ? (
+            <div className="px-3 py-2 text-[13px] text-gray-400">No materials match</div>
+          ) : options.map((m, i) => {
+            const stock = stockById[String(m.id)];
+            return (
+              <button key={m.id} type="button" onMouseDown={(e) => { e.preventDefault(); pick(m); }} onMouseEnter={() => setHi(i)}
+                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] ${i === hi ? (isDark ? "bg-[#3B405A]" : "bg-[#F3F2F7]") : ""}`}>
+                <span className="min-w-0 truncate">{m.material_name}{m.material_code ? ` · ${m.material_code}` : ""}</span>
+                {stock && <span className="shrink-0 text-[11px] text-gray-400">{fmtQty(stock.current_qty)} {stock.unit_name || ""}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function WarehouseRequisitions({ locationId, locations, materials, isDark }) {
   const [loading, setLoading] = useState(true);
@@ -43,7 +108,6 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   };
 
   const [form, setForm] = useState({
-    requisition_no: "",
     from_location_id: warehouses[0]?.id || "",
     to_location_id: outlets[0]?.id || "",
     request_date: new Date().toISOString().split("T")[0],
@@ -75,27 +139,75 @@ export default function WarehouseRequisitions({ locationId, locations, materials
     fetchRequisitions(page);
   }, [page]);
 
+  // Per-material valid-UOM cache for the page session. Entries are mutated in
+  // a ref (no re-render needed mid-fetch); uomTick just repaints when a fetch
+  // settles. The backend endpoint answers through the same findConversionFactor
+  // the create validator uses, so these options can never disagree with it.
+  const uomCache = useRef({}); // { [materialId]: { status: 'loading'|'ready'|'error', options: [] } }
+  const [, setUomTick] = useState(0);
+
+  const loadValidUoms = (matId) => {
+    const key = String(matId);
+    const cached = uomCache.current[key];
+    if (cached && cached.status !== "error") return;
+    uomCache.current[key] = { status: "loading", options: [] };
+    setUomTick((t) => t + 1);
+    warehouseAPI.getRequisitionValidUoms(key)
+      .then((res) => {
+        const options = res?.data?.data || [];
+        uomCache.current[key] = { status: "ready", options };
+        // Default the line's UOM to the material's base unit now that the
+        // valid set is known - but never clobber a still-valid user choice.
+        const base = options.find((o) => o.is_base);
+        if (base) {
+          setForm((f) => ({
+            ...f,
+            items: f.items.map((it) =>
+              String(it.raw_material_id) === key && !options.some((o) => String(o.id) === String(it.unit_id))
+                ? { ...it, unit_id: String(base.id) }
+                : it
+            ),
+          }));
+        }
+      })
+      .catch(() => { uomCache.current[key] = { status: "error", options: [] }; })
+      .finally(() => setUomTick((t) => t + 1));
+  };
+
   const addItem = () => setForm({ ...form, items: [...form.items, { raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
   const updateItem = (idx, key, value) => {
     const items = [...form.items];
     items[idx][key] = value;
     if (key === "raw_material_id") {
-      const mat = materials.find((m) => String(m.id) === value);
-      if (mat) items[idx].unit_id = String(mat.unit_id);
+      if (value && form.items.some((it, i) => i !== idx && String(it.raw_material_id) === String(value))) {
+        toast.error("This material is already on another line - increase that line's quantity instead");
+        return;
+      }
+      // UOM resets whenever the material changes; the valid-UOM fetch below
+      // re-defaults it to the new material's base unit once options arrive.
+      items[idx].unit_id = "";
+      if (value) loadValidUoms(value);
     }
     setForm({ ...form, items });
   };
 
   const create = async (submit = false) => {
     if (saving) return;
+    // Client-side mirror of the backend rule - the server stays authoritative,
+    // this just saves a round trip for the common mistake.
+    if (form.required_date && form.required_date < form.request_date) {
+      toast.error("Expected Delivery Date cannot be before Request Date");
+      return;
+    }
     setSaving(true);
     try {
       const payload = { ...form, items: form.items.map((it) => ({ ...it, raw_material_id: Number(it.raw_material_id), requested_qty: Number(it.requested_qty), unit_id: Number(it.unit_id) })) };
       const created = await warehouseAPI.createRequisition(payload);
+      const poNo = created?.data?.data?.requisition_no;
       if (submit && created?.data?.data?.id) await warehouseAPI.submitRequisition(created.data.data.id);
-      toast.success(submit ? "Outlet Purchase Order submitted" : "Outlet Purchase Order saved");
+      toast.success(`${poNo ? `${poNo} ` : ""}${submit ? "submitted" : "saved"}`);
       setShowCreate(false);
-      setForm({ requisition_no: "", from_location_id: warehouses[0]?.id || "", to_location_id: outlets[0]?.id || "", request_date: new Date().toISOString().split("T")[0], required_date: "", remarks: "", items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
+      setForm({ from_location_id: warehouses[0]?.id || "", to_location_id: outlets[0]?.id || "", request_date: new Date().toISOString().split("T")[0], required_date: "", remarks: "", items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
       fetchRequisitions();
     } catch (error) { toast.error(error.response?.data?.message || "Save failed"); }
     finally { setSaving(false); }
@@ -254,7 +366,9 @@ export default function WarehouseRequisitions({ locationId, locations, materials
             <div className="space-y-4 p-4">
               <SectionCard title="Outlet Purchase Order Details" isDark={isDark}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <input value={form.requisition_no} onChange={(e) => setForm({ ...form, requisition_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Outlet PO No" />
+                  <div className={`flex h-10 items-center rounded-lg border px-3 text-[13px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                    PO No — auto-generated on save (e.g. OPO-&lt;OUTLET&gt;-&lt;YEAR&gt;-000001)
+                  </div>
                   <select value={form.from_location_id} onChange={(e) => { const v = e.target.value; setForm({ ...form, from_location_id: v }); fetchWarehouseStock(v); }} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
                     <option value="">Requested Warehouse</option>
                     {warehouses.map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
@@ -263,37 +377,65 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                     <option value="">Outlet</option>
                     {outlets.map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
                   </select>
-                  <input type="date" value={form.request_date} onChange={(e) => setForm({ ...form, request_date: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <input type="date" value={form.required_date} onChange={(e) => setForm({ ...form, required_date: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Remarks" />
+                  <div>
+                    <label className={`mb-1 block text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Request Date</label>
+                    <input type="date" value={form.request_date} onChange={(e) => setForm({ ...form, request_date: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
+                  </div>
+                  <div>
+                    <label className={`mb-1 block text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Expected Delivery Date</label>
+                    <input type="date" value={form.required_date} min={form.request_date || undefined} onChange={(e) => setForm({ ...form, required_date: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
+                  </div>
+                  <div>
+                    <label className={`mb-1 block text-[12px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Remarks</label>
+                    <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Remarks" />
+                  </div>
                 </div>
               </SectionCard>
 
               <SectionCard title="Items" isDark={isDark}>
                 <div className="space-y-3">
                   {form.items.map((it, idx) => {
-                    const mat = materials.find((m) => String(m.id) === it.raw_material_id);
-                    const uom = mat?.unit_name || "";
+                    // UOM options come ONLY from the backend valid-UOM endpoint
+                    // (base unit + units with a defined uom_conversions path to
+                    // base) - never inferred from unit_type here, and there is
+                    // deliberately no fallback to "all units" on failure.
+                    const uomState = it.raw_material_id ? uomCache.current[String(it.raw_material_id)] : null;
+                    const uomOptions = uomState?.status === "ready" ? uomState.options : [];
+                    const uomLoading = uomState?.status === "loading" || (it.raw_material_id && !uomState);
+                    const uomError = uomState?.status === "error";
+                    const uom = uomOptions.find((o) => String(o.id) === String(it.unit_id))?.unit_name || "";
+                    const baseUnitName = uomOptions.find((o) => o.is_base)?.unit_name || "";
                     const available = it.raw_material_id ? num(warehouseStock[it.raw_material_id]?.current_qty) : null;
                     const overRequested = available !== null && Number(it.requested_qty || 0) > available;
+                    const usedElsewhere = new Set(form.items.filter((_, i) => i !== idx).map((x) => String(x.raw_material_id)).filter(Boolean));
                     return (
                       <div key={idx} className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                          <select value={it.raw_material_id} onChange={(e) => updateItem(idx, "raw_material_id", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
-                            <option value="">Material</option>
-                            {materials.map((m) => {
-                              const stock = warehouseStock[String(m.id)];
-                              return <option key={m.id} value={m.id}>{m.material_name}{stock ? ` (${fmtQty(stock.current_qty)} ${stock.unit_name || ""} in stock)` : ""}</option>;
-                            })}
+                          <MaterialCombobox
+                            value={it.raw_material_id}
+                            onSelect={(v) => updateItem(idx, "raw_material_id", v)}
+                            materials={materials}
+                            excludeIds={usedElsewhere}
+                            stockById={warehouseStock}
+                            isDark={isDark}
+                            inputClass={inputClass}
+                          />
+                          <input type="number" min="0" step="any" value={it.requested_qty} onChange={(e) => updateItem(idx, "requested_qty", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass} ${overRequested ? "border-rose-400" : ""}`} placeholder={`Qty${uom ? ` (${uom})` : ""}`} />
+                          <select value={it.unit_id} onChange={(e) => updateItem(idx, "unit_id", e.target.value)} disabled={!it.raw_material_id || uomLoading || uomError} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass} ${!it.raw_material_id || uomLoading || uomError ? "opacity-50 cursor-not-allowed" : ""}`}>
+                            <option value="">{uomLoading ? "Loading units…" : uomError ? "UOM unavailable" : "UOM"}</option>
+                            {uomOptions.map((u) => <option key={u.id} value={u.id}>{u.unit_name}{u.unit_symbol ? ` (${u.unit_symbol})` : ""}{u.is_base ? " — base" : ""}</option>)}
                           </select>
-                          <input type="number" value={it.requested_qty} onChange={(e) => updateItem(idx, "requested_qty", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass} ${overRequested ? "border-rose-400" : ""}`} placeholder={`Qty (${uom})`} />
                           <input value={it.remarks} onChange={(e) => updateItem(idx, "remarks", e.target.value)} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Item Remarks" />
-                          <div className={`flex h-10 items-center rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>{uom || "Unit"}</div>
                           <button onClick={() => setForm({ ...form, items: form.items.filter((_, i) => i !== idx) })} className="h-10 rounded-lg border border-rose-300 text-rose-500" disabled={form.items.length === 1}>Remove</button>
                         </div>
-                        {it.raw_material_id && (
+                        {uomError && (
+                          <p className="mt-1.5 text-[12px] text-rose-500">
+                            Couldn't load valid units for this material. <button type="button" onClick={() => loadValidUoms(it.raw_material_id)} className="underline">Retry</button>
+                          </p>
+                        )}
+                        {it.raw_material_id && !uomError && (
                           <p className={`mt-1.5 text-[12px] ${overRequested ? "text-rose-500" : isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
-                            {available !== null ? `Available in warehouse: ${fmtQty(available)} ${uom}` : "No stock record for this material at this warehouse"}
+                            {available !== null ? `Available in warehouse: ${fmtQty(available)} ${baseUnitName}` : "No stock record for this material at this warehouse"}
                             {overRequested ? " — requested quantity exceeds current stock" : ""}
                           </p>
                         )}
@@ -328,8 +470,8 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                 <div className="grid grid-cols-2 gap-4 text-[14px]">
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Outlet:</span> {detail.to_location}</div>
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Warehouse:</span> {detail.from_location}</div>
-                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Requested Date:</span> {fmtDate(detail.request_date)}</div>
-                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Required Date:</span> {fmtDate(detail.required_date)}</div>
+                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Request Date:</span> {fmtDate(detail.request_date)}</div>
+                  <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Expected Delivery Date:</span> {fmtDate(detail.required_date)}</div>
                   <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <StatusBadge status={detail.status} /></div>
                 </div>
               </SectionCard>

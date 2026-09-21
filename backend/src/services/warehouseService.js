@@ -1,5 +1,5 @@
 import pool, { query, getConnection } from '../config/database.js';
-import { getUnit, getMaterialBaseUnit, convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
+import { getUnit, getMaterialBaseUnit, findConversionFactor, convertToBase, normalizeRateToBase } from '../utils/uomUtils.js';
 import { allocateFEFO } from './warehouseBatchService.js';
 import { updatePOStatusAfterGRN } from './warehousePurchaseOrderService.js';
 import { getSettingValue } from './warehouseSettingService.js';
@@ -689,22 +689,128 @@ export const getRequisitionById = async (id) => {
   return { ...req, items };
 };
 
+// Phase 7B1: the Outlet Purchase Order number is generated server-side. Any
+// `requisition_no` sent by the client is deliberately ignored - a caller must
+// never be able to pick (or squat on) a document number.
+const OPO_NO_MAX_ATTEMPTS = 5;
+
+const sanitizeOutletCode = (raw) => String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
+const generateOutletPoNo = async (connection, toLocationId, requestDate) => {
+  const [locRows] = await connection.execute(
+    `SELECT l.id, l.location_code, o.outlet_code
+     FROM locations l LEFT JOIN outlets o ON o.id = l.outlet_id
+     WHERE l.id = ? LIMIT 1`,
+    [toLocationId]
+  );
+  const loc = locRows[0];
+  if (!loc) throw new Error('Destination outlet/location not found');
+  // Prefer the outlet master code (HSR, KOR, ...) over the location_code which
+  // is auto-generated as <OUTLET>-<id>; fall back to LOC<id> so a number can
+  // still be issued if a location has neither code populated.
+  const code = sanitizeOutletCode(loc.outlet_code || loc.location_code) || `LOC${loc.id}`;
+  const year = new Date(requestDate).getFullYear();
+  const prefix = `OPO-${code}-${year}-`;
+  // Locking read over this outlet+year's requisition_no index range. Under the
+  // pool's default InnoDB REPEATABLE READ isolation the next-key locks serialize
+  // concurrent creators so two transactions cannot read the same max sequence;
+  // the ER_DUP_ENTRY retry in createRequisition covers any residual race (e.g.
+  // if the server is ever switched to READ COMMITTED where gap locks don't
+  // exist). The sanitized code contains only [A-Z0-9], so no LIKE wildcards can
+  // leak into the prefix.
+  const [rows] = await connection.execute(
+    `SELECT requisition_no FROM stock_requisitions
+     WHERE requisition_no LIKE ?
+     ORDER BY CAST(SUBSTRING_INDEX(requisition_no, '-', -1) AS UNSIGNED) DESC
+     LIMIT 1 FOR UPDATE`,
+    [`${prefix}%`]
+  );
+  const lastSeq = rows.length ? Number(String(rows[0].requisition_no).split('-').pop()) || 0 : 0;
+  return `${prefix}${String(lastSeq + 1).padStart(6, '0')}`;
+};
+
+// Valid UOM options for one material's Outlet PO line: the base unit plus
+// every active unit the SAME findConversionFactor() used by create validation
+// can convert into base - so a selector built on this list can never offer a
+// unit the backend would reject. The pure selector is exported separately so
+// it can be exercised with fixtures without a database.
+export const computeValidUnits = async (baseUnit, units, factorLookup = findConversionFactor) => {
+  const valid = [];
+  for (const u of units) {
+    if (Number(u.id) === Number(baseUnit.id)) { valid.push({ ...u, is_base: 1 }); continue; }
+    try { await factorLookup(u.id, baseUnit.id); valid.push({ ...u, is_base: 0 }); }
+    catch { /* different dimension or no defined conversion - not a valid option */ }
+  }
+  return valid;
+};
+
+export const getValidUnitsForMaterial = async (rawMaterialId) => {
+  const baseUnit = await getMaterialBaseUnit(rawMaterialId); // throws if material/base unit missing
+  const units = await query('SELECT id, unit_name, unit_symbol, unit_type FROM units WHERE is_active = 1 ORDER BY unit_name');
+  return computeValidUnits(baseUnit, units);
+};
+
 export const createRequisition = async (data, userId) => {
-  const { requisition_no, from_location_id, to_location_id, request_date, required_date, remarks, items } = data;
-  if (!requisition_no || !from_location_id || !to_location_id || !request_date || !items?.length) throw new Error('Missing required Outlet Purchase Order fields');
+  // `requisition_no` is intentionally NOT read from the payload - see above.
+  const { from_location_id, to_location_id, request_date, required_date, remarks, items } = data;
+  if (!from_location_id || !to_location_id || !request_date || !items?.length) throw new Error('Missing required Outlet Purchase Order fields');
+
+  const reqDate = new Date(request_date);
+  if (isNaN(reqDate.getTime())) throw new Error('Invalid Request Date');
+  if (required_date) {
+    const expDate = new Date(required_date);
+    if (isNaN(expDate.getTime())) throw new Error('Invalid Expected Delivery Date');
+    if (expDate < reqDate) throw new Error('Expected Delivery Date cannot be before Request Date');
+  }
+
+  const [fromLoc] = await query('SELECT id FROM locations WHERE id = ? LIMIT 1', [from_location_id]);
+  if (!fromLoc) throw new Error('Source warehouse/location not found');
+
+  // Line validation before opening a transaction: material existence and base
+  // unit, positive quantity, deterministic duplicate rejection, and UOM
+  // convertibility via the shared uom_conversions rules (findConversionFactor
+  // throws on a missing unit, a cross-dimension pair, or no defined factor -
+  // the backend stays authoritative for all conversion maths).
+  const seenMaterials = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const matId = Number(it.raw_material_id);
+    const qty = num(it.requested_qty);
+    if (!matId || !it.unit_id) throw new Error(`Invalid item on line ${i + 1}`);
+    if (!(qty > 0)) throw new Error(`Requested quantity must be greater than 0 on line ${i + 1}`);
+    if (seenMaterials.has(matId)) throw new Error(`Duplicate material on line ${i + 1} - combine it into one line`);
+    seenMaterials.add(matId);
+    const baseUnit = await getMaterialBaseUnit(matId); // throws if material/base unit missing
+    try {
+      await findConversionFactor(it.unit_id, baseUnit.id);
+    } catch (e) {
+      throw new Error(`Line ${i + 1}: ${e.message}`);
+    }
+  }
+
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
-    const existing = await connection.execute('SELECT id FROM stock_requisitions WHERE requisition_no = ? LIMIT 1', [requisition_no]);
-    if (existing[0].length > 0) { await connection.rollback(); throw new Error('Outlet Purchase Order number already exists'); }
-    const [res] = await connection.execute(
-      `INSERT INTO stock_requisitions (requisition_no, from_location_id, to_location_id, request_date, required_date, status, remarks, created_by)
-       VALUES (?, ?, ?, ?, ?, 'Draft', ?, ?)`,
-      [requisition_no, from_location_id, to_location_id, request_date, required_date || null, remarks || null, userId]
-    );
-    const requisitionId = res.insertId;
+    let requisitionId = null;
+    for (let attempt = 0; attempt < OPO_NO_MAX_ATTEMPTS && !requisitionId; attempt++) {
+      const requisition_no = await generateOutletPoNo(connection, to_location_id, request_date);
+      try {
+        const [res] = await connection.execute(
+          `INSERT INTO stock_requisitions (requisition_no, from_location_id, to_location_id, request_date, required_date, status, remarks, created_by)
+           VALUES (?, ?, ?, ?, ?, 'Draft', ?, ?)`,
+          [requisition_no, from_location_id, to_location_id, request_date, required_date || null, remarks || null, userId]
+        );
+        requisitionId = res.insertId;
+      } catch (e) {
+        // Duplicate requisition_no - another creator won the race between the
+        // sequence read and this insert. Roll forward with a fresh number;
+        // any other failure aborts the transaction as before.
+        if (e.code === 'ER_DUP_ENTRY' || e.errno === 1062) continue;
+        throw e;
+      }
+    }
+    if (!requisitionId) throw new Error('Could not allocate an Outlet Purchase Order number - please retry');
     for (const it of items) {
-      if (!it.raw_material_id || !it.requested_qty || !it.unit_id) { await connection.rollback(); throw new Error('Invalid Outlet Purchase Order item'); }
       await connection.execute(
         `INSERT INTO stock_requisition_items (requisition_id, raw_material_id, requested_qty, unit_id, remarks)
          VALUES (?, ?, ?, ?, ?)`,

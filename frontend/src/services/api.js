@@ -596,6 +596,7 @@ export const warehouseAPI = {
   postGRN: (id) => api.post(`/warehouse/grn/${id}/post`),
   getRequisitions: (params) => api.get("/warehouse/requisitions", { params }),
   getRequisition: (id) => api.get(`/warehouse/requisitions/${id}`),
+  getRequisitionValidUoms: (rawMaterialId) => api.get(`/warehouse/requisitions/valid-uoms/${rawMaterialId}`),
   createRequisition: (data) => api.post("/warehouse/requisitions", data),
   submitRequisition: (id) => api.post(`/warehouse/requisitions/${id}/submit`),
   approveRequisition: (id, data) => api.post(`/warehouse/requisitions/${id}/approve`, data),

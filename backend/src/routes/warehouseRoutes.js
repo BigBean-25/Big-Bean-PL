@@ -8,7 +8,7 @@ import { isOwnDocument } from '../utils/makerChecker.js';
 import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
-  getRequisitions, getRequisitionById, createRequisition, submitRequisition,
+  getRequisitions, getRequisitionById, getValidUnitsForMaterial, createRequisition, submitRequisition,
   approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer,
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
@@ -231,6 +231,15 @@ router.get('/requisitions', checkPermission('warehouse_requisitions', 'can_view'
     res.json({ success: true, data: result.data, pagination: result.pagination });
   }
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
+// Read-only: the UOM options actually usable on one material's Outlet PO
+// line. Answers through the same findConversionFactor() the create validator
+// calls, so the frontend selector can never offer a unit the backend would
+// reject. No location scoping - unit conversion rules are global master data.
+router.get('/requisitions/valid-uoms/:rawMaterialId', checkPermission('warehouse_requisitions', 'can_view'), async (req, res) => {
+  try { res.json({ success: true, data: await getValidUnitsForMaterial(req.params.rawMaterialId) }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_view'), applyLocationScope, async (req, res) => {
