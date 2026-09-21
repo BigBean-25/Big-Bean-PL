@@ -227,7 +227,12 @@ router.get('/requisitions', checkPermission('warehouse_requisitions', 'can_view'
   try {
     const allowedLocationIds = resolveScopedLocationIds(req, res, req.query.location_id, req.query.from_location_id, req.query.to_location_id);
     if (allowedLocationIds === undefined) return;
-    const result = await getRequisitions({ ...req.query, allowedLocationIds });
+    // The GET read carve-out may have substituted locationIds with a Central
+    // Warehouse the caller can only read stock for - that must not widen an
+    // Outlet PO list to every order touching that warehouse, so the row
+    // restriction uses the caller's own location set when it's present.
+    const scopedLocationIds = req.locationScope.all ? null : (req.locationScope.ownLocationIds || allowedLocationIds);
+    const result = await getRequisitions({ ...req.query, allowedLocationIds: scopedLocationIds });
     res.json({ success: true, data: result.data, pagination: result.pagination });
   }
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
@@ -247,7 +252,9 @@ router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_v
     const data = await getRequisitionById(req.params.id);
     if (!data) return res.status(404).json({ success: false, message: 'Outlet Purchase Order not found' });
     if (!req.locationScope.all) {
-      const allowed = req.locationScope.locationIds;
+      // Same carve-out reasoning as the list route above - the caller's own
+      // location set decides which documents they may open.
+      const allowed = req.locationScope.ownLocationIds || req.locationScope.locationIds;
       if (!allowed.includes(Number(data.from_location_id)) && !allowed.includes(Number(data.to_location_id))) {
         return res.status(403).json({ success: false, message: 'You do not have access to this Outlet Purchase Order' });
       }
@@ -264,11 +271,20 @@ router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_crea
     // canAccessAllOutlets checked first - outlet_ids can be non-empty even for
     // an all-outlet role (e.g. a Warehouse Admin account tagged to a couple of
     // outlets for convenience), which would otherwise wrongly restrict them.
+    // The check is unconditional for non-all-outlet roles: an empty outlet_ids
+    // list must fail, not bypass (applyLocationScope 403s the same scenario).
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
+    if (!canAccessAllOutlets(req.user.role_name)) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [req.body.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
         return res.status(403).json({ success: false, message: 'You can only raise an Outlet Purchase Order for your own outlet' });
+      }
+      // The request source can only ever be an active Central Warehouse - an
+      // outlet user must not be able to name another outlet's location (or a
+      // kitchen) as the source by editing the payload.
+      const [fromLocation] = await query("SELECT id FROM locations WHERE id = ? AND location_type = 'Central Warehouse' AND is_active = 1", [req.body.from_location_id]);
+      if (!fromLocation) {
+        return res.status(403).json({ success: false, message: 'Source must be an active Central Warehouse' });
       }
     }
     const data = await createRequisition(req.body, req.user.id);
@@ -281,9 +297,10 @@ router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions'
   try {
     const requisition = await getRequisitionById(req.params.id);
     if (!requisition) return res.status(404).json({ success: false, message: 'Outlet Purchase Order not found' });
-    // canAccessAllOutlets checked first, same reasoning as POST /requisitions above.
+    // canAccessAllOutlets checked first, same reasoning as POST /requisitions
+    // above - and equally unconditional: empty outlet_ids must fail, not bypass.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
-    if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
+    if (!canAccessAllOutlets(req.user.role_name)) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [requisition.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
         return res.status(403).json({ success: false, message: 'You can only submit an Outlet Purchase Order for your own outlet' });

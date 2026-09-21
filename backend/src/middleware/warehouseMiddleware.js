@@ -58,7 +58,11 @@ export const applyLocationScope = async (req, res, next) => {
       // routes gate on can_create/can_edit which Outlet Admin isn't granted
       // on warehouse modules in the first place.
       if (req.method === 'GET' && !all) {
-        req.locationScope = { all: false, locationIds: [Number(requestedLocationId)], requestedLocationId: Number(requestedLocationId) };
+        // ownLocationIds preserves the caller's own allowed set before this
+        // carve-out substitutes the warehouse id - list endpoints whose rows
+        // span multiple locations (e.g. Outlet POs) must restrict on the own
+        // set, not on a warehouse the caller may only read stock for.
+        req.locationScope = { all: false, locationIds: [Number(requestedLocationId)], requestedLocationId: Number(requestedLocationId), ownLocationIds: allowedLocationIds };
         return next();
       }
     }
