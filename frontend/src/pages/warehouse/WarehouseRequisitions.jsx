@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import ExcelJS from "exceljs";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X } from "lucide-react";
+import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X, Upload, Download } from "lucide-react";
+import { IMPORT_MAX_ROWS, IMPORT_TEMPLATE_HEADER, parseCsvText, cellText, mapImportHeaders, buildMaterialIndex, buildUnitIndex, evaluateImportRow } from "./requisitionImport";
 import toast from "react-hot-toast";
 
 // Searchable material picker for Outlet PO line items. Matches on
@@ -72,7 +74,7 @@ const MaterialCombobox = ({ value, onSelect, materials, excludeIds, stockById, i
   );
 };
 
-export default function WarehouseRequisitions({ locationId, locations, materials, isDark }) {
+export default function WarehouseRequisitions({ locationId, locations, materials, isDark, units = [] }) {
   const [loading, setLoading] = useState(true);
   const [requisitions, setRequisitions] = useState([]);
   const [filters, setFilters] = useState({ search: "", status: "", from: "", to: "" });
@@ -146,16 +148,18 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   const uomCache = useRef({}); // { [materialId]: { status: 'loading'|'ready'|'error', options: [] } }
   const [, setUomTick] = useState(0);
 
+  // Returns a promise resolving to the material's valid-UOM options (or null
+  // on failure). The in-flight promise is stored on the cache entry itself so
+  // repeated callers - the per-row selector AND the bulk importer - share one
+  // request and one result.
   const loadValidUoms = (matId) => {
     const key = String(matId);
     const cached = uomCache.current[key];
-    if (cached && cached.status !== "error") return;
-    uomCache.current[key] = { status: "loading", options: [] };
-    setUomTick((t) => t + 1);
-    warehouseAPI.getRequisitionValidUoms(key)
+    if (cached && cached.status !== "error") return cached.promise;
+    const promise = warehouseAPI.getRequisitionValidUoms(key)
       .then((res) => {
         const options = res?.data?.data || [];
-        uomCache.current[key] = { status: "ready", options };
+        uomCache.current[key] = { status: "ready", options, promise: Promise.resolve(options) };
         // Default the line's UOM to the material's base unit now that the
         // valid set is known - but never clobber a still-valid user choice.
         const base = options.find((o) => o.is_base);
@@ -169,9 +173,13 @@ export default function WarehouseRequisitions({ locationId, locations, materials
             ),
           }));
         }
+        return options;
       })
-      .catch(() => { uomCache.current[key] = { status: "error", options: [] }; })
+      .catch(() => { uomCache.current[key] = { status: "error", options: [], promise: null }; return null; })
       .finally(() => setUomTick((t) => t + 1));
+    uomCache.current[key] = { status: "loading", options: [], promise };
+    setUomTick((t) => t + 1);
+    return promise;
   };
 
   const addItem = () => setForm({ ...form, items: [...form.items, { raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
@@ -189,6 +197,98 @@ export default function WarehouseRequisitions({ locationId, locations, materials
       if (value) loadValidUoms(value);
     }
     setForm({ ...form, items });
+  };
+
+  // ---- Phase 7B3A: client-side bulk item import (optional convenience; the
+  // one-by-one entry above is unchanged). The file is parsed in the browser,
+  // evaluated against material master + the valid-UOM endpoint, previewed,
+  // and only rows marked "Valid" are appended to form.items. Nothing is
+  // persisted - create() still calls the same API with the same payload.
+  const [importPreview, setImportPreview] = useState(null); // { rows, truncated, fileName }
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const parseImportFile = async (file) => {
+    const lower = (file.name || "").toLowerCase();
+    if (lower.endsWith(".csv")) return parseCsvText(await file.text());
+    if (lower.endsWith(".xlsx")) {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(await file.arrayBuffer());
+      const ws = wb.worksheets[0];
+      if (!ws) throw new Error("No worksheet found in the file");
+      const rows = [];
+      ws.eachRow((row) => {
+        const cells = [];
+        for (let i = 1; i <= Math.max(row.cellCount, 5); i++) cells.push(cellText(row.getCell(i).value));
+        rows.push(cells);
+      });
+      return rows;
+    }
+    throw new Error("Unsupported file type - upload a .xlsx or .csv file");
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file after fixing it
+    if (!file) return;
+    setImporting(true);
+    try {
+      const raw = (await parseImportFile(file)).filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+      if (raw.length < 2) throw new Error("No data rows found - the first row must be the header");
+      const cols = mapImportHeaders(raw[0]);
+      const dataRows = raw.slice(1);
+      const ctx = {
+        ...buildMaterialIndex(materials),
+        unitByName: buildUnitIndex(units),
+        getValidUoms: (matId) => loadValidUoms(matId),
+        existingIds: new Set(form.items.map((it) => String(it.raw_material_id)).filter(Boolean)),
+        importedIds: new Set(),
+      };
+      const rows = [];
+      for (let i = 0; i < Math.min(dataRows.length, IMPORT_MAX_ROWS); i++) {
+        const cells = dataRows[i];
+        rows.push(await evaluateImportRow({
+          rowNo: i + 2,
+          codeText: String(cells[cols.code] ?? ""),
+          nameText: String(cells[cols.name] ?? ""),
+          qtyText: String(cells[cols.qty] ?? ""),
+          uomText: String(cols.uom !== undefined ? (cells[cols.uom] ?? "") : ""),
+          remarks: cols.remarks !== undefined ? String(cells[cols.remarks] ?? "") : "",
+        }, ctx));
+      }
+      setImportPreview({ rows, truncated: dataRows.length > IMPORT_MAX_ROWS, fileName: file.name });
+    } catch (err) { toast.error(err.message || "Could not read the file"); }
+    finally { setImporting(false); }
+  };
+
+  const applyImport = () => {
+    const valid = (importPreview?.rows || []).filter((r) => r.status === "Valid");
+    if (!valid.length) return;
+    setForm((f) => ({
+      ...f,
+      // Drop only completely-empty starter rows before appending; a row the
+      // user partially typed into is preserved.
+      items: [
+        ...f.items.filter((it) => it.raw_material_id || it.requested_qty || it.unit_id || it.remarks),
+        ...valid.map((r) => ({
+          raw_material_id: String(r.material.id),
+          requested_qty: String(r.qty),
+          unit_id: String(r.uomOption.id),
+          remarks: r.remarks || "",
+        })),
+      ],
+    }));
+    setImportPreview(null);
+    toast.success(`${valid.length} item${valid.length === 1 ? "" : "s"} added to the Outlet Purchase Order`);
+  };
+
+  const downloadImportTemplate = () => {
+    const blob = new Blob([`${IMPORT_TEMPLATE_HEADER}\n`], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "outlet_po_items_template.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   const create = async (submit = false) => {
@@ -442,9 +542,19 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                       </div>
                     );
                   })}
-                  <button onClick={addItem} className="flex h-9 items-center gap-1.5 rounded-lg border border-[#7367F0] px-3 text-[13px] font-medium text-[#7367F0]">
-                    <Plus size={14} /> Add Item
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={addItem} className="flex h-9 items-center gap-1.5 rounded-lg border border-[#7367F0] px-3 text-[13px] font-medium text-[#7367F0]">
+                      <Plus size={14} /> Add Item
+                    </button>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing} className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium disabled:opacity-50">
+                      <Upload size={14} /> {importing ? "Reading file…" : "Import Items"}
+                    </button>
+                    <button type="button" onClick={downloadImportTemplate} title="Download a sample column layout" className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium">
+                      <Download size={14} /> Template
+                    </button>
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={handleImportFile} />
+                    <span className={`text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>.xlsx or .csv · columns: {IMPORT_TEMPLATE_HEADER}</span>
+                  </div>
                 </div>
               </SectionCard>
 
@@ -452,6 +562,64 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                 <button onClick={() => setShowCreate(false)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
                 <button onClick={() => create(false)} disabled={saving} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{saving ? "Saving…" : "Save Draft"}</button>
                 <button onClick={() => create(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Submitting…" : "Submit Outlet Purchase Order"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importPreview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+            <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+              <h3 className="text-lg font-semibold">Import Items — {importPreview.fileName}</h3>
+              <button onClick={() => setImportPreview(null)} className="text-2xl leading-none">&times;</button>
+            </div>
+            <div className="space-y-3 p-4">
+              {importPreview.truncated && (
+                <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-700">
+                  File exceeds {IMPORT_MAX_ROWS} rows — only the first {IMPORT_MAX_ROWS} were read.
+                </p>
+              )}
+              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>
+                {importPreview.rows.filter((r) => r.status === "Valid").length} valid · {importPreview.rows.filter((r) => r.status !== "Valid").length} need attention — only valid rows can be added.
+              </p>
+              <TableWrapper isDark={isDark}>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className={`border-b text-left ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                      <th className="px-3 py-2">Row</th>
+                      <th className="px-3 py-2">Material</th>
+                      <th className="px-3 py-2">Qty</th>
+                      <th className="px-3 py-2">UOM</th>
+                      <th className="px-3 py-2">Remarks</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreview.rows.map((r) => (
+                      <tr key={r.rowNo} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                        <td className="px-3 py-2">{r.rowNo}</td>
+                        <td className="px-3 py-2">
+                          {r.material ? `${r.material.material_name}${r.material.material_code ? ` (${r.material.material_code})` : ""}` : (r.codeText || r.nameText || "—")}
+                        </td>
+                        <td className="px-3 py-2">{r.qty ?? r.qtyText}</td>
+                        <td className="px-3 py-2">{r.uomOption ? r.uomOption.unit_name : (r.uomText || "—")}</td>
+                        <td className="px-3 py-2">{r.remarks || "—"}</td>
+                        <td className="px-3 py-2">
+                          <span className={`font-medium ${r.status === "Valid" ? "text-emerald-600" : r.status === "Duplicate" ? "text-amber-600" : "text-rose-500"}`}>{r.status}</span>
+                          {r.reason && <span className={`block text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{r.reason}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrapper>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setImportPreview(null)} className="h-10 rounded-lg border px-4 text-[14px] font-medium">Cancel</button>
+                <button onClick={applyImport} disabled={!importPreview.rows.some((r) => r.status === "Valid")} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">
+                  Add Valid Items
+                </button>
               </div>
             </div>
           </div>
