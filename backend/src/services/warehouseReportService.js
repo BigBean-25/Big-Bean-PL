@@ -646,7 +646,7 @@ export const getReportPack = async (filters) => {
   sumWs.addRow(['Out of Stock', summary.out_of_stock]);
   sumWs.addRow(['Near Expiry', summary.near_expiry]);
   sumWs.addRow(['Expired', summary.expired]);
-  sumWs.addRow(['Pending Requisitions', summary.pending_requisitions]);
+  sumWs.addRow(['Pending Outlet Purchase Orders', summary.pending_requisitions]);
   sumWs.addRow(['In Transit', summary.in_transit]);
   sumWs.addRow(['Wastage Value', num(summary.wastage_value)]);
   sumWs.addRow(['Adjustment Value', num(summary.adjustment_value)]);
@@ -665,8 +665,12 @@ export const getReportPack = async (filters) => {
     { name: '10 GRN', fn: getGRNReport, array: true },
     { name: '11 Supplier Receipts', fn: getSupplierReceiptReport, array: true },
     { name: '12 Purchase Returns', fn: getPurchaseReturnReport, array: true },
-    { name: '13 Requisitions', fn: getRequisitionReport, array: true },
-    { name: '14 Pending Requisitions', fn: getPendingRequisitionReport, array: true },
+    // "14 Pending Outlet Purchase Orders" would be 33 characters and Excel caps a
+    // worksheet name at 31, which ExcelJS rejects outright - so this one uses the
+    // "Outlet PO" short form already used elsewhere in the UI rather than being
+    // silently truncated.
+    { name: '13 Outlet Purchase Orders', fn: getRequisitionReport, array: true },
+    { name: '14 Pending Outlet POs', fn: getPendingRequisitionReport, array: true },
     { name: '15 Dispatch', fn: getDispatchReport, array: true },
     { name: '16 Transit', fn: getTransitReport, array: true },
     { name: '17 Receipts', fn: getReceiptReport, array: true },

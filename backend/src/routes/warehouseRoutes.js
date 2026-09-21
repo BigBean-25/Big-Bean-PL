@@ -236,11 +236,11 @@ router.get('/requisitions', checkPermission('warehouse_requisitions', 'can_view'
 router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_view'), applyLocationScope, async (req, res) => {
   try {
     const data = await getRequisitionById(req.params.id);
-    if (!data) return res.status(404).json({ success: false, message: 'Requisition not found' });
+    if (!data) return res.status(404).json({ success: false, message: 'Outlet Purchase Order not found' });
     if (!req.locationScope.all) {
       const allowed = req.locationScope.locationIds;
       if (!allowed.includes(Number(data.from_location_id)) && !allowed.includes(Number(data.to_location_id))) {
-        return res.status(403).json({ success: false, message: 'You do not have access to this requisition' });
+        return res.status(403).json({ success: false, message: 'You do not have access to this Outlet Purchase Order' });
       }
     }
     res.json({ success: true, data });
@@ -250,8 +250,8 @@ router.get('/requisitions/:id', checkPermission('warehouse_requisitions', 'can_v
 
 router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_create'), async (req, res) => {
   try {
-    // Outlet-scoped users (Outlet Admin/Staff) can only raise a requisition
-    // for their own outlet's location, not any outlet in the picker.
+    // Outlet-scoped users (Outlet Admin/Staff) can only raise an Outlet Purchase
+    // Order for their own outlet's location, not any outlet in the picker.
     // canAccessAllOutlets checked first - outlet_ids can be non-empty even for
     // an all-outlet role (e.g. a Warehouse Admin account tagged to a couple of
     // outlets for convenience), which would otherwise wrongly restrict them.
@@ -259,7 +259,7 @@ router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_crea
     if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [req.body.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
-        return res.status(403).json({ success: false, message: 'You can only raise a requisition for your own outlet' });
+        return res.status(403).json({ success: false, message: 'You can only raise an Outlet Purchase Order for your own outlet' });
       }
     }
     const data = await createRequisition(req.body, req.user.id);
@@ -271,13 +271,13 @@ router.post('/requisitions', checkPermission('warehouse_requisitions', 'can_crea
 router.post('/requisitions/:id/submit', checkPermission('warehouse_requisitions', 'can_submit'), async (req, res) => {
   try {
     const requisition = await getRequisitionById(req.params.id);
-    if (!requisition) return res.status(404).json({ success: false, message: 'Requisition not found' });
+    if (!requisition) return res.status(404).json({ success: false, message: 'Outlet Purchase Order not found' });
     // canAccessAllOutlets checked first, same reasoning as POST /requisitions above.
     const outletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
     if (!canAccessAllOutlets(req.user.role_name) && outletIds.length > 0) {
       const [toLocation] = await query('SELECT outlet_id FROM locations WHERE id = ?', [requisition.to_location_id]);
       if (!toLocation || !outletIds.includes(Number(toLocation.outlet_id))) {
-        return res.status(403).json({ success: false, message: 'You can only submit a requisition for your own outlet' });
+        return res.status(403).json({ success: false, message: 'You can only submit an Outlet Purchase Order for your own outlet' });
       }
     }
     const data = await submitRequisition(req.params.id, req.user.id);

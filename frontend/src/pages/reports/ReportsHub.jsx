@@ -23,12 +23,21 @@ const REPORTS = [
   { title: "Closing Reconciliation", path: "/reports/closing-reconciliation", module: "reports" },
   { title: "Hybrid COGS Reconciliation", path: "/reports/hybrid-cogs", module: "reports" },
   { title: "Physical vs Theoretical Consumption", path: "/reports/consumption-reconciliation", module: "reports" },
+  // Phase 7A (Req 13): already routed and already in the Reports sidebar, but was
+  // missing from this hub. Gated on its own `controlled_exceptions` module - NOT
+  // on `reports` - so it stays invisible to roles that only hold `reports`.
+  { title: "Exceptions & Reversals", path: "/reports/exceptions", module: "controlled_exceptions" },
 ];
 
 const CATEGORIES = [
   { key: "favourite", label: "Favourites", icon: Star, iconColor: "#FF9F43", reports: REPORTS.filter((r) => r.favourite) },
   { key: "gst", label: "GST", icon: Receipt, iconColor: "#EA5455", reports: REPORTS.filter((r) => r.path.includes("gst")) },
-  { key: "financial", label: "Financial", icon: Wallet, iconColor: "#28C76F", reports: REPORTS.filter((r) => ["/reports/monthly-pl", "/reports/outlet-comparison", "/reports/expense-report", "/reports/supplier-pending"].includes(r.path)) },
+  // "/reports/exceptions" is bucketed as Financial because controlled exceptions
+  // reverse financial records (supplier payments, purchase returns, accounting
+  // effects). A report absent from every bucket below would be filtered out of the
+  // hub entirely even though it passes the permission check, so any future REPORTS
+  // entry must also be listed in exactly one category here.
+  { key: "financial", label: "Financial", icon: Wallet, iconColor: "#28C76F", reports: REPORTS.filter((r) => ["/reports/monthly-pl", "/reports/outlet-comparison", "/reports/expense-report", "/reports/supplier-pending", "/reports/exceptions"].includes(r.path)) },
   { key: "operational", label: "Operational", icon: BarChart3, iconColor: "#00CFE8", reports: REPORTS.filter((r) => ["/reports/daily-cashbook", "/reports/actual-consumption", "/reports/theoretical-consumption", "/reports/consumption-variance", "/reports/closing-reconciliation", "/reports/hybrid-cogs", "/reports/consumption-reconciliation"].includes(r.path)) },
 ];
 

@@ -227,7 +227,7 @@ const LANGUAGES = {
     warehouseLedger: "Stock Movement Ledger",
     warehouseBatchExpiry: "Batches & Expiry",
     warehousePurchaseReturns: "Purchase Returns",
-    warehouseRequisitions: "Internal POs",
+    warehouseRequisitions: "Outlet Purchase Orders",
     warehouseTransfers: "Transfers",
     warehousePhysicalCount: "Physical Counts",
     warehouseAdjustments: "Adjustments",
@@ -805,6 +805,12 @@ const DashboardLayout = () => {
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.gstr1, path: "/reports/gstr1" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.consumptionVariance, path: "/reports/consumption-variance" }] : []),
           ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Physical vs Theoretical", path: "/reports/consumption-reconciliation" }] : []),
+          // Phase 7A (Req 13): Closing Reconciliation and Hybrid COGS already had
+          // routes and were already listed in ReportsHub, but were missing here -
+          // the two lists are now consistent. Same `reports` gate as their
+          // ReportsHub entries, so no role gains access it did not already have.
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Closing Reconciliation", path: "/reports/closing-reconciliation" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Hybrid COGS", path: "/reports/hybrid-cogs" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl" }] : []),
           ...(canView("monthly_pl", permissions.canViewPL) && permissions.canAccessAllOutlets ? [{ title: t.outletComparison, path: "/reports/outlet-comparison" }] : []),
           ...(canView("controlled_exceptions") ? [{ title: "Exceptions & Reversals", path: "/reports/exceptions" }] : []),
@@ -814,13 +820,21 @@ const DashboardLayout = () => {
         key: "warehouse",
         title: t.warehouse,
         icon: Package,
-        section: "Warehouse Overview / Procurement / Inventory / Reports & Settings",
+        section: "Warehouse Overview / Procurement / Inventory / Stock Control / Reports & Settings",
         show: canView("warehouse_dashboard") || canView("warehouse_stock") || canView("grn") || canView("warehouse_requisitions") || canView("warehouse_transfers"),
         // Each entry carries a `group` label so the submenu renders as
         // labeled sub-sections (Overview / Procurement / Inventory /
-        // Reports & Settings) instead of one flat 14-item list - grouping is
-        // purely a rendering concern (see the submenu render block below),
-        // the path/permission wiring underneath is unchanged.
+        // Stock Control / Reports & Settings) instead of one flat 16-item list -
+        // grouping is purely a rendering concern (see the submenu render block
+        // below), the path/permission wiring underneath is unchanged.
+        //
+        // Phase 7A (Req 14): this sidebar is now the SINGLE canonical Warehouse
+        // navigation - the duplicate in-page tab strip in Warehouse.jsx was
+        // removed. The previously 8-item "Inventory" block was split so that
+        // stock-taking/adjustment actions sit under their own "Stock Control"
+        // heading; every path, module key and permission gate is unchanged, and
+        // entries must stay contiguous by `group` because the renderer emits a
+        // heading whenever `sub.group` differs from the previous item's.
         submenu: [
           ...(canView("warehouse_dashboard") ? [{ title: t.warehouseDashboard, path: "/warehouse/dashboard", icon: LayoutDashboard, group: "Overview" }] : []),
           ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders", icon: FileText, group: "Procurement" }] : []),
@@ -830,12 +844,12 @@ const DashboardLayout = () => {
           ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder", icon: AlertTriangle, group: "Procurement" }] : []),
           ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock", icon: Package, group: "Inventory" }] : []),
           ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger", icon: BookOpen, group: "Inventory" }] : []),
-          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList, group: "Inventory" }] : []),
-          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft, group: "Inventory" }] : []),
           ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry", icon: Scale, group: "Inventory" }] : []),
-          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale, group: "Inventory" }] : []),
-          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal, group: "Inventory" }] : []),
-          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Inventory" }] : []),
+          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList, group: "Inventory" }] : []),
+          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft, group: "Stock Control" }] : []),
+          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale, group: "Stock Control" }] : []),
+          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal, group: "Stock Control" }] : []),
+          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Stock Control" }] : []),
           ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen, group: "Reports & Settings" }] : []),
           ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings, group: "Reports & Settings" }] : []),
         ],
@@ -983,6 +997,14 @@ const DashboardLayout = () => {
     "/reports/gstr1": "reports",
     "/reports/consumption-variance": "reports",
     "/reports/consumption-reconciliation": "reports",
+    // Phase 7A (Req 13): these three routes existed and were reachable but were
+    // absent from this guard map, so a direct URL entry was never checked against
+    // the module the sidebar/ReportsHub already gate them on. Added for
+    // consistency using those exact same module keys - this restricts, and never
+    // widens, access.
+    "/reports/closing-reconciliation": "reports",
+    "/reports/hybrid-cogs": "reports",
+    "/reports/exceptions": "controlled_exceptions",
     "/reports/monthly-pl": "monthly_pl",
     "/reports/outlet-comparison": "monthly_pl",
     "/central-kitchen": "production_dashboard",

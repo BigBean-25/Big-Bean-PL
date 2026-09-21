@@ -691,12 +691,12 @@ export const getRequisitionById = async (id) => {
 
 export const createRequisition = async (data, userId) => {
   const { requisition_no, from_location_id, to_location_id, request_date, required_date, remarks, items } = data;
-  if (!requisition_no || !from_location_id || !to_location_id || !request_date || !items?.length) throw new Error('Missing required requisition fields');
+  if (!requisition_no || !from_location_id || !to_location_id || !request_date || !items?.length) throw new Error('Missing required Outlet Purchase Order fields');
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
     const existing = await connection.execute('SELECT id FROM stock_requisitions WHERE requisition_no = ? LIMIT 1', [requisition_no]);
-    if (existing[0].length > 0) { await connection.rollback(); throw new Error('Requisition number already exists'); }
+    if (existing[0].length > 0) { await connection.rollback(); throw new Error('Outlet Purchase Order number already exists'); }
     const [res] = await connection.execute(
       `INSERT INTO stock_requisitions (requisition_no, from_location_id, to_location_id, request_date, required_date, status, remarks, created_by)
        VALUES (?, ?, ?, ?, ?, 'Draft', ?, ?)`,
@@ -704,7 +704,7 @@ export const createRequisition = async (data, userId) => {
     );
     const requisitionId = res.insertId;
     for (const it of items) {
-      if (!it.raw_material_id || !it.requested_qty || !it.unit_id) { await connection.rollback(); throw new Error('Invalid requisition item'); }
+      if (!it.raw_material_id || !it.requested_qty || !it.unit_id) { await connection.rollback(); throw new Error('Invalid Outlet Purchase Order item'); }
       await connection.execute(
         `INSERT INTO stock_requisition_items (requisition_id, raw_material_id, requested_qty, unit_id, remarks)
          VALUES (?, ?, ?, ?, ?)`,
@@ -718,8 +718,8 @@ export const createRequisition = async (data, userId) => {
 
 export const submitRequisition = async (id, userId) => {
   const [req] = await query('SELECT status FROM stock_requisitions WHERE id = ?', [id]);
-  if (!req) throw new Error('Requisition not found');
-  if (req.status !== 'Draft') throw new Error('Only Draft requisition can be submitted');
+  if (!req) throw new Error('Outlet Purchase Order not found');
+  if (req.status !== 'Draft') throw new Error('Only a Draft Outlet Purchase Order can be submitted');
   await query(`UPDATE stock_requisitions SET status = 'Submitted', submitted_by = ?, submitted_at = NOW() WHERE id = ?`, [userId, id]);
   return getRequisitionById(id);
 };
@@ -730,18 +730,19 @@ export const approveRequisition = async (id, data, userId) => {
   try {
     await connection.beginTransaction();
     const [reqRows] = await connection.execute('SELECT * FROM stock_requisitions WHERE id = ? FOR UPDATE', [id]);
-    if (!reqRows.length) throw new Error('Requisition not found');
+    if (!reqRows.length) throw new Error('Outlet Purchase Order not found');
     const req = reqRows[0];
     // Explicit single from-status: this endpoint decides Approved /
     // Partially Approved / Rejected, all of which may only ever be reached from
     // Submitted. Anything already Approved, Partially Approved, Rejected,
     // Dispatched, Received or Cancelled must not be re-reviewed here.
-    if (req.status !== 'Submitted') throw new Error('Only Submitted requisitions can be reviewed');
-    // Approving (or rejecting) a requisition authorises the warehouse to hand
-    // over stock, so it is the checker step - the raising outlet user must not
-    // also be the one who signs it off. Same rule the rest of this codebase's
-    // approval workflows already enforce.
-    assertNotOwnDocument(req, userId, 'created_by', 'approve or reject', 'requisition');
+    if (req.status !== 'Submitted') throw new Error('Only a Submitted Outlet Purchase Order can be reviewed');
+    // Approving (or rejecting) an Outlet Purchase Order authorises the warehouse
+    // to hand over stock, so it is the checker step - the raising outlet user must
+    // not also be the one who signs it off. Same rule the rest of this codebase's
+    // approval workflows already enforce. The final argument is the user-facing
+    // document label in the 403 message, so it uses the outlet-facing wording.
+    assertNotOwnDocument(req, userId, 'created_by', 'approve or reject', 'Outlet Purchase Order');
 
     const [itemRows] = await connection.execute(
       `SELECT sri.*, rm.material_name, rm.material_code, u.unit_name
@@ -789,8 +790,8 @@ export const approveRequisition = async (id, data, userId) => {
 export const dispatchRequisition = async (id, data, userId) => {
   const { transfer_no, dispatch_date, vehicle_no, driver_name, dispatch_reference, remarks, items } = data;
   const req = await getRequisitionById(id);
-  if (!req) throw new Error('Requisition not found');
-  if (req.status !== 'Approved' && req.status !== 'Partially Approved') throw new Error('Only Approved requisitions can be dispatched');
+  if (!req) throw new Error('Outlet Purchase Order not found');
+  if (req.status !== 'Approved' && req.status !== 'Partially Approved') throw new Error('Only an Approved Outlet Purchase Order can be dispatched');
   const connection = await getConnection();
   try {
     await connection.beginTransaction();

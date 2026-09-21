@@ -101,13 +101,17 @@ export default function Warehouse() {
 
   useEffect(() => { fetchMasters(); }, []);
 
-  const selectTab = (nextTab) => { navigate(`/warehouse/${nextTab}`); };
-
   const warehouseLocations = locations.filter((x) => x.location_type === "Central Warehouse" && x.is_active === 1 && x.is_inventory_location === 1);
   const currentLocation = warehouseLocations.find((l) => String(l.id) === locationId);
 
   const permissions = getStoredPermissions();
   const visibleTabs = tabs.filter((t) => permissions?.[t.moduleKey]?.can_view);
+
+  // With the in-page tab strip removed (Phase 7A / Req 14) the page header is
+  // the only thing telling the user which Warehouse section they are on, so it
+  // now reflects the active section instead of always reading "Warehouse
+  // Overview". Reuses the same `tabs` labels the sidebar mirrors.
+  const activeTabMeta = tabs.find((t) => t.key === activeTab);
 
   // If the current tab isn't one this user has view access to (e.g. an
   // Outlet Admin landing on the default "dashboard" tab, which they don't
@@ -174,7 +178,7 @@ export default function Warehouse() {
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden p-1">
       <PageHeader
-        title="Warehouse Overview"
+        title={activeTabMeta?.label || "Warehouse Overview"}
         subtitle="Inventory & Stock Control — Manage receipts, stock movements, outlet purchase orders, transfers and inventory reconciliation."
         actions={headerActions}
         isDark={isDark}
@@ -182,31 +186,12 @@ export default function Warehouse() {
 
       {!locationId && <EmptyLocationState />}
 
-      <div className={`sticky top-0 z-20 -mx-1 px-1 pb-1 pt-1 ${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
-        <nav className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 shadow-sm ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-          {visibleTabs.map((t) => {
-            const Icon = t.icon;
-            const active = activeTab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => selectTab(t.key)}
-                disabled={!locationId}
-                className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-medium transition ${
-                  active
-                    ? "bg-[#7367F0] text-white shadow-sm"
-                    : isDark
-                      ? "text-[#A5A8B6] hover:bg-[#3B405A]"
-                      : "text-[#6F6B7D] hover:bg-[#F3F2F7]"
-                } ${!locationId ? "opacity-50 cursor-not-allowed" : ""}`}
-              >
-                <Icon size={16} />
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {/* Phase 7A (Req 14): the repeated in-page Warehouse tab strip was removed -
+          the main sidebar (DashboardLayout.jsx) is now the single canonical
+          Warehouse navigation. The `tabs`/`visibleTabs` permission mapping above
+          is deliberately RETAINED: it still drives the moduleKey access-control
+          fallback that redirects a user off a tab they cannot view, so removing
+          the buttons must never be read as removing route protection. */}
 
       {locationId && activeTab === "dashboard" && <WarehouseDashboard locationId={locationId} locations={locations} materials={materials} isDark={isDark} />}
       {locationId && activeTab === "current-stock" && <WarehouseCurrentStock locationId={locationId} locations={locations} categories={categories} materials={materials} isDark={isDark} />}
