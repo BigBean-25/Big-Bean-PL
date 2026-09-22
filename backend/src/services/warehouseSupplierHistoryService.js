@@ -1,7 +1,48 @@
 import { query } from '../config/database.js';
 import { getSupplierLedgerSummary } from './supplierLedgerService.js';
+import { MANUAL_EFFECTIVE_WHERE, BRIDGE_EFFECTIVE_WHERE } from './effectivePurchaseService.js';
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
+
+// Phase 7D1A: the canonical supplier ledger is per (outlet, supplier), but
+// this history page is location/supplier-scoped - a Central Warehouse
+// location has no outlet_id, so the previous hardcoded `outletId: 1` reported
+// outlet-1's balance for every supplier (and skipped outstanding entirely
+// when a location filter was set). The payments/returns columns here are
+// already supplier-wide, so the correct outstanding is the SUM of the
+// canonical per-outlet ledgers across every outlet that actually transacted
+// with the supplier - discovered the same way the Supplier Pending report
+// discovers pairs (Verified payments + effective purchases).
+const getSupplierTotalOutstanding = async (supplierId, date) => {
+  const pairs = await query(
+    `SELECT DISTINCT outlet_id FROM supplier_payments WHERE supplier_id = ? AND status = 'Verified'
+     UNION
+     SELECT DISTINCT mpi.outlet_id
+       FROM material_purchase_items mpi
+       INNER JOIN material_purchase_uploads mpu ON mpi.upload_id = mpu.id
+       WHERE ${MANUAL_EFFECTIVE_WHERE} AND mpi.supplier_id = ?
+     UNION
+     SELECT DISTINCT ae.outlet_id
+       FROM accounting_effects ae
+       WHERE ${BRIDGE_EFFECTIVE_WHERE} AND ae.supplier_id = ?`,
+    [supplierId, supplierId, supplierId]
+  );
+  // Per-outlet summaries each subtract the SAME supplier-global credit total
+  // (getCumulativeCredits has no outlet filter), so summing
+  // summary.current_outstanding would subtract credits once per outlet.
+  // Sum the canonical components instead and subtract the credits once.
+  let purchases = 0;
+  let payments = 0;
+  let credits = 0;
+  for (const p of pairs) {
+    if (p.outlet_id == null) continue;
+    const summary = await getSupplierLedgerSummary({ outletId: p.outlet_id, supplierId, date });
+    purchases += summary.purchase_value;
+    payments += summary.previous_paid_amount;
+    credits = summary.purchase_return_credits; // supplier-global - identical in every per-outlet summary
+  }
+  return purchases - payments - credits;
+};
 
 const buildWhere = (clauses, params) => {
   if (!clauses.length) return '';
@@ -66,18 +107,11 @@ export const getSupplierHistorySummary = async ({
     );
     let outstanding = 0;
     let outstandingUnavailable = false;
-    if (!locationId) {
-      try {
-        const summary = await getSupplierLedgerSummary({
-          outletId: 1,
-          supplierId: s.id,
-          date: new Date().toISOString().slice(0, 10),
-        });
-        outstanding = summary.current_outstanding;
-      } catch (error) {
-        console.error(`Supplier ledger summary failed for supplier ${s.id}:`, error);
-        outstandingUnavailable = true;
-      }
+    try {
+      outstanding = await getSupplierTotalOutstanding(s.id, new Date().toISOString().slice(0, 10));
+    } catch (error) {
+      console.error(`Supplier ledger summary failed for supplier ${s.id}:`, error);
+      outstandingUnavailable = true;
     }
     const materialsSupplied = await query(
       `SELECT COUNT(DISTINCT raw_material_id) AS c
@@ -160,18 +194,11 @@ export const getSupplierHistoryDetail = async (supplierId, locationId) => {
 
   let outstanding = 0;
   let outstandingUnavailable = false;
-  if (!locationId) {
-    try {
-      const summary = await getSupplierLedgerSummary({
-        outletId: 1,
-        supplierId,
-        date: new Date().toISOString().slice(0, 10),
-      });
-      outstanding = summary.current_outstanding;
-    } catch (error) {
-      console.error(`Supplier ledger summary failed for supplier ${supplierId}:`, error);
-      outstandingUnavailable = true;
-    }
+  try {
+    outstanding = await getSupplierTotalOutstanding(supplierId, new Date().toISOString().slice(0, 10));
+  } catch (error) {
+    console.error(`Supplier ledger summary failed for supplier ${supplierId}:`, error);
+    outstandingUnavailable = true;
   }
 
   return {
