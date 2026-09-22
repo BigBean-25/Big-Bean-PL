@@ -594,8 +594,18 @@ router.post('/stock-adjustments/:id/lock', checkPermission('stock_adjustments', 
 
 router.get('/warehouse-wastage', checkPermission('warehouse_wastage', 'can_view'), applyLocationScope, async (req, res) => {
   try {
-    const allowedLocationIds = resolveScopedLocationIds(req, res, req.query.location_id);
-    if (allowedLocationIds === undefined) return;
+    // Phase 7C2A1: wastage documents are location-owned, so a scoped caller
+    // may only ever list records at their OWN locations - never a Central
+    // Warehouse's. applyLocationScope's ?location_id=<CW> stock-read
+    // carve-out rewrites locationIds to that warehouse, which is right for
+    // stock lists but would leak CW wastage documents here; ownLocationIds
+    // preserves the caller's own set for exactly this case. A crafted
+    // ?location_id=<other outlet> already 403s inside applyLocationScope;
+    // a crafted <CW> survives it but intersects to empty against the own
+    // set below. The carve-out itself is untouched - only this route's
+    // restriction set is narrowed.
+    const scope = req.locationScope || {};
+    const allowedLocationIds = scope.all ? null : (scope.ownLocationIds || scope.locationIds || []);
     const data = await getWarehouseWastages({ ...req.query, allowedLocationIds });
     res.json({ success: true, data });
   }
@@ -606,7 +616,11 @@ router.get('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'can_v
   try {
     const data = await getWarehouseWastageById(req.params.id);
     if (!data) return res.status(404).json({ success: false, message: 'Wastage record not found' });
-    if (!req.locationScope.all && !req.locationScope.locationIds.includes(Number(data.location_id))) {
+    // Same own-location restriction as the list above: the document's stored
+    // location_id is checked against the caller's own allowed set, so a
+    // crafted ?location_id=<CW> query cannot widen detail access either.
+    const ownIds = req.locationScope.ownLocationIds || req.locationScope.locationIds || [];
+    if (!req.locationScope.all && !ownIds.includes(Number(data.location_id))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this location' });
     }
     res.json({ success: true, data });
@@ -643,28 +657,58 @@ router.delete('/warehouse-wastage/:id', checkPermission('warehouse_wastage', 'ca
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
+// Phase 7C2A: every id-addressed wastage transition resolves the document's
+// location_id and enforces the canonical location-access rule (same as the
+// PUT/DELETE routes above and the requisition transition routes). Without
+// this, granting outlet roles can_submit would let them transition another
+// outlet's document by changing the id.
+const guardWastageLocation = async (req, res) => {
+  const existing = await getWarehouseWastageById(req.params.id);
+  if (!existing) { res.status(404).json({ success: false, message: 'Wastage record not found' }); return null; }
+  if (!(await isLocationAccessible(req.user, existing.location_id))) {
+    res.status(403).json({ success: false, message: 'You do not have access to this location' });
+    return null;
+  }
+  return existing;
+};
+
 router.post('/warehouse-wastage/:id/submit', checkPermission('warehouse_wastage', 'can_submit'), async (req, res) => {
-  try { const data = await submitWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    if (!(await guardWastageLocation(req, res))) return;
+    const data = await submitWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/verify', checkPermission('warehouse_wastage', 'can_verify'), async (req, res) => {
-  try { const data = await verifyWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    if (!(await guardWastageLocation(req, res))) return;
+    const data = await verifyWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/approve', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
-  try { const data = await approveWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    if (!(await guardWastageLocation(req, res))) return;
+    const data = await approveWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/post', checkPermission('warehouse_wastage', 'can_approve'), async (req, res) => {
-  try { const data = await postWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    if (!(await guardWastageLocation(req, res))) return;
+    const data = await postWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/warehouse-wastage/:id/lock', checkPermission('warehouse_wastage', 'can_lock'), async (req, res) => {
-  try { const data = await lockWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data }); }
+  try {
+    if (!(await guardWastageLocation(req, res))) return;
+    const data = await lockWarehouseWastage(req.params.id, req.user.id); res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
