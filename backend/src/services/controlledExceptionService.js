@@ -31,6 +31,7 @@ const EXCEPTION_TYPES = new Set([
 
 const TERMINAL_STATUSES = {
   supplier_payments: ['Verified'],
+  outlet_vendor_payments: ['Verified'],
   accounting_effects: ['Posted'],
   purchase_returns: ['Posted', 'Locked'],
   outlet_consumptions: ['Posted', 'Locked'],
@@ -41,6 +42,11 @@ const SUPPORT_MATRIX = {
     support_status: 'FULL_REVERSAL_SUPPORTED',
     business_impact: 'FINANCIAL',
     source_label: 'supplier payment',
+  },
+  outlet_vendor_payments: {
+    support_status: 'FULL_REVERSAL_SUPPORTED',
+    business_impact: 'FINANCIAL',
+    source_label: 'outlet vendor payment',
   },
   accounting_effects: {
     support_status: 'FULL_REVERSAL_SUPPORTED',
@@ -117,6 +123,35 @@ const loadSupplierPayment = async (id) => {
     original_qty: null,
     support_status: SUPPORT_MATRIX.supplier_payments.support_status,
     business_impact: SUPPORT_MATRIX.supplier_payments.business_impact,
+    source_snapshot_json: row,
+  };
+};
+
+// Outlet vendor payments (7D2B1): Verified + non-reversal originals only.
+// Legacy backfilled rows (verified_by/at NULL) stay eligible - eligibility is
+// status + is_reversal only, never verifier presence.
+const loadOutletVendorPayment = async (id) => {
+  const rows = await query('SELECT * FROM outlet_vendor_payments WHERE id = ? LIMIT 1', [id]);
+  const row = rows[0];
+  if (!row) return null;
+  if (row.status !== 'Verified' || Number(row.is_reversal) === 1) {
+    const err = new Error('Only Verified outlet vendor payments can be reversed through exceptions - Draft/Submitted/Rejected payments still have a normal correction path');
+    err.statusCode = 400;
+    throw err;
+  }
+  return {
+    source_module: 'outlet_vendor_payments',
+    source_type: 'outlet_vendor_payments',
+    source_id: row.id,
+    source_item_id: null,
+    outlet_id: row.outlet_id,
+    location_id: null,
+    source_status: row.status,
+    source_date: row.date,
+    original_amount: num(row.paid_amount),
+    original_qty: null,
+    support_status: SUPPORT_MATRIX.outlet_vendor_payments.support_status,
+    business_impact: SUPPORT_MATRIX.outlet_vendor_payments.business_impact,
     source_snapshot_json: row,
   };
 };
@@ -211,6 +246,7 @@ const loadSource = async (sourceModule, sourceId) => {
     throw err;
   }
   if (sourceModule === 'supplier_payments') return loadSupplierPayment(sourceId);
+  if (sourceModule === 'outlet_vendor_payments') return loadOutletVendorPayment(sourceId);
   if (sourceModule === 'accounting_effects') return loadAccountingEffect(sourceId);
   if (sourceModule === 'purchase_returns') return loadPurchaseReturn(sourceId);
   if (sourceModule === 'outlet_consumptions') return loadOutletConsumption(sourceId);
@@ -417,6 +453,13 @@ const loadSourceForExecute = async (conn, exception) => {
     if (row.reversal_of_payment_id) throw badRequest('Supplier payment already reversed');
     return { row, support: SUPPORT_MATRIX.supplier_payments };
   }
+  if (exception.source_module === 'outlet_vendor_payments') {
+    const [rows] = await conn.execute('SELECT * FROM outlet_vendor_payments WHERE id = ? LIMIT 1 FOR UPDATE', [exception.source_id]);
+    const row = rows[0];
+    if (!row || row.status !== 'Verified' || Number(row.is_reversal) === 1) throw badRequest('Outlet vendor payment is no longer a reversible Verified payment');
+    if (row.reversal_of_payment_id) throw badRequest('Outlet vendor payment already reversed');
+    return { row, support: SUPPORT_MATRIX.outlet_vendor_payments };
+  }
   if (exception.source_module === 'accounting_effects') {
     const [rows] = await conn.execute('SELECT * FROM accounting_effects WHERE id = ? LIMIT 1 FOR UPDATE', [exception.source_id]);
     const row = rows[0];
@@ -537,6 +580,36 @@ export const executeControlledException = async ({ exceptionId, executedBy, reve
       reversalRefId = res.insertId;
       reversalPayload = { ...reversalPayload, reversal_payment_id: reversalRefId, original_payment_id: original.id, reversal_amount: -Math.abs(num(original.paid_amount)) };
       await claimSourceForReversal(conn, 'supplier_payments', 'reversal_of_payment_id', reversalRefId, exception.id, original.id);
+    } else if (exception.source_module === 'outlet_vendor_payments') {
+      const original = source.row;
+      reversalRefType = 'outlet_vendor_payments';
+      // Compensating Verified payment with negative paid_amount: the canonical
+      // outlet-vendor cumulative Verified-payment sum decreases by exactly the
+      // original amount, so outstanding restores by that amount. Prospective -
+      // the reversal carries the correction date, not the original date. The
+      // original row is never modified except for its audit link.
+      const [res] = await conn.execute(
+        `INSERT INTO outlet_vendor_payments
+         (outlet_id, vendor_id, date, paid_amount, payment_mode_id, reference_no, remarks, status, submitted_by, submitted_at, verified_by, verified_at, created_by, is_reversal, reversal_of_payment_id, reversal_exception_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Verified', ?, NOW(), ?, NOW(), ?, 1, ?, ?)`,
+        [
+          original.outlet_id,
+          original.vendor_id,
+          correctionDate,
+          -Math.abs(num(original.paid_amount)),
+          original.payment_mode_id ?? null,
+          `REV-${exception.exception_no}`,
+          `Controlled reversal of outlet vendor payment #${original.id} via exception ${exception.exception_no}`,
+          executedBy,
+          executedBy,
+          executedBy,
+          original.id,
+          exception.id,
+        ]
+      );
+      reversalRefId = res.insertId;
+      reversalPayload = { ...reversalPayload, reversal_payment_id: reversalRefId, original_payment_id: original.id, reversal_amount: -Math.abs(num(original.paid_amount)) };
+      await claimSourceForReversal(conn, 'outlet_vendor_payments', 'reversal_of_payment_id', reversalRefId, exception.id, original.id);
     } else if (exception.source_module === 'accounting_effects') {
       const original = source.row;
       reversalRefType = 'accounting_effects';

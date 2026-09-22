@@ -84,6 +84,7 @@ const MIGRATIONS = [
   { name: 'phase7c2a2_outlet_wastage_permissions_migration.mjs', file: 'backend/phase7c2a2_outlet_wastage_permissions_migration.mjs', why: 'Phase 7C2A2: permission-data only - ensures warehouse_wastage can_view/can_create/can_submit/can_export for Outlet Admin/Manager; idempotent, never grants verify/approve/edit/delete/lock' },
   { name: 'add_outlet_vendor_payment_workflow.sql', file: 'database/add_outlet_vendor_payment_workflow.sql', why: 'Phase 7D2A1: outlet_vendor_payments Draft/Submitted/Verified/Rejected maker-checker columns (backfills existing rows as Verified, NULL verifier - mirrors Phase 5D1 supplier_payments)' },
   { name: 'phase7d2a2_vendor_payment_permissions_migration.mjs', file: 'backend/phase7d2a2_vendor_payment_permissions_migration.mjs', why: 'Phase 7D2A2: permission-data only - outlet_vendors can_submit for Outlet Admin/Manager, can_submit/can_verify/can_reject for Accountant; idempotent, additive' },
+  { name: 'add_outlet_vendor_payment_reversal.sql', file: 'database/add_outlet_vendor_payment_reversal.sql', why: 'Phase 7D2B1: outlet_vendor_payments controlled-reversal link columns (is_reversal, reversal_of_payment_id UNIQUE, reversal_exception_id) - additive, mirrors supplier_payments' },
 ];
 
 async function ensureTrackingTable(conn) {
