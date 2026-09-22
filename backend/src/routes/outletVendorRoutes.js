@@ -1,10 +1,11 @@
 import express from 'express';
-import { protect, applyOutletScope } from '../middleware/auth.js';
+import { protect, applyOutletScope, loadScopedRecord } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import {
   getVendors, getVendorById, createVendor, updateVendor, deleteVendor,
   getVendorPurchases, createVendorPurchase, createVendorPurchasesBatch, deleteVendorPurchase,
-  getVendorPayments, createVendorPayment,
+  getVendorPayments, createVendorPayment, updateVendorPayment,
+  submitVendorPayment, verifyVendorPayment, rejectVendorPayment,
   getVendorLedger, getVendorOutstandingReport,
 } from '../controllers/outletVendorController.js';
 
@@ -25,5 +26,13 @@ router.delete('/purchases/:id', protect, applyOutletScope, checkPermission('outl
 
 router.get('/payments/list', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorPayments);
 router.post('/payments', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_create'), createVendorPayment);
+// Maker-edit uses can_create (not can_edit): makers must be able to fix a
+// Rejected payment, and can_edit also gates vendor-master edits which stay
+// restricted to checker roles. Draft/Rejected status gate lives in the
+// controller, scope via loadScopedRecord.
+router.put('/payments/:id', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_create'), loadScopedRecord('outlet_vendor_payments'), updateVendorPayment);
+router.post('/payments/:id/submit', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_submit'), loadScopedRecord('outlet_vendor_payments'), submitVendorPayment);
+router.post('/payments/:id/verify', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_verify'), loadScopedRecord('outlet_vendor_payments'), verifyVendorPayment);
+router.post('/payments/:id/reject', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_reject'), loadScopedRecord('outlet_vendor_payments'), rejectVendorPayment);
 
 export default router;

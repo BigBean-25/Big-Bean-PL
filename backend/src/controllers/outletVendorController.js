@@ -3,6 +3,7 @@ import { logAudit } from '../utils/logger.js';
 import { validateContactFields } from '../utils/validators.js';
 import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing } from '../services/outletVendorLedgerService.js';
 import { assertDateEditable } from '../utils/periodLock.js';
+import { isOwnDocument } from '../utils/makerChecker.js';
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 const isAllOutlets = (v) => !v || v === 'all';
@@ -390,18 +391,24 @@ export const createVendorPayment = async (req, res) => {
 
     await assertDateEditable(outlet_id, date, 'An outlet vendor payment');
 
+    // UX pre-check only - the authoritative overpayment validation runs
+    // inside the verify transaction (a Submitted row is not financially
+    // effective, so concurrent creates can both pass here harmlessly).
     const summary = await getVendorLedgerSummary({ outletId: outlet_id, vendorId: vendor_id, date });
     if (num(paid_amount) > summary.current_outstanding + 0.005) {
       return res.status(400).json({ success: false, message: `Payment amount cannot exceed current outstanding of ₹${summary.current_outstanding.toFixed(2)}` });
     }
 
+    // 7D2A2: create lands directly as Submitted (locked decision C) - one
+    // click preserves the previous "Record Payment" UX while the payment
+    // stays financially inactive until a checker verifies it.
     const result = await query(
-      `INSERT INTO outlet_vendor_payments (outlet_id, vendor_id, date, paid_amount, payment_mode_id, reference_no, remarks, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [outlet_id, vendor_id, date, num(paid_amount), payment_mode_id || null, reference_no || null, remarks || null, req.user.id]
+      `INSERT INTO outlet_vendor_payments (outlet_id, vendor_id, date, paid_amount, payment_mode_id, reference_no, remarks, status, created_by, submitted_by, submitted_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Submitted', ?, ?, NOW(), NOW())`,
+      [outlet_id, vendor_id, date, num(paid_amount), payment_mode_id || null, reference_no || null, remarks || null, req.user.id, req.user.id]
     );
     await logAudit(req.user.id, 'CREATE', 'outlet_vendor_payments', result.insertId, null, req.body, 'Created outlet vendor payment');
-    res.status(201).json({ success: true, message: 'Payment recorded successfully', data: { id: result.insertId } });
+    res.status(201).json({ success: true, message: 'Payment submitted for verification', data: { id: result.insertId } });
   } catch (error) {
     console.error('Create vendor payment error:', error);
     if (error.statusCode) {
@@ -453,5 +460,204 @@ export const getVendorOutstandingReport = async (req, res) => {
   } catch (error) {
     console.error('Get vendor outstanding report error:', error);
     res.status(500).json({ success: false, message: 'Error fetching outstanding report' });
+  }
+};
+
+// --- Payment workflow (Phase 7D2A2) ---
+// Mirrors the supplier_payments maker-checker: Draft/Rejected are editable
+// and submittable, Submitted is immutable pending a checker, Verified is
+// terminal (correction via controlled exceptions is deferred to 7D2B).
+// req.record comes from loadScopedRecord('outlet_vendor_payments') which has
+// already proven record.outlet_id is inside the caller's outlet scope.
+
+const PAYMENT_EDITABLE_STATUSES = ['Draft', 'Rejected'];
+
+export const updateVendorPayment = async (req, res) => {
+  try {
+    const existing = req.record;
+    if (!PAYMENT_EDITABLE_STATUSES.includes(existing.status)) {
+      return res.status(400).json({ success: false, message: `Cannot edit a vendor payment with status "${existing.status}". Only Draft or Rejected payments can be edited.` });
+    }
+
+    const { date = existing.date, paid_amount, payment_mode_id = existing.payment_mode_id, reference_no = existing.reference_no, remarks = existing.remarks } = req.body;
+    const finalPaidAmount = paid_amount !== undefined ? num(paid_amount) : num(existing.paid_amount);
+    if (Number.isNaN(finalPaidAmount) || finalPaidAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Paid amount must be a positive number' });
+    }
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date is required' });
+    }
+
+    // Period lock against the stored date always; additionally against the
+    // new date when it actually moves (mirrors supplierPaymentController).
+    await assertDateEditable(existing.outlet_id, existing.date, 'An outlet vendor payment');
+    if (String(date).slice(0, 10) !== String(existing.date).slice(0, 10)) {
+      await assertDateEditable(existing.outlet_id, date, 'An outlet vendor payment');
+    }
+
+    const summary = await getVendorLedgerSummary({ outletId: existing.outlet_id, vendorId: existing.vendor_id, date, excludeId: Number(existing.id) });
+    if (finalPaidAmount > summary.current_outstanding + 0.005) {
+      return res.status(400).json({ success: false, message: `Payment amount cannot exceed current outstanding of ₹${summary.current_outstanding.toFixed(2)}` });
+    }
+
+    await query(
+      `UPDATE outlet_vendor_payments
+       SET date = ?, paid_amount = ?, payment_mode_id = ?, reference_no = ?, remarks = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [date, finalPaidAmount, payment_mode_id || null, reference_no ? String(reference_no).trim() : null, remarks ? String(remarks).trim() : null, existing.id]
+    );
+    await logAudit(req.user.id, 'UPDATE', 'outlet_vendor_payments', existing.id, existing, { date, paid_amount: finalPaidAmount, payment_mode_id, reference_no, remarks }, 'Updated outlet vendor payment');
+    res.status(200).json({ success: true, message: 'Vendor payment updated' });
+  } catch (error) {
+    console.error('Update vendor payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error updating vendor payment' });
+  }
+};
+
+export const submitVendorPayment = async (req, res) => {
+  try {
+    const record = req.record;
+    if (!PAYMENT_EDITABLE_STATUSES.includes(record.status)) {
+      return res.status(400).json({ success: false, message: `Cannot submit a vendor payment with status "${record.status}". Only Draft or Rejected payments can be submitted.` });
+    }
+    await assertDateEditable(record.outlet_id, record.date, 'An outlet vendor payment');
+
+    const result = await query(
+      `UPDATE outlet_vendor_payments
+       SET status = 'Submitted', submitted_by = ?, submitted_at = NOW(),
+           rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = NOW()
+       WHERE id = ? AND status IN ('Draft', 'Rejected')`,
+      [req.user.id, record.id]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Vendor payment could not be submitted in its current status' });
+    }
+    await logAudit(req.user.id, 'SUBMIT', 'outlet_vendor_payments', record.id, record, { status: 'Submitted', submitted_by: req.user.id }, 'Submitted outlet vendor payment for verification');
+    res.status(200).json({ success: true, message: 'Vendor payment submitted for verification' });
+  } catch (error) {
+    console.error('Submit vendor payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error submitting vendor payment' });
+  }
+};
+
+export const verifyVendorPayment = async (req, res) => {
+  const conn = await getConnection();
+  try {
+    const record = req.record;
+    if (record.status !== 'Submitted') {
+      return res.status(400).json({ success: false, message: `Cannot verify a vendor payment with status "${record.status}". Only Submitted payments can be verified.` });
+    }
+    if (isOwnDocument(record, req.user.id, 'created_by') || isOwnDocument(record, req.user.id, 'submitted_by')) {
+      return res.status(403).json({ success: false, message: 'You cannot verify your own vendor payment (maker-checker rule).' });
+    }
+    await assertDateEditable(record.outlet_id, record.date, 'An outlet vendor payment');
+
+    await conn.beginTransaction();
+
+    // Lock the payment row itself, then the vendor row as the payable
+    // serialization anchor: this serializes verification for a vendor so two
+    // concurrent checkers cannot both pass the outstanding check. The
+    // financial comparison itself stays scoped to THIS payment's
+    // outlet_id + vendor_id (the lock is coarse, the math is not).
+    const [locked] = await conn.execute('SELECT * FROM outlet_vendor_payments WHERE id = ? FOR UPDATE', [record.id]);
+    if (!locked.length || locked[0].status !== 'Submitted') {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Vendor payment could not be verified in its current status' });
+    }
+    const pay = locked[0];
+
+    const [vendorRows] = await conn.execute('SELECT id FROM outlet_vendors WHERE id = ? FOR UPDATE', [pay.vendor_id]);
+    if (!vendorRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Vendor not found' });
+    }
+
+    // Two authoritative checks, both inside the vendor serialization lock.
+    // CHECK A (as-of payment date): a backdated payment may only consume
+    // liability that existed on its own date - it cannot be funded by a
+    // purchase that arrived later.
+    const [purchaseRows] = await conn.execute(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM outlet_vendor_purchases
+       WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ? AND paid_by != 'Outlet'`,
+      [pay.outlet_id, pay.vendor_id, pay.date]
+    );
+    const [paymentRows] = await conn.execute(
+      `SELECT COALESCE(SUM(paid_amount), 0) AS total FROM outlet_vendor_payments
+       WHERE outlet_id = ? AND vendor_id = ? AND date <= ? AND status = 'Verified' AND id != ?`,
+      [pay.outlet_id, pay.vendor_id, pay.date, pay.id]
+    );
+    const outstandingAsOfPaymentDate = num(purchaseRows[0].total) - num(paymentRows[0].total);
+    if (num(pay.paid_amount) > outstandingAsOfPaymentDate + 0.005) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: `Payment exceeds the outstanding of ₹${outstandingAsOfPaymentDate.toFixed(2)} as of its payment date` });
+    }
+
+    // CHECK B (current outstanding): same pair at today's canonical cutoff,
+    // which also sees Verified payments dated AFTER this payment - otherwise
+    // a backdated payment could push total Verified payments over payable.
+    const currentCutoff = new Date().toISOString().slice(0, 10);
+    const [curPurchaseRows] = await conn.execute(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM outlet_vendor_purchases
+       WHERE outlet_id = ? AND vendor_id = ? AND purchase_date <= ? AND paid_by != 'Outlet'`,
+      [pay.outlet_id, pay.vendor_id, currentCutoff]
+    );
+    const [curPaymentRows] = await conn.execute(
+      `SELECT COALESCE(SUM(paid_amount), 0) AS total FROM outlet_vendor_payments
+       WHERE outlet_id = ? AND vendor_id = ? AND date <= ? AND status = 'Verified' AND id != ?`,
+      [pay.outlet_id, pay.vendor_id, currentCutoff, pay.id]
+    );
+    const currentOutstanding = num(curPurchaseRows[0].total) - num(curPaymentRows[0].total);
+    if (num(pay.paid_amount) > currentOutstanding + 0.005) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: `Payment amount cannot exceed current outstanding of ₹${currentOutstanding.toFixed(2)}` });
+    }
+
+    await conn.execute(
+      `UPDATE outlet_vendor_payments SET status = 'Verified', verified_by = ?, verified_at = NOW(), updated_at = NOW()
+       WHERE id = ? AND status = 'Submitted'`,
+      [req.user.id, pay.id]
+    );
+    await conn.commit();
+
+    await logAudit(req.user.id, 'VERIFY', 'outlet_vendor_payments', pay.id, record, { status: 'Verified', verified_by: req.user.id }, 'Verified outlet vendor payment');
+    res.status(200).json({ success: true, message: 'Vendor payment verified' });
+  } catch (error) {
+    await conn.rollback().catch(() => {});
+    console.error('Verify vendor payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error verifying vendor payment' });
+  } finally {
+    conn.release();
+  }
+};
+
+export const rejectVendorPayment = async (req, res) => {
+  try {
+    const record = req.record;
+    if (record.status !== 'Submitted') {
+      return res.status(400).json({ success: false, message: `Cannot reject a vendor payment with status "${record.status}". Only Submitted payments can be rejected.` });
+    }
+    if (isOwnDocument(record, req.user.id, 'created_by') || isOwnDocument(record, req.user.id, 'submitted_by')) {
+      return res.status(403).json({ success: false, message: 'You cannot reject your own vendor payment (maker-checker rule).' });
+    }
+    const { rejection_reason } = req.body || {};
+    if (!rejection_reason || !String(rejection_reason).trim()) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+    }
+    await assertDateEditable(record.outlet_id, record.date, 'An outlet vendor payment');
+
+    const result = await query(
+      `UPDATE outlet_vendor_payments
+       SET status = 'Rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?, updated_at = NOW()
+       WHERE id = ? AND status = 'Submitted'`,
+      [req.user.id, String(rejection_reason).trim(), record.id]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ success: false, message: 'Vendor payment could not be rejected in its current status' });
+    }
+    await logAudit(req.user.id, 'REJECT', 'outlet_vendor_payments', record.id, record, { status: 'Rejected', rejected_by: req.user.id, rejection_reason: String(rejection_reason).trim() }, 'Rejected outlet vendor payment');
+    res.status(200).json({ success: true, message: 'Vendor payment rejected' });
+  } catch (error) {
+    console.error('Reject vendor payment error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error rejecting vendor payment' });
   }
 };

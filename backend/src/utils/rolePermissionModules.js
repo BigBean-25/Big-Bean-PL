@@ -138,7 +138,7 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     setModules(matrix, ['daily_expenses'], { can_view: 1, can_approve: 1, can_reject: 1, can_export: 1 });
     setModules(matrix, ['day_closing', 'daily_checklist', 'bank_deposits'], viewExport());
     setModules(matrix, STOCK_PURCHASE_MODULES, { can_view: 1, can_verify: 1, can_export: 1 });
-    setModules(matrix, ['supplier_payments', 'outlet_vendors'], { can_view: 1, can_create: 1, can_edit: 1, can_export: 1 });
+    setModules(matrix, ['supplier_payments', 'outlet_vendors'], { can_view: 1, can_create: 1, can_edit: 1, can_submit: 1, can_verify: 1, can_reject: 1, can_export: 1 });
     setModules(matrix, SALES_MODULES, { can_view: 1, can_verify: 1, can_export: 1 });
     setModules(matrix, ['item_sales_tax'], { can_view: 1, can_create: 1, can_upload: 1, can_export: 1, can_delete: 1 });
     setModules(matrix, MONTH_END_MODULES, { can_view: 1, can_create: 1, can_edit: 1, can_verify: 1, can_export: 1 });
@@ -234,7 +234,7 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     // verify/approve/post/lock stay with all-outlet checker roles, the same
     // maker/checker split as outlet_consumption above.
     setModules(matrix, ['warehouse_wastage'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
-    setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_export: 1 });
+    setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     setModules(matrix, ['production_dashboard'], { can_view: 1 });
     setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     return matrix;
