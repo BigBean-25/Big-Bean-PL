@@ -776,6 +776,10 @@ export const outletVendorAPI = {
   deletePurchase: (id) => api.delete(`/outlet-vendors/purchases/${id}`),
   getPayments: (params) => api.get("/outlet-vendors/payments/list", { params }),
   createPayment: (data) => api.post("/outlet-vendors/payments", data),
+  updatePayment: (id, data) => api.put(`/outlet-vendors/payments/${id}`, data),
+  submitPayment: (id) => api.post(`/outlet-vendors/payments/${id}/submit`),
+  verifyPayment: (id) => api.post(`/outlet-vendors/payments/${id}/verify`),
+  rejectPayment: (id, data) => api.post(`/outlet-vendors/payments/${id}/reject`, data),
 };
 
 export const outletDashboardAPI = {
