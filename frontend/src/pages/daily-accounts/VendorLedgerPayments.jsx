@@ -249,7 +249,11 @@ export default function VendorLedgerPayments() {
       reference: p.reference_no || `PAY-${p.id}`,
       description: "Payment to vendor",
       debit: 0,
-      credit: Number(p.paid_amount || 0),
+      // Only Verified payments reduce outstanding - the same rule
+      // outletVendorLedgerService.getCumulativePayments applies. All rows
+      // still display; Draft/Submitted/Rejected contribute 0 to the running
+      // balance. (Workflow columns land in 7D2A1; actions arrive in 7D2A2.)
+      credit: p.status === "Verified" ? Number(p.paid_amount || 0) : 0,
       notes: p.remarks || "",
     }));
 

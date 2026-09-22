@@ -25,10 +25,15 @@ const getCumulativePurchases = async (outletId, vendorId, asOfDate) => {
   return num(rows[0]?.total);
 };
 
+// Phase 7D2A1: only Verified payments are financially effective - the same
+// rule supplier_payments has always used. Draft/Submitted/Rejected rows are
+// in-flight workflow states and must never reduce outstanding or consume
+// purchases in FIFO ageing. Pre-workflow rows are backfilled to Verified by
+// the 7D2A1 migration, so historical balances are numerically unchanged.
 const getCumulativePayments = async (outletId, vendorId, asOfDate, excludeId = null) => {
   let sql = `SELECT COALESCE(SUM(paid_amount), 0) AS total
              FROM outlet_vendor_payments
-             WHERE outlet_id = ? AND vendor_id = ? AND date <= ?`;
+             WHERE outlet_id = ? AND vendor_id = ? AND date <= ? AND status = 'Verified'`;
   const params = [outletId, vendorId, asOfDate];
   if (excludeId) {
     sql += ' AND id != ?';
