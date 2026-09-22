@@ -228,6 +228,12 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     // verify/approve/post checker steps stay with all-outlet roles - same
     // maker-only shape as warehouse_requisitions above.
     setModules(matrix, ['outlet_consumption'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1, can_export: 1 });
+    // Outlet wastage (expired/damaged/counter items at the outlet's own
+    // location) reuses the warehouse_wastage document + WASTAGE ledger.
+    // Maker shape only - the outlet raises and submits the record while
+    // verify/approve/post/lock stay with all-outlet checker roles, the same
+    // maker/checker split as outlet_consumption above.
+    setModules(matrix, ['warehouse_wastage'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_export: 1 });
     setModules(matrix, ['production_dashboard'], { can_view: 1 });
     setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });

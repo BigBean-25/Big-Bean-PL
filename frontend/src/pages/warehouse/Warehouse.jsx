@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
 import { getThemeMode, getInputClass, PageHeader, LoadingSpinner } from "../../components/ui";
 import { displayLabel } from "../../utils/displayLabels";
@@ -105,7 +105,15 @@ export default function Warehouse() {
   const currentLocation = warehouseLocations.find((l) => String(l.id) === locationId);
 
   const permissions = getStoredPermissions();
-  const visibleTabs = tabs.filter((t) => permissions?.[t.moduleKey]?.can_view);
+  // Phase 7C2A2: outlet-locked users get warehouse_wastage.can_view for their
+  // own scoped page (/outlet-dashboard/wastage); the Central-Warehouse-scoped
+  // wastage tab must stay hidden for them or a direct
+  // /warehouse/warehouse-wastage URL would render a dead CW page. The flag
+  // comes from the layout's outlet context - no role check here.
+  const { isOutletLocked = false } = useOutletContext() || {};
+  const visibleTabs = tabs.filter(
+    (t) => permissions?.[t.moduleKey]?.can_view && !(t.key === "warehouse-wastage" && isOutletLocked)
+  );
 
   // With the in-page tab strip removed (Phase 7A / Req 14) the page header is
   // the only thing telling the user which Warehouse section they are on, so it

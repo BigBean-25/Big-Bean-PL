@@ -29,6 +29,7 @@ import Categories from "./pages/masters/Categories";
 import OutletDashboardOverview from "./pages/outlet-dashboard/OutletDashboardOverview";
 import OutletSalesBreakdown from "./pages/outlet-dashboard/OutletSalesBreakdown";
 import WastageByCategory from "./pages/outlet-dashboard/WastageByCategory";
+import OutletWastage from "./pages/outlet-dashboard/OutletWastage";
 import Suppliers from "./pages/masters/Suppliers";
 import OutletVendors from "./pages/masters/OutletVendors";
 import VendorPurchases from "./pages/daily-accounts/VendorPurchases";
@@ -299,6 +300,7 @@ function App() {
             <Route index element={<OutletDashboardOverview />} />
             <Route path="sales" element={<OutletSalesBreakdown />} />
             <Route path="wastage-by-category" element={<WastageByCategory />} />
+            <Route path="wastage" element={<OutletWastage />} />
           </Route>
 
           <Route path="payroll">

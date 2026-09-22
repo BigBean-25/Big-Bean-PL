@@ -170,6 +170,7 @@ const LANGUAGES = {
     outletDashboard: "Outlet Sales Overview",
     outletSalesAnalysis: "Sales Analysis",
     outletWastageByCategory: "Wastage by Category",
+    outletWastage: "Wastage",
     users: "User Management",
     masters: "Master Data Home",
     outlets: "Outlets",
@@ -665,6 +666,7 @@ const DashboardLayout = () => {
           ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock", group: "Stock", alias: true }] : []),
           ...(canView("closing_stock", legacyCanView("closing_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.closingStock, path: "/stock/closing-stock", group: "Stock", alias: true }] : []),
           ...(canView("outlet_consumption") ? [{ title: "Outlet Consumption", path: "/outlet-consumption", group: "Stock", alias: true }] : []),
+          ...(canView("warehouse_wastage") ? [{ title: t.outletWastage, path: "/outlet-dashboard/wastage", group: "Stock", alias: true }] : []),
           ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials", group: "Master", alias: true }] : []),
           ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories", group: "Master", alias: true }] : []),
           ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers", group: "Master", alias: true }] : []),
@@ -849,7 +851,12 @@ const DashboardLayout = () => {
           ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft, group: "Stock Control" }] : []),
           ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale, group: "Stock Control" }] : []),
           ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal, group: "Stock Control" }] : []),
-          ...(canView("warehouse_wastage") ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Stock Control" }] : []),
+          // Outlet-locked users get their own scoped wastage page (My Store ->
+          // Wastage -> /outlet-dashboard/wastage). The Warehouse-group item
+          // leads to the Central-Warehouse-scoped page, which would show them
+          // an empty list and a create flow that 403s - hide it from them via
+          // the existing isOutletLocked flag rather than a role check.
+          ...(canView("warehouse_wastage") && !permissions.isOutletLocked ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Stock Control" }] : []),
           ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen, group: "Reports & Settings" }] : []),
           ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings, group: "Reports & Settings" }] : []),
         ],
@@ -963,6 +970,7 @@ const DashboardLayout = () => {
     "/outlet-dashboard": "sales_target",
     "/outlet-dashboard/sales": "sales_target",
     "/outlet-dashboard/wastage-by-category": "reports",
+    "/outlet-dashboard/wastage": "warehouse_wastage",
     "/users": "users",
     "/role-access": "role_access",
     "/daily-accounts/cashbook": "daily_cashbook",

@@ -3,6 +3,7 @@ import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, getInputClass, StatusBadge } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { WASTAGE_KINDS, wastageKindToPayload, wastageItemToKind } from "./wastageKinds";
 import { Search, RotateCcw, Plus, X, Eye, Send, CheckCircle, ShieldCheck, Lock, Trash2, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -95,10 +96,10 @@ const initialItem = (module) => ({
   reason: "",
   ...(module === "physical_stock_counts" ? { system_qty: "", counted_qty: "" } : { qty: "" }),
   ...(module === "stock_adjustments" ? { adjustment_type: "Positive" } : {}),
-  ...(module === "warehouse_wastage" ? { wastage_type: "Damage" } : {}),
+  ...(module === "warehouse_wastage" ? { wastage_kind: "Damage" } : {}),
 });
 
-export default function WarehousePhase2c({ module, locationId, locations, materials, units, isDark }) {
+export default function WarehousePhase2c({ module, locationId, locations, materials, units, isDark, omitListLocationFilter = false }) {
   const config = MODULE_CONFIG[module];
   const inputClass = getInputClass(isDark);
   const { user } = useAuthStore();
@@ -125,7 +126,12 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
     if (!locationId) return;
     setLoading(true);
     try {
-      const res = await config.api.list({ location_id: locationId });
+      // omitListLocationFilter (outlet wastage page): the list endpoint must
+      // NOT receive location_id - applyLocationScope's warehouse-wide rule
+      // only accepts Central Warehouse ids on these routes, so sending an
+      // outlet id would 403. With no param the backend scopes the list to
+      // the caller's own locations automatically (Phase 7C2A1).
+      const res = await config.api.list(omitListLocationFilter ? {} : { location_id: locationId });
       setDocs(res?.data?.data || []);
     } catch (error) {
       toast.error(`Failed to load ${config.title}`);
@@ -169,7 +175,7 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
       reason: it.reason || null,
       ...(module === "physical_stock_counts" ? { system_qty: num(it.system_qty), counted_qty: num(it.counted_qty) } : {}),
       ...(module === "stock_adjustments" ? { qty: num(it.qty), adjustment_type: it.adjustment_type } : {}),
-      ...(module === "warehouse_wastage" ? { qty: num(it.qty), wastage_type: it.wastage_type } : {}),
+      ...(module === "warehouse_wastage" ? { qty: num(it.qty), ...wastageKindToPayload(it.wastage_kind, it.reason) } : {}),
     })),
   });
 
@@ -230,7 +236,7 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
         reason: it.reason || "",
         ...(module === "physical_stock_counts" ? { system_qty: it.system_qty ?? "", counted_qty: it.counted_qty ?? "" } : {}),
         ...(module === "stock_adjustments" ? { qty: it.qty ?? "", adjustment_type: it.adjustment_type || "Positive" } : {}),
-        ...(module === "warehouse_wastage" ? { qty: it.qty ?? "", wastage_type: it.wastage_type || "Damage" } : {}),
+        ...(module === "warehouse_wastage" ? { qty: it.qty ?? "", wastage_kind: wastageItemToKind(it.wastage_type, it.reason) } : {}),
       })),
     });
     setEditingId(doc.id);
@@ -239,6 +245,11 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
 
   const filtered = docs.filter((d) => {
     const term = filters.search.toLowerCase();
+    // Outlet mode (omitListLocationFilter): the API list was fetched without
+    // location_id so the backend returned every authorized own-location doc -
+    // narrowing the displayed rows to the selected outlet is a UI concern
+    // only; authorization already happened server-side (Phase 7C2A1).
+    if (omitListLocationFilter && Number(d.location_id) !== Number(locationId)) return false;
     return (term === "" || String(d[config.noKey] || "").toLowerCase().includes(term))
       && (filters.status === "" || d.status === filters.status);
   });
@@ -293,11 +304,8 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
       {module === "warehouse_wastage" && (
         <>
           <td className="px-2 py-2">
-            <select value={it.wastage_type} onChange={(e) => updateItem(idx, "wastage_type", e.target.value)} className={`h-9 w-32 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
-              <option value="Damage">Damage</option>
-              <option value="Expiry">Expiry</option>
-              <option value="Spoilage">Spoilage</option>
-              <option value="Other">Other</option>
+            <select value={it.wastage_kind} onChange={(e) => updateItem(idx, "wastage_kind", e.target.value)} className={`h-9 w-32 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
+              {WASTAGE_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
             </select>
           </td>
           <td className="px-2 py-2"><input type="number" min="0" value={it.qty} onChange={(e) => updateItem(idx, "qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-[13px] outline-none ${inputClass}`} /></td>

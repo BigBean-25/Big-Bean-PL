@@ -81,6 +81,7 @@ const MIGRATIONS = [
   { name: 'phase7b2_outlet_po_permissions_migration.mjs', file: 'backend/phase7b2_outlet_po_permissions_migration.mjs', why: 'Phase 7B2: permission-data only - ensures warehouse_requisitions can_view/can_create/can_submit for Outlet Admin/Manager; idempotent, never grants approve/reject/edit' },
   { name: 'add_proof_attachments_table.sql', file: 'database/add_proof_attachments_table.sql', why: 'Phase 7B3B: guarantees proof_attachments exists - defined in the base schema file but not tracked here until now; CREATE TABLE IF NOT EXISTS, verbatim base-schema definition' },
   { name: 'revoke_item_sales_tax_outlet_roles.sql', file: 'database/revoke_item_sales_tax_outlet_roles.sql', why: 'Phase 7C1: permission-data only - zeroes item_sales_tax rows for outlet-side roles whose saved rows kept can_view=1 after the default was removed; idempotent UPDATE, inserts nothing' },
+  { name: 'phase7c2a2_outlet_wastage_permissions_migration.mjs', file: 'backend/phase7c2a2_outlet_wastage_permissions_migration.mjs', why: 'Phase 7C2A2: permission-data only - ensures warehouse_wastage can_view/can_create/can_submit/can_export for Outlet Admin/Manager; idempotent, never grants verify/approve/edit/delete/lock' },
 ];
 
 async function ensureTrackingTable(conn) {
