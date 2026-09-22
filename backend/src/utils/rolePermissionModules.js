@@ -217,10 +217,11 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     setModules(matrix, SALES_MODULES.filter((key) => key !== 'item_sales_monthly'), { can_view: 1, can_upload: 1 });
     // item_sales_monthly is deliberately not granted here - month-wise uploads
     // are the accounts/warehouse team's job, not the store manager's.
-    setModules(matrix, ['item_sales_tax'], { can_view: 1 });
-    // item_sales_tax (the PetPooja Item Wise Tax Report) is a month-wise GST
-    // precision upload like item_sales_monthly - view only here, upload stays
-    // with Accountant.
+    // item_sales_tax (the PetPooja Item Wise Tax Report) is deliberately not
+    // granted to outlet-side roles at all - it is a month-wise GST precision
+    // upload whose only consumer is the accounts-side GSTR-1 calc, so there
+    // is no outlet operational reason even to view it. An admin may still
+    // re-grant it explicitly through Role Access.
     setModules(matrix, ['warehouse_stock'], viewExport());
     setModules(matrix, ['warehouse_requisitions'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     // Outlet consumption: the outlet raises and submits the document, but the

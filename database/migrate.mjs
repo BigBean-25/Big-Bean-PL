@@ -80,6 +80,7 @@ const MIGRATIONS = [
   { name: 'add_controlled_exception_framework.sql', file: 'database/add_controlled_exception_framework.sql', why: 'Phase 6A9: controlled_exceptions workflow plus reversal-link columns for supplier payments, purchase returns and accounting effects - additive, original records stay immutable' },
   { name: 'phase7b2_outlet_po_permissions_migration.mjs', file: 'backend/phase7b2_outlet_po_permissions_migration.mjs', why: 'Phase 7B2: permission-data only - ensures warehouse_requisitions can_view/can_create/can_submit for Outlet Admin/Manager; idempotent, never grants approve/reject/edit' },
   { name: 'add_proof_attachments_table.sql', file: 'database/add_proof_attachments_table.sql', why: 'Phase 7B3B: guarantees proof_attachments exists - defined in the base schema file but not tracked here until now; CREATE TABLE IF NOT EXISTS, verbatim base-schema definition' },
+  { name: 'revoke_item_sales_tax_outlet_roles.sql', file: 'database/revoke_item_sales_tax_outlet_roles.sql', why: 'Phase 7C1: permission-data only - zeroes item_sales_tax rows for outlet-side roles whose saved rows kept can_view=1 after the default was removed; idempotent UPDATE, inserts nothing' },
 ];
 
 async function ensureTrackingTable(conn) {
