@@ -5,7 +5,7 @@ import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X, Upload, Download } from "lucide-react";
+import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X, Upload, Download, Paperclip, Trash2 } from "lucide-react";
 import { IMPORT_MAX_ROWS, IMPORT_TEMPLATE_HEADER, parseCsvText, cellText, mapImportHeaders, buildMaterialIndex, buildUnitIndex, evaluateImportRow } from "./requisitionImport";
 import toast from "react-hot-toast";
 
@@ -93,6 +93,48 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   const can = (a) => isAdminRole || Boolean(reqPerms[a]);
   const isOwn = (r) =>
     Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
+
+  // Proof attachments (Phase 7B3B). Limits mirror the backend/shared multer
+  // rules - client checks are convenience only, the server is authoritative.
+  const PROOF_MAX = 10;
+  const PROOF_MAX_BYTES = 10 * 1024 * 1024;
+  const PROOF_EXT = /\.(jpe?g|png|webp|pdf)$/i;
+  const isAllOutletRole = ["Super Admin", "Admin", "Developer", "Accountant", "Warehouse Admin", "Central Kitchen Admin", "Technical Admin", "Viewer", "Viewer / Auditor"].includes(user?.role_name);
+  const proofUrl = (p) => {
+    if (!p) return null;
+    const normalized = String(p).replace(/\\/g, "/");
+    if (normalized.startsWith("http")) return normalized;
+    const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
+    const serverOrigin = apiBase.replace(/\/api\/?$/, "");
+    return `${serverOrigin}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
+  };
+  const fmtFileSize = (b) => {
+    const n = Number(b || 0);
+    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+    return `${n} B`;
+  };
+  const [pendingProofs, setPendingProofs] = useState([]);
+  const [detailAttachments, setDetailAttachments] = useState([]);
+  const [proofBusy, setProofBusy] = useState(false);
+  const proofInputRef = useRef(null);
+  const detailProofInputRef = useRef(null);
+
+  // Shared picker validation: extension + 10MB + the 10-per-PO total cap
+  // (existingCount covers files already stored, pending ones on the create
+  // form, or rows already attached to the open detail record).
+  const pickProofFiles = (fileList, existingCount) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return [];
+    const accepted = [];
+    for (const f of files) {
+      if (!PROOF_EXT.test(f.name || "")) { toast.error(`${f.name}: only JPG, PNG, WEBP or PDF proofs are allowed`); continue; }
+      if (f.size > PROOF_MAX_BYTES) { toast.error(`${f.name}: exceeds the 10 MB limit`); continue; }
+      if (existingCount + accepted.length >= PROOF_MAX) { toast.error(`An Outlet Purchase Order can hold at most ${PROOF_MAX} proofs`); break; }
+      accepted.push(f);
+    }
+    return accepted;
+  };
 
   const warehouses = locations.filter((l) => l.location_type === "Central Warehouse");
   const outlets = locations.filter((l) => l.location_type === "Outlet");
@@ -303,10 +345,31 @@ export default function WarehouseRequisitions({ locationId, locations, materials
     try {
       const payload = { ...form, items: form.items.map((it) => ({ ...it, raw_material_id: Number(it.raw_material_id), requested_qty: Number(it.requested_qty), unit_id: Number(it.unit_id) })) };
       const created = await warehouseAPI.createRequisition(payload);
+      const newId = created?.data?.data?.id;
       const poNo = created?.data?.data?.requisition_no;
-      if (submit && created?.data?.data?.id) await warehouseAPI.submitRequisition(created.data.data.id);
+      // Proofs attach AFTER create (they need the new requisition id) and
+      // BEFORE submit - the attachment endpoint is Draft-only. On upload
+      // failure the Draft already exists, so we stop here, never submit, and
+      // surface the number so the user can open the same Draft and retry
+      // instead of creating a duplicate Outlet PO.
+      if (newId && pendingProofs.length) {
+        try {
+          const fd = new FormData();
+          pendingProofs.forEach((f) => fd.append("proof", f));
+          await warehouseAPI.uploadRequisitionAttachments(newId, fd);
+        } catch (e) {
+          toast.error(`Outlet Purchase Order ${poNo || `#${newId}`} was saved as Draft, but proof upload failed. Open the draft to retry.`);
+          setShowCreate(false);
+          setPendingProofs([]);
+          setForm({ from_location_id: warehouses[0]?.id || "", to_location_id: outlets[0]?.id || "", request_date: new Date().toISOString().split("T")[0], required_date: "", remarks: "", items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
+          fetchRequisitions();
+          return;
+        }
+      }
+      if (submit && newId) await warehouseAPI.submitRequisition(newId);
       toast.success(`${poNo ? `${poNo} ` : ""}${submit ? "submitted" : "saved"}`);
       setShowCreate(false);
+      setPendingProofs([]);
       setForm({ from_location_id: warehouses[0]?.id || "", to_location_id: outlets[0]?.id || "", request_date: new Date().toISOString().split("T")[0], required_date: "", remarks: "", items: [{ raw_material_id: "", requested_qty: "", unit_id: "", remarks: "" }] });
       fetchRequisitions();
     } catch (error) { toast.error(error.response?.data?.message || "Save failed"); }
@@ -319,7 +382,42 @@ export default function WarehouseRequisitions({ locationId, locations, materials
       const d = res?.data?.data;
       setDetail(d);
       setApproval({ open: false, items: (d?.items || []).map((it) => ({ ...it, approved_qty: "", rejected_qty: "", approval_remarks: "" })) });
+      // Attachments are non-fatal - a proof listing failure must not block
+      // opening the document itself.
+      try {
+        const a = await warehouseAPI.getRequisitionAttachments(r.id);
+        setDetailAttachments(a?.data?.data || []);
+      } catch { setDetailAttachments([]); }
     } catch (error) { toast.error("Failed to load outlet purchase order"); }
+  };
+
+  // Maker-side proof management on the open detail record. The backend stays
+  // authoritative - this gating just hides controls the server would reject.
+  const canManageDetailProofs = detail?.status === "Draft" && can("can_create") && (isOwn(detail) || isAllOutletRole);
+
+  const uploadDetailProofs = async (fileList) => {
+    const files = pickProofFiles(fileList, detailAttachments.length);
+    if (!files.length || !detail) return;
+    setProofBusy(true);
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("proof", f));
+      const res = await warehouseAPI.uploadRequisitionAttachments(detail.id, fd);
+      setDetailAttachments(res?.data?.data || []);
+      toast.success(`${files.length} proof${files.length === 1 ? "" : "s"} attached`);
+    } catch (error) { toast.error(error.response?.data?.message || "Proof upload failed"); }
+    finally { setProofBusy(false); }
+  };
+
+  const removeDetailProof = async (att) => {
+    if (!detail || proofBusy) return;
+    setProofBusy(true);
+    try {
+      await warehouseAPI.deleteRequisitionAttachment(detail.id, att.id);
+      setDetailAttachments((prev) => prev.filter((a) => a.id !== att.id));
+      toast.success("Proof removed");
+    } catch (error) { toast.error(error.response?.data?.message || "Delete failed"); }
+    finally { setProofBusy(false); }
   };
 
   const approve = async (reject = false) => {
@@ -558,8 +656,36 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                 </div>
               </SectionCard>
 
+              <SectionCard title="Proof Attachments (optional)" isDark={isDark}>
+                <div className="space-y-3">
+                  {pendingProofs.length === 0 ? (
+                    <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>No proofs selected. You can attach up to {PROOF_MAX} files after picking them here - they upload only when the order is saved.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {pendingProofs.map((f, i) => (
+                        <li key={`${f.name}-${i}`} className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[13px] ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                          <span className="flex min-w-0 items-center gap-2"><Paperclip size={14} className="shrink-0 text-gray-400" /><span className="truncate">{f.name}</span></span>
+                          <span className="flex shrink-0 items-center gap-3">
+                            <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>{fmtFileSize(f.size)}</span>
+                            <button type="button" onClick={() => setPendingProofs((prev) => prev.filter((_, j) => j !== i))} className="text-rose-500 hover:text-rose-600" title="Remove"><Trash2 size={14} /></button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => proofInputRef.current?.click()} disabled={pendingProofs.length >= PROOF_MAX} className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium disabled:opacity-50">
+                      <Paperclip size={14} /> {pendingProofs.length ? "Add More Proofs" : "Select Proofs"}
+                    </button>
+                    <input ref={proofInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden"
+                      onChange={(e) => { setPendingProofs((prev) => [...prev, ...pickProofFiles(e.target.files, prev.length)]); e.target.value = ""; }} />
+                    <span className={`text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>JPG, PNG, WEBP or PDF · max 10 MB each · up to {PROOF_MAX} files</span>
+                  </div>
+                </div>
+              </SectionCard>
+
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowCreate(false)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
+                <button onClick={() => { setShowCreate(false); setPendingProofs([]); }} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
                 <button onClick={() => create(false)} disabled={saving} className="h-10 rounded-lg border border-[#7367F0] px-4 text-[14px] font-medium text-[#7367F0] disabled:opacity-50">{saving ? "Saving…" : "Save Draft"}</button>
                 <button onClick={() => create(true)} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Submitting…" : "Submit Outlet Purchase Order"}</button>
               </div>
@@ -669,6 +795,41 @@ export default function WarehouseRequisitions({ locationId, locations, materials
                     </tbody>
                   </table>
                 </TableWrapper>
+              </SectionCard>
+
+              <SectionCard title="Proof Attachments" isDark={isDark}>
+                <div className="space-y-2">
+                  {detailAttachments.length === 0 ? (
+                    <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>No proofs attached.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {detailAttachments.map((a) => (
+                        <li key={a.id} className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[13px] ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Paperclip size={14} className="shrink-0 text-gray-400" />
+                            <a href={proofUrl(a.file_path)} target="_blank" rel="noopener noreferrer" className="truncate font-medium text-[#7367F0] hover:underline">{a.file_name}</a>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-3">
+                            <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>{fmtFileSize(a.file_size)} · {fmtDate(a.created_at)}</span>
+                            {canManageDetailProofs && (
+                              <button type="button" onClick={() => removeDetailProof(a)} disabled={proofBusy} className="text-rose-500 hover:text-rose-600 disabled:opacity-50" title="Delete proof"><Trash2 size={14} /></button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {canManageDetailProofs && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <button type="button" onClick={() => detailProofInputRef.current?.click()} disabled={proofBusy || detailAttachments.length >= PROOF_MAX} className="flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium disabled:opacity-50">
+                        <Paperclip size={14} /> {proofBusy ? "Uploading…" : "Add Proofs"}
+                      </button>
+                      <input ref={detailProofInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden"
+                        onChange={(e) => { uploadDetailProofs(e.target.files); e.target.value = ""; }} />
+                      <span className={`text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>JPG, PNG, WEBP or PDF · max 10 MB each · up to {PROOF_MAX} total</span>
+                    </div>
+                  )}
+                </div>
               </SectionCard>
 
               <div className="flex justify-end gap-2">

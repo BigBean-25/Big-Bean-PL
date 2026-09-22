@@ -601,6 +601,13 @@ export const warehouseAPI = {
   submitRequisition: (id) => api.post(`/warehouse/requisitions/${id}/submit`),
   approveRequisition: (id, data) => api.post(`/warehouse/requisitions/${id}/approve`, data),
   dispatchRequisition: (id, data) => api.post(`/warehouse/requisitions/${id}/dispatch`, data),
+  getRequisitionAttachments: (id) => api.get(`/warehouse/requisitions/${id}/attachments`),
+  uploadRequisitionAttachments: (id, formData) =>
+    api.post(`/warehouse/requisitions/${id}/attachments`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  deleteRequisitionAttachment: (id, attachmentId) =>
+    api.delete(`/warehouse/requisitions/${id}/attachments/${attachmentId}`),
   getTransfers: (params) => api.get("/warehouse/transfers", { params }),
   getTransfer: (id) => api.get(`/warehouse/transfers/${id}`),
   receiveTransfer: (id, data) => api.post(`/warehouse/transfers/${id}/receive`, data),

@@ -5,6 +5,13 @@ import { applyLocationScope, checkLocationAccess, isLocationAccessible, resolveS
 import { query } from '../config/database.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import { isOwnDocument } from '../utils/makerChecker.js';
+import { upload } from '../config/multer.js';
+import fs from 'fs';
+import path from 'path';
+import {
+  REQUISITION_PROOF_RECORD_TYPE, MAX_REQUISITION_ATTACHMENTS,
+  getRequisitionAttachments, addRequisitionAttachments, deleteRequisitionAttachment
+} from '../services/requisitionProofService.js';
 import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
@@ -319,6 +326,73 @@ router.post('/requisitions/:id/approve', checkPermission('warehouse_requisitions
 
 router.post('/requisitions/:id/dispatch', checkPermission('warehouse_requisitions', 'can_edit'), async (req, res) => {
   try { const data = await dispatchRequisition(req.params.id, req.body, req.user.id); res.status(201).json({ success: true, data }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
+});
+
+// Outlet Purchase Order proof attachments (Phase 7B3B). Rows live in the
+// shared proof_attachments table under record_type='stock_requisition';
+// files are written by the shared multer config (field 'proof' ->
+// uploads/proofs, jpg/jpeg/png/webp/pdf whitelist, 10MB each). Document
+// metadata only - no stock/transfer/accounting/status effects.
+// Read scope matches GET /requisitions/:id exactly: the caller's own
+// location set must cover the document, so a crafted id/location_id can
+// never expose another outlet's proof list.
+router.get('/requisitions/:id/attachments', checkPermission('warehouse_requisitions', 'can_view'), applyLocationScope, async (req, res) => {
+  try {
+    const data = await getRequisitionById(req.params.id);
+    if (!data) return res.status(404).json({ success: false, message: 'Outlet Purchase Order not found' });
+    if (!req.locationScope.all) {
+      const allowed = req.locationScope.ownLocationIds || req.locationScope.locationIds;
+      if (!allowed.includes(Number(data.from_location_id)) && !allowed.includes(Number(data.to_location_id))) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this Outlet Purchase Order' });
+      }
+    }
+    res.json({ success: true, data: await getRequisitionAttachments(req.params.id) });
+  }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
+// Write permission is can_create - NOT can_edit, which gates warehouse
+// dispatch. Maker/Draft/scope rules live in assertRequisitionProofEditable
+// inside the parent-locked transaction.
+router.post('/requisitions/:id/attachments', checkPermission('warehouse_requisitions', 'can_create'), applyLocationScope, upload.array('proof', MAX_REQUISITION_ATTACHMENTS), async (req, res) => {
+  // Multer has already written any accepted files to disk by the time this
+  // handler runs - every rejection path must unlink them so a failed request
+  // never leaves orphaned uploads.
+  const files = req.files || [];
+  const cleanup = () => {
+    for (const f of files) {
+      try { fs.unlinkSync(f.path); } catch (e) { console.error('Attachment cleanup error:', e.message); }
+    }
+  };
+  try {
+    if (!files.length) {
+      return res.status(400).json({ success: false, message: 'No files were uploaded' });
+    }
+    const fileRows = files.map((f) => ({
+      file_name: path.basename(f.originalname).slice(0, 255),
+      file_path: String(f.path).replace(/\\/g, '/'),
+      file_type: f.mimetype ? String(f.mimetype).slice(0, 50) : null,
+      file_size: f.size,
+    }));
+    const data = await addRequisitionAttachments(req.params.id, fileRows, { scope: req.locationScope, user: req.user });
+    res.status(201).json({ success: true, data });
+  }
+  catch (error) {
+    cleanup();
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
+  }
+});
+
+router.delete('/requisitions/:id/attachments/:attachmentId', checkPermission('warehouse_requisitions', 'can_create'), applyLocationScope, async (req, res) => {
+  try {
+    const filePath = await deleteRequisitionAttachment(req.params.id, req.params.attachmentId, { scope: req.locationScope, user: req.user });
+    if (filePath) {
+      try { fs.unlinkSync(path.resolve(filePath)); }
+      catch (e) { console.error('Proof file cleanup error:', e.message); }
+    }
+    res.json({ success: true, message: 'Proof attachment deleted' });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 

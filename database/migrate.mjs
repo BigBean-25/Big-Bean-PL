@@ -79,6 +79,7 @@ const MIGRATIONS = [
   { name: 'add_outlet_cogs_mode.sql', file: 'database/add_outlet_cogs_mode.sql', why: 'Phase 6A8: outlet_cogs_settings PERIODIC/PHYSICAL cutover + snapshot cogs_source/official_cogs columns - additive, historical snapshots numerically unchanged' },
   { name: 'add_controlled_exception_framework.sql', file: 'database/add_controlled_exception_framework.sql', why: 'Phase 6A9: controlled_exceptions workflow plus reversal-link columns for supplier payments, purchase returns and accounting effects - additive, original records stay immutable' },
   { name: 'phase7b2_outlet_po_permissions_migration.mjs', file: 'backend/phase7b2_outlet_po_permissions_migration.mjs', why: 'Phase 7B2: permission-data only - ensures warehouse_requisitions can_view/can_create/can_submit for Outlet Admin/Manager; idempotent, never grants approve/reject/edit' },
+  { name: 'add_proof_attachments_table.sql', file: 'database/add_proof_attachments_table.sql', why: 'Phase 7B3B: guarantees proof_attachments exists - defined in the base schema file but not tracked here until now; CREATE TABLE IF NOT EXISTS, verbatim base-schema definition' },
 ];
 
 async function ensureTrackingTable(conn) {
