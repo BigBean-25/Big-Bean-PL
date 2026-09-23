@@ -8,6 +8,7 @@ const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mod
 
 const SOURCE_MODULES = [
   { key: 'supplier_payments', label: 'Supplier Payment', terminal: 'Verified' },
+  { key: 'outlet_vendor_payments', label: 'Outlet Vendor Payment', terminal: 'Verified' },
   { key: 'accounting_effects', label: 'GRN Accounting Effect', terminal: 'Posted' },
   { key: 'purchase_returns', label: 'Purchase Return', terminal: 'Posted / Locked' },
   { key: 'outlet_consumptions', label: 'Outlet Consumption', terminal: 'Posted / Locked' },

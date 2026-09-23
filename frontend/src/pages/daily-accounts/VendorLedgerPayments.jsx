@@ -13,9 +13,10 @@ import {
   Pencil,
   Send,
   XCircle,
+  Undo2,
 } from "lucide-react";
 import useAuthStore from "../../store/authStore";
-import { outletVendorAPI, masterAPI, getStoredPermissions } from "../../services/api";
+import { outletVendorAPI, masterAPI, exceptionAPI, getStoredPermissions } from "../../services/api";
 import toast from "react-hot-toast";
 
 const getPrimaryColor = () => {
@@ -135,11 +136,19 @@ export default function VendorLedgerPayments() {
   const [rejectReason, setRejectReason] = useState("");
   const [editTarget, setEditTarget] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [reversalTarget, setReversalTarget] = useState(null);
+  const [reversalReason, setReversalReason] = useState("");
   const requestSeq = useRef(0);
 
   // Workflow permissions live on the outlet_vendors module key
   const permissions = useMemo(() => getStoredPermissions()?.outlet_vendors || {}, []);
   const can = (action) => Boolean(permissions[action]);
+  // Reversal requests go through the generic controlled_exceptions module
+  const excPermissions = useMemo(() => getStoredPermissions()?.controlled_exceptions || {}, []);
+  const canRequestReversal = (p) =>
+    p && p.type === "Payment" && p.status === "Verified" &&
+    Number(p.is_reversal || 0) === 0 && !p.reversal_of_payment_id &&
+    Boolean(excPermissions.can_create);
   // Self-check mirror: backend remains authoritative; this only hides the
   // checker buttons when the current user is the maker/submitter.
   const isOwnPayment = (p) =>
@@ -282,6 +291,9 @@ export default function VendorLedgerPayments() {
       // balance.
       credit: p.status === "Verified" ? Number(p.paid_amount || 0) : 0,
       status: p.status || "Verified", // legacy rows are Verified
+      is_reversal: Number(p.is_reversal || 0),
+      reversal_of_payment_id: p.reversal_of_payment_id ?? null,
+      reversal_exception_id: p.reversal_exception_id ?? null,
       created_by: p.created_by,
       submitted_by: p.submitted_by,
       submitted_at: p.submitted_at,
@@ -431,6 +443,25 @@ export default function VendorLedgerPayments() {
       });
       setEditTarget(null);
     }, "Vendor payment updated");
+  };
+
+  // Controlled reversal request (7D2B2) - creates a Requested exception via
+  // the generic framework. Submit/approve/execute stay in Controlled
+  // Exceptions; this page only requests + displays reversal state.
+  const handleRequestReversal = () => {
+    const reason = reversalReason.trim();
+    if (!reason) return;
+    runAction(`rev-${reversalTarget?.paymentId}`, async () => {
+      await exceptionAPI.create({
+        source_module: "outlet_vendor_payments",
+        source_id: reversalTarget.paymentId,
+        exception_type: "FINANCIAL_REVERSAL",
+        reason,
+        business_impact: null,
+      });
+      setReversalTarget(null);
+      setReversalReason("");
+    }, "Reversal request created");
   };
 
   const handleOutletChange = (value) => {
@@ -671,12 +702,23 @@ export default function VendorLedgerPayments() {
                         <td className={`px-3 py-2.5 text-[13px] ${mainCls}`}>{r.type}</td>
                         <td className="px-3 py-2.5 text-[13px]">
                           {r.type === "Payment" ? (
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                PAYMENT_STATUS_BADGE[r.status]?.color || mutedCls
-                              } ${PAYMENT_STATUS_BADGE[r.status]?.bg || ""}`}
-                            >
-                              {r.status}
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                  PAYMENT_STATUS_BADGE[r.status]?.color || mutedCls
+                                } ${PAYMENT_STATUS_BADGE[r.status]?.bg || ""}`}
+                              >
+                                {r.status}
+                              </span>
+                              {r.is_reversal === 1 ? (
+                                <span className="inline-block rounded-full bg-[#E6FAFD] px-2 py-0.5 text-[11px] font-semibold text-[#00CFE8]" title="Compensating reversal entry">
+                                  Reversal
+                                </span>
+                              ) : r.reversal_of_payment_id ? (
+                                <span className="inline-block rounded-full bg-[#F3F0FF] px-2 py-0.5 text-[11px] font-semibold text-[#7367F0]" title="This payment was reversed by a compensating entry">
+                                  Reversed
+                                </span>
+                              ) : null}
                             </span>
                           ) : (
                             <span className={mutedCls}>-</span>
@@ -685,8 +727,8 @@ export default function VendorLedgerPayments() {
                         <td className={`px-3 py-2.5 text-[13px] font-semibold ${r.debit > 0 ? mainCls : mutedCls}`}>
                           {r.debit > 0 ? fmtINR(r.debit) : "-"}
                         </td>
-                        <td className={`px-3 py-2.5 text-[13px] font-semibold ${r.credit > 0 ? mainCls : mutedCls}`}>
-                          {r.credit > 0 ? fmtINR(r.credit) : "-"}
+                        <td className={`px-3 py-2.5 text-[13px] font-semibold ${r.credit !== 0 ? mainCls : mutedCls}`}>
+                          {r.credit !== 0 ? fmtINR(r.credit) : "-"}
                         </td>
                         <td className={`px-3 py-2.5 text-[13px] font-semibold ${mainCls}`}>{fmtINR(r.balance)}</td>
                         <td className={`px-3 py-2.5 text-[13px] ${mutedCls}`}>
@@ -746,8 +788,19 @@ export default function VendorLedgerPayments() {
                                   <XCircle size={12} /> Reject
                                 </button>
                               )}
+                              {canRequestReversal(r) && (
+                                <button
+                                  onClick={() => { setReversalTarget(r); setReversalReason(""); }}
+                                  disabled={Boolean(actionLoading)}
+                                  className="flex items-center gap-1 rounded border border-[#7367F0]/50 px-2 py-1 text-[12px] font-semibold text-[#7367F0] hover:opacity-80 disabled:opacity-50"
+                                  title="Request a controlled reversal via exception approval"
+                                >
+                                  <Undo2 size={12} /> Request Reversal
+                                </button>
+                              )}
                               {!(["Draft", "Rejected"].includes(r.status) && (can("can_create") || can("can_submit"))) &&
-                                !(r.status === "Submitted" && (can("can_verify") || can("can_reject")) && !isOwnPayment(r)) && (
+                                !(r.status === "Submitted" && (can("can_verify") || can("can_reject")) && !isOwnPayment(r)) &&
+                                !canRequestReversal(r) && (
                                 <span className={mutedCls}>-</span>
                               )}
                             </div>
@@ -846,6 +899,55 @@ export default function VendorLedgerPayments() {
               >
                 {actionLoading === `rej-${rejectTarget.paymentId}` ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
                 Confirm Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Request Reversal modal - creates a controlled exception (Requested) */}
+      {reversalTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-md rounded-lg border p-5 ${cardCls}`}>
+            <h3 className={`text-[15px] font-semibold ${mainCls}`}>Request Payment Reversal</h3>
+            <div className={`mt-3 space-y-1.5 text-[13px] ${mutedCls}`}>
+              <p><span className={mainCls}>Vendor:</span> {selectedVendor?.vendor_name || `#${filters.vendor_id}`}</p>
+              <p><span className={mainCls}>Payment date:</span> {formatDisplayDate(reversalTarget.date)}</p>
+              <p><span className={mainCls}>Amount:</span> {fmtINR(reversalTarget.paid_amount)}</p>
+              <p><span className={mainCls}>Reference:</span> {reversalTarget.reference}</p>
+              {reversalTarget.payment_mode_name ? <p><span className={mainCls}>Mode:</span> {reversalTarget.payment_mode_name}</p> : null}
+            </div>
+            <div className={`mt-3 rounded-md border border-[#7367F0]/40 bg-[#F3F0FF] p-2.5 text-[12px] text-[#7367F0]`}>
+              The original payment stays in history. If the reversal is approved and executed,
+              a compensating reversal entry is created prospectively - the original payment date
+              is not rewritten. Full payment amount is reversed.
+            </div>
+            <label className={`mt-3 block text-[12px] font-medium ${mutedCls}`}>
+              Reversal reason <span className="text-[#EA5455]">*</span>
+            </label>
+            <textarea
+              value={reversalReason}
+              onChange={(e) => setReversalReason(e.target.value)}
+              rows={3}
+              placeholder="Why does this payment need to be reversed?"
+              className={`mt-1 w-full rounded-md border px-3 py-2 text-[13px] outline-none ${inputCls}`}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setReversalTarget(null); setReversalReason(""); }}
+                disabled={Boolean(actionLoading)}
+                className={`rounded-md border px-4 py-2 text-[13px] ${inputCls}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRequestReversal}
+                disabled={Boolean(actionLoading) || !reversalReason.trim()}
+                className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {actionLoading === `rev-${reversalTarget.paymentId}` ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
+                Submit Request
               </button>
             </div>
           </div>
