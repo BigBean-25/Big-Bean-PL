@@ -783,6 +783,7 @@ export const outletVendorAPI = {
   getOpeningBalance: (params) => api.get("/outlet-vendors/opening-balance", { params }),
   createOpeningBalance: (data) => api.post("/outlet-vendors/opening-balance", data),
   updateOpeningBalance: (id, data) => api.put(`/outlet-vendors/opening-balance/${id}`, data),
+  getDashboardSummary: (params = {}) => api.get("/outlet-vendors/dashboard-summary", { params }),
 };
 
 export const outletDashboardAPI = {

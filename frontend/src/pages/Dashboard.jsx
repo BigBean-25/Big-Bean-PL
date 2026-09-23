@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp,
@@ -12,11 +12,17 @@ import {
   FileText,
   Wallet,
   CheckCircle2,
+  Truck,
+  AlertTriangle,
+  Users,
+  ClipboardCheck,
+  Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import useAuthStore from "../store/authStore";
 import {
   dashboardAPI,
+  outletVendorAPI,
   getSelectedOutletId,
   getStoredPermissions,
 } from "../services/api";
@@ -205,6 +211,12 @@ const Dashboard = () => {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
+  // 7D4B: vendor payables summary - independent state so a vendor fetch
+  // failure can never take down the main dashboard, and vice versa.
+  const [vendorSummary, setVendorSummary] = useState(null);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [vendorError, setVendorError] = useState(null);
+  const vendorSeq = useRef(0);
 
   const primaryColor = getPrimaryColor();
   const themeMode = getThemeMode();
@@ -214,6 +226,7 @@ const Dashboard = () => {
   const firstName = user?.full_name?.split(" ")?.[0] || "User";
   const permissions = getStoredPermissions();
   const selectedOutletId = getSelectedOutletId();
+  const canViewVendors = Boolean(permissions?.outlet_vendors?.can_view);
 
   const totalSales = Number(summary?.net_sales || 0);
   const totalExpenses = Number(summary?.daily_expenses || 0);
@@ -233,10 +246,31 @@ const Dashboard = () => {
     }
   };
 
+  // One canonical summary call per refresh/outlet change - no N+1 requests,
+  // no client-side ledger math; the backend returns final figures only.
+  const fetchVendorSummary = async () => {
+    if (!canViewVendors) return; // never fire a doomed 403 for non-vendor roles
+    const seq = ++vendorSeq.current;
+    setVendorLoading(true);
+    setVendorError(null);
+    setVendorSummary(null); // never show outlet A's numbers under outlet B
+    try {
+      const res = await outletVendorAPI.getDashboardSummary({ outlet_id: getSelectedOutletId() });
+      if (seq !== vendorSeq.current) return; // stale response for a previous outlet
+      setVendorSummary(res.data?.data || null);
+    } catch (e) {
+      if (seq !== vendorSeq.current) return;
+      setVendorError(e.response?.data?.message || "Vendor payables unavailable");
+    } finally {
+      if (seq === vendorSeq.current) setVendorLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchSummary();
+    fetchVendorSummary();
 
-    const handler = () => fetchSummary();
+    const handler = () => { fetchSummary(); fetchVendorSummary(); };
     window.addEventListener("bbc:selected-outlet-change", handler);
 
     return () => window.removeEventListener("bbc:selected-outlet-change", handler);
@@ -256,6 +290,7 @@ const Dashboard = () => {
 
   const handleRefresh = () => {
     fetchSummary();
+    fetchVendorSummary();
     toast.success("Dashboard refreshed");
   };
 
@@ -386,6 +421,113 @@ const Dashboard = () => {
             bg="#E9F9EF"
           />
         </div>
+
+        {/* 7D4B: canonical outlet-vendor payables - all figures backend-computed */}
+        {canViewVendors ? (
+          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Truck size={18} style={{ color: primaryColor }} />
+                <h3 className={`truncate text-[18px] font-semibold md:text-[20px] ${mainTextClass}`}>Vendor Payables</h3>
+                {vendorSummary?.as_of_date ? (
+                  <span className={`text-[12px] ${mutedClass}`}>As of {vendorSummary.as_of_date}</span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
+                className={`rounded-md border px-3 py-1.5 text-[13px] font-medium ${cardClass}`}
+              >
+                View Vendor Ledger
+              </button>
+            </div>
+
+            {vendorLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 size={22} className="animate-spin" style={{ color: primaryColor }} />
+              </div>
+            ) : vendorError ? (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <AlertTriangle size={16} className="text-[#EA5455]" />
+                <span className={`text-[14px] ${mutedClass}`}>{vendorError}</span>
+                <button
+                  type="button"
+                  onClick={fetchVendorSummary}
+                  className={`rounded-md border px-3 py-1.5 text-[13px] font-medium ${cardClass}`}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : vendorSummary ? (
+              <>
+                <div className="mt-4 grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
+                    className={`rounded-md border p-4 text-left ${cardClass}`}
+                  >
+                    <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><Wallet size={13} /> Total Vendor Outstanding</p>
+                    <h4 className={`mt-1.5 text-[20px] font-semibold ${mainTextClass}`}>{fmtK(vendorSummary.total_outstanding)}</h4>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
+                    className={`rounded-md border p-4 text-left ${cardClass}`}
+                  >
+                    <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><AlertTriangle size={13} /> Overdue Vendor Payables</p>
+                    <h4 className="mt-1.5 text-[20px] font-semibold text-[#FF9F43]">{fmtK(vendorSummary.overdue_amount)}</h4>
+                    <p className={`mt-1 text-[12px] ${mutedClass}`}>Not Due: {fmtK(vendorSummary.not_due_amount)}</p>
+                  </button>
+                  <div className={`rounded-md border p-4 ${cardClass}`}>
+                    <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><Users size={13} /> Vendors with Outstanding</p>
+                    <h4 className={`mt-1.5 text-[20px] font-semibold ${mainTextClass}`}>{vendorSummary.vendors_with_outstanding ?? 0}</h4>
+                  </div>
+                  {vendorSummary.pending_approvals !== null && vendorSummary.pending_approvals !== undefined ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
+                      className={`rounded-md border p-4 text-left ${cardClass}`}
+                    >
+                      <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><ClipboardCheck size={13} /> Pending Vendor Payment Approvals</p>
+                      <h4 className="mt-1.5 text-[20px] font-semibold text-[#7367F0]">{vendorSummary.pending_approvals}</h4>
+                      <p className={`mt-1 text-[12px] ${mutedClass}`}>Awaiting verification - not yet financial</p>
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="mt-4">
+                  <p className={`text-[12px] font-semibold uppercase tracking-wider ${mutedClass}`}>Top Outstanding Vendors</p>
+                  {(vendorSummary.top_vendors || []).length === 0 ? (
+                    <p className={`mt-2 text-[14px] ${mutedClass}`}>No vendor outstanding</p>
+                  ) : (
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="min-w-full" style={{ minWidth: "560px" }}>
+                        <thead>
+                          <tr>
+                            {["Vendor", "Outlet", "Outstanding", "Overdue", "Not Due"].map((h) => (
+                              <th key={h} className={`whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider ${mutedClass}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(vendorSummary.top_vendors || []).map((v) => (
+                            <tr key={`${v.outlet_id}:${v.vendor_id}`} className="border-t border-[#EBE9F1] dark:border-[#3B405A]">
+                              <td className={`px-3 py-2 text-[13px] font-medium ${mainTextClass}`}>{v.vendor_name || `#${v.vendor_id}`}</td>
+                              <td className={`px-3 py-2 text-[13px] ${mutedClass}`}>{v.outlet_name || `#${v.outlet_id}`}</td>
+                              <td className={`px-3 py-2 text-[13px] font-semibold ${mainTextClass}`}>{fmtK(v.outstanding)}</td>
+                              <td className="px-3 py-2 text-[13px] font-medium text-[#FF9F43]">{fmtK(v.overdue_amount)}</td>
+                              <td className={`px-3 py-2 text-[13px] ${mutedClass}`}>{fmtK(v.not_due_amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
           <div className="flex min-w-0 flex-col justify-between gap-3 sm:flex-row sm:items-center">
