@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI, masterAPI, getStoredPermissions } from "../../services/api";
-import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader } from "../../components/ui";
+import { SectionCard, TableWrapper, EmptyState, PageHeader } from "../../components/ui";
 import { KpiCard, fmtQty, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Package, BookOpen, Truck, SlidersHorizontal, AlertTriangle, Trash2, ArrowRightLeft, ClipboardList, Download, Printer, RotateCcw, BarChart3, Receipt, Scale } from "lucide-react";
+import { Package, BookOpen, Truck, SlidersHorizontal, AlertTriangle, Trash2, ArrowRightLeft, ClipboardList, Download, Printer, RotateCcw, BarChart3, Receipt, Scale, ChevronRight, X, Loader2, TrendingUp, TrendingDown } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 
@@ -210,6 +210,19 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
   };
 
   const showFilters = active && !["current-stock", "low-stock", "out-of-stock", RECONCILIATION_KEY].includes(active);
+  // Breadcrumb context for the active report header.
+  const activeGroup = visibleGroups.find(g => g.reports.some(r => r.key === active));
+  const activeReport = activeGroup?.reports.find(r => r.key === active);
+  // Compact chips mirroring the same `filters` state - clearing a chip writes
+  // back through setFilters, never a second copy of state.
+  const activeChips = [
+    filters.from_date && { key: "from_date", label: `From: ${filters.from_date}` },
+    filters.to_date && { key: "to_date", label: `To: ${filters.to_date}` },
+    filters.material_id && { key: "material_id", label: `Material: ${materials.find(m => String(m.id) === String(filters.material_id))?.material_name || filters.material_id}` },
+    filters.supplier_id && { key: "supplier_id", label: `Supplier: ${suppliers.find(s => String(s.id) === String(filters.supplier_id))?.supplier_name || filters.supplier_id}` },
+    filters.category_id && { key: "category_id", label: `Category: ${categories.find(c => String(c.id) === String(filters.category_id))?.category_name || filters.category_id}` },
+    filters.status && { key: "status", label: `Status: ${filters.status}` },
+  ].filter(Boolean);
 
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden">
@@ -244,13 +257,26 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
 
       {!active && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visibleGroups.map(g => (
-            <SectionCard key={g.label} isDark={isDark}>
-              <div className="mb-3 flex items-center gap-2 font-semibold"><g.icon size={18} /> {g.label}</div>
-              <div className="grid grid-cols-2 gap-2">
-                {g.reports.map(r => (
-                  <button key={r.key} onClick={() => loadReport(r.key)} className={`rounded-lg border p-2 text-left text-[13px] hover:bg-[#7367F0]/10 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-                    {r.label}
+          {visibleGroups.map((g, gi) => (
+            <SectionCard key={g.label} isDark={isDark} className="animate-fade-up motion-reduce:animate-none" >
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold"><g.icon size={18} /> {g.label}</div>
+                <span className={`text-[11px] font-medium ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{g.reports.length} report{g.reports.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {g.reports.map((r, ri) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => loadReport(r.key)}
+                    className={`group flex items-center gap-2.5 rounded-lg border p-3 text-left text-[13px] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7367F0]/50 hover:shadow-[0_4px_14px_rgba(47,43,61,0.10)] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none animate-fade-up ${isDark ? "border-[#3B405A] bg-[#2F3349] hover:bg-[#7367F0]/10" : "border-[#EBE9F1] bg-white hover:bg-[#7367F0]/5"}`}
+                    style={{ animationDelay: `${Math.min((gi * 4 + ri) * 25, 200)}ms` }}
+                  >
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ${isDark ? "bg-[#3B405A]/70 group-hover:bg-[#7367F0]/25" : "bg-[#F3F2F7] group-hover:bg-[#7367F0]/10"}`}>
+                      <g.icon size={14} className={`transition-colors duration-200 ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"} group-hover:text-[#7367F0]`} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{r.label}</span>
+                    <ChevronRight size={14} className={`shrink-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-[#7367F0] motion-reduce:transform-none ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`} />
                   </button>
                 ))}
               </div>
@@ -261,10 +287,16 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
 
       {active && (
         <>
-          <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setActive("")} className="text-[#7367F0] text-[14px]">← Reports</button>
-              <span className="font-semibold">{active === RECONCILIATION_KEY ? "ACCOUNTING RECONCILIATION" : active.replace(/-/g, ' ').toUpperCase()}</span>
+          <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 animate-fade-up motion-reduce:animate-none ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+            <div className="min-w-0">
+              <button onClick={() => setActive("")} className="inline-flex items-center gap-1 text-[13px] font-medium text-[#7367F0] transition-colors hover:text-[#6354D8]">
+                ← Reports
+              </button>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className={`text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{activeGroup?.label || "Reports"}</span>
+                <ChevronRight size={12} className={isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"} />
+                <span className="truncate font-semibold">{activeReport?.label || (active === RECONCILIATION_KEY ? "Accounting Reconciliation" : active.replace(/-/g, ' '))}</span>
+              </div>
             </div>
             <div className="flex gap-2">
               {permissions?.warehouse_reports?.can_export && !STRUCTURED_REPORTS.includes(active) && active !== RECONCILIATION_KEY && (
@@ -279,18 +311,45 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
           </div>
 
           {showFilters && (
-            <div className={`rounded-lg border p-3 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
-                <input type="date" value={filters.from_date} onChange={e => setFilters({...filters, from_date: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} placeholder="From" />
-                <input type="date" value={filters.to_date} onChange={e => setFilters({...filters, to_date: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} placeholder="To" />
-                <select value={filters.material_id} onChange={e => setFilters({...filters, material_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Materials</option>{materials.map(m => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
-                <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
-                <select value={filters.category_id} onChange={e => setFilters({...filters, category_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Categories</option>{categories.map(c => <option key={c.id} value={c.id}>{c.category_name}</option>)}</select>
-                <div className="flex gap-2">
-                  <button onClick={() => loadReport(active)} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8]">Load</button>
-                  <button onClick={() => setFilters({ from_date: "", to_date: "", material_id: "", supplier_id: "", category_id: "", status: "" })} className={`h-10 rounded-md border px-3 text-sm ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}><RotateCcw size={16} /></button>
+            <div className={`rounded-lg border p-3 space-y-3 animate-fade-up motion-reduce:animate-none ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>From Date</span>
+                  <input type="date" value={filters.from_date} onChange={e => setFilters({...filters, from_date: e.target.value})} className={`w-full rounded-md px-3 py-2 text-base md:text-sm ${inputClass}`} />
+                </label>
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>To Date</span>
+                  <input type="date" value={filters.to_date} onChange={e => setFilters({...filters, to_date: e.target.value})} className={`w-full rounded-md px-3 py-2 text-base md:text-sm ${inputClass}`} />
+                </label>
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Material</span>
+                  <select value={filters.material_id} onChange={e => setFilters({...filters, material_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-base md:text-sm ${inputClass}`}><option value="">All Materials</option>{materials.map(m => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
+                </label>
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Supplier</span>
+                  <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-base md:text-sm ${inputClass}`}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
+                </label>
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Category</span>
+                  <select value={filters.category_id} onChange={e => setFilters({...filters, category_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-base md:text-sm ${inputClass}`}><option value="">All Categories</option>{categories.map(c => <option key={c.id} value={c.id}>{c.category_name}</option>)}</select>
+                </label>
+                <div className="flex items-end gap-2">
+                  <button onClick={() => loadReport(active)} disabled={loading} className="inline-flex h-10 min-w-[7rem] items-center justify-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#6354D8] disabled:opacity-60">
+                    {loading ? <Loader2 size={15} className="animate-spin" /> : null}{loading ? "Loading..." : "Generate"}
+                  </button>
+                  <button onClick={() => setFilters({ from_date: "", to_date: "", material_id: "", supplier_id: "", category_id: "", status: "" })} aria-label="Reset filters" className={`h-10 rounded-md border px-3 text-sm ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}><RotateCcw size={16} /></button>
                 </div>
               </div>
+              {activeChips.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {activeChips.map(c => (
+                    <span key={c.key} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium animate-fade-in motion-reduce:animate-none ${isDark ? "border-[#3B405A] bg-[#25293C] text-[#D0D2D6]" : "border-[#EBE9F1] bg-[#F8F7FA] text-[#5D596C]"}`}>
+                      {c.label}
+                      <button type="button" onClick={() => setFilters({ ...filters, [c.key]: "" })} aria-label={`Clear ${c.key}`} className={`rounded-full p-0.5 transition-colors hover:text-[#EA5455] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -298,7 +357,7 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
             <ReconciliationView isDark={isDark} inputClass={inputClass} canViewProcurement={canViewProcurement} />
           ) : STRUCTURED_REPORTS.includes(active) ? (
             loading ? (
-              <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>
+              <ReportSkeleton isDark={isDark} />
             ) : active === "gstr3b" ? (
               <GSTR3BView data={structuredData} isDark={isDark} />
             ) : active === "purchase-price-variance" ? (
@@ -307,8 +366,8 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
               <PurchaseReturnGSTView data={structuredData} isDark={isDark} />
             )
           ) : (
-            <SectionCard isDark={isDark}>
-              <TableWrapper isDark={isDark}>
+            <SectionCard isDark={isDark} className="animate-fade-in motion-reduce:animate-none">
+              <TableWrapper isDark={isDark} className="overscroll-x-contain">
                 <table className="w-full border-collapse text-[13px]">
                   <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                     <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
@@ -316,10 +375,10 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
                     </tr>
                   </thead>
                   <tbody>
-                    {loading ? <LoadingRows rows={5} cols={data.length ? Object.keys(data[0]).length : 1} isDark={isDark} /> : data.length === 0 ? (
+                    {loading ? <SkeletonRows cols={data.length ? Object.keys(data[0]).length : 4} isDark={isDark} /> : data.length === 0 ? (
                       <tr><td colSpan={data.length ? Object.keys(data[0]).length : 1} className="px-4 py-10"><EmptyState isDark={isDark} message="No report data" subMessage="Select a report and apply filters" /></td></tr>
                     ) : data.map((r, i) => (
-                      <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <tr key={i} className={`border-b transition-colors ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/30" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
                         {Object.keys(r).map(k => <td key={k} className="px-3 py-3">{formatCell(r[k])}</td>)}
                       </tr>
                     ))}
@@ -1056,7 +1115,7 @@ function ProcurementSourcesView({ isDark, inputClass }) {
         Warehouse GRNs and outlet direct purchases are separate source populations. Values are shown side by side only and must not be interpreted as a purchase variance.
       </div>
 
-      {loading && <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>}
+      {loading && <ReportSkeleton isDark={isDark} />}
 
       {!loading && result && (
         <>
@@ -1470,13 +1529,14 @@ function PPVView({ data, isDark, canExport }) {
 
   if (!data) return <SectionCard isDark={isDark}><EmptyState isDark={isDark} message="No report data" subMessage="Select a date range and click Load" /></SectionCard>;
 
+  // Directional only - above/below PO, never "good"/"bad"/profit/loss.
   const signedCls = (v) => v > 0 ? "text-rose-500" : v < 0 ? "text-emerald-500" : "";
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-up motion-reduce:animate-none">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiCard icon={BarChart3} label="Total PPV" value={fmtCurrency(summary.total_ppv)} isDark={isDark} />
-        <KpiCard icon={BarChart3} label="Positive PPV" value={fmtCurrency(summary.positive_ppv)} isDark={isDark} />
-        <KpiCard icon={BarChart3} label="Negative PPV" value={fmtCurrency(summary.negative_ppv)} isDark={isDark} />
+        <KpiCard icon={TrendingUp} label="Positive PPV (above PO)" value={fmtCurrency(summary.positive_ppv)} isDark={isDark} />
+        <KpiCard icon={TrendingDown} label="Negative PPV (below PO)" value={fmtCurrency(summary.negative_ppv)} isDark={isDark} />
         <KpiCard icon={Truck} label="Receipt Lines" value={summary.receipt_line_count ?? 0} isDark={isDark} />
       </div>
       {isTruncated && (
@@ -1492,8 +1552,8 @@ function PPVView({ data, isDark, canExport }) {
       <SectionCard isDark={isDark}>
         {canExport && (
           <div className="mb-2 flex justify-end">
-            <button onClick={exportCsv} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
-              <Download size={14} /> {isTruncated ? `Export Page ${pg.page} of ${pg.total_pages}` : "Export CSV"}
+            <button onClick={exportCsv} className={`group inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] transition-all duration-200 hover:border-[#7367F0]/50 hover:text-[#7367F0] motion-reduce:transition-none ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+              <Download size={14} className="transition-transform duration-200 group-hover:translate-y-0.5 motion-reduce:transform-none" /> {isTruncated ? `Export Page ${pg.page} of ${pg.total_pages}` : "Export CSV"}
             </button>
           </div>
         )}
@@ -1536,3 +1596,35 @@ function PPVView({ data, isDark, canExport }) {
     </div>
   );
 }
+
+// Phase 7F: lightweight loading skeletons - subtle shimmer via the existing
+// `.skeleton` utility; dark-mode handled by the ::after gradient already.
+const SkeletonBlock = ({ className = "", isDark }) => (
+  <div className={`skeleton ${isDark ? "bg-[#3B405A]" : "bg-[#EBE9F1]"} ${className}`} />
+);
+
+const SkeletonRows = ({ cols = 4, isDark }) => (
+  <>
+    {[...Array(5)].map((_, i) => (
+      <tr key={i} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+        {[...Array(cols)].map((__, j) => (
+          <td key={j} className="px-3 py-3"><SkeletonBlock className="h-4 w-4/5" isDark={isDark} /></td>
+        ))}
+      </tr>
+    ))}
+  </>
+);
+
+const ReportSkeleton = ({ isDark }) => (
+  <div className="space-y-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {[...Array(4)].map((_, i) => <SkeletonBlock key={i} className="h-20 rounded-lg" isDark={isDark} />)}
+    </div>
+    <SectionCard isDark={isDark}>
+      <SkeletonBlock className="mb-3 h-5 w-40" isDark={isDark} />
+      <div className="space-y-2">
+        {[...Array(5)].map((_, i) => <SkeletonBlock key={i} className="h-8 w-full" isDark={isDark} />)}
+      </div>
+    </SectionCard>
+  </div>
+);
