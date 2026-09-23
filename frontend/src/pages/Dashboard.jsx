@@ -16,7 +16,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardCheck,
-  Loader2,
+  ChevronRight,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import useAuthStore from "../store/authStore";
@@ -104,22 +104,26 @@ const quickActions = [
   },
 ];
 
+// Decorative sparkline only - the dashboard API returns no history series, so
+// these shapes are kept as pure visual accents and are never labeled as real
+// trend data.
 const MiniBars = ({ color = "#7367F0" }) => {
-  const bars = [60, 42, 28, 52, 68, 45, 72];
+  const bars = [34, 24, 16, 30, 38, 26, 40];
 
   return (
-    <div className="flex h-16 max-w-full items-end gap-2 overflow-hidden sm:gap-3">
+    <div className="flex h-10 max-w-full items-end gap-1.5 overflow-hidden">
       {bars.map((height, index) => (
         <div
           key={index}
-          className="w-2 shrink-0 rounded-full bg-[#E8E7F0]"
+          className="w-1.5 shrink-0 rounded-full bg-[#E8E7F0] dark:bg-[#3B405A]"
           style={{ height: `${height}px` }}
         >
           <div
             className="w-full rounded-full"
             style={{
-              height: `${Math.max(24, height - 12)}px`,
+              height: `${Math.max(10, height - 7)}px`,
               backgroundColor: color,
+              opacity: 0.85,
             }}
           />
         </div>
@@ -129,18 +133,18 @@ const MiniBars = ({ color = "#7367F0" }) => {
 };
 
 const MiniLine = ({ color = "#28C76F" }) => (
-  <svg viewBox="0 0 180 70" className="h-16 w-full max-w-full overflow-hidden">
+  <svg viewBox="0 0 180 44" className="h-10 w-full max-w-full overflow-hidden">
     <path
-      d="M0 40 C20 38, 28 52, 50 52 C76 52, 82 15, 110 22 C135 28, 145 44, 180 35"
+      d="M0 26 C20 24, 28 34, 50 34 C76 34, 82 10, 110 14 C135 18, 145 28, 180 22"
       fill="none"
       stroke={color}
-      strokeWidth="4"
+      strokeWidth="2.5"
       strokeLinecap="round"
     />
     <path
-      d="M0 40 C20 38, 28 52, 50 52 C76 52, 82 15, 110 22 C135 28, 145 44, 180 35 L180 70 L0 70 Z"
+      d="M0 26 C20 24, 28 34, 50 34 C76 34, 82 10, 110 14 C135 18, 145 28, 180 22 L180 44 L0 44 Z"
       fill={color}
-      opacity="0.11"
+      opacity="0.10"
     />
   </svg>
 );
@@ -154,52 +158,70 @@ const StatCard = ({
   color,
   bg,
   type = "icon",
+  loading = false,
 }) => {
   const positive = Number(change) >= 0;
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border border-[#EBE9F1] bg-white p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] dark:border-[#3B405A] dark:bg-[#2F3349] md:p-6">
-      <div className="flex min-w-0 items-start justify-between gap-4">
+    <div className="group min-w-0 overflow-hidden rounded-lg border border-[#EBE9F1] bg-white p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_rgba(47,43,61,0.12)] motion-reduce:transform-none motion-reduce:transition-none dark:border-[#3B405A] dark:bg-[#2F3349] animate-fade-up md:p-5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[18px] font-semibold text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[20px]">
+          <p className="truncate text-[12px] font-semibold uppercase tracking-wider text-[#A8AAAE] dark:text-[#A5A8B6]">
             {title}
           </p>
-          <p className="mt-1 truncate text-[14px] text-[#A8AAAE] md:text-[15px]">
-            {subtitle}
-          </p>
+          {loading ? (
+            <div className="skeleton mt-2.5 h-8 w-24 rounded-md dark:bg-[#3B405A]" />
+          ) : (
+            <h3 className="mt-1.5 min-w-0 truncate text-[24px] font-semibold leading-none text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[28px] animate-fade-in motion-reduce:animate-none">
+              {value}
+            </h3>
+          )}
         </div>
 
-        {type === "icon" && Icon && (
+        {Icon && (
           <div
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-105 motion-reduce:transform-none"
             style={{ backgroundColor: bg }}
           >
-            <Icon size={24} style={{ color }} />
+            <Icon size={19} style={{ color }} />
           </div>
         )}
       </div>
 
-      <div className="mt-6 min-w-0">
-        {type === "bar" && <MiniBars color={color} />}
-        {type === "line" && <MiniLine color={color} />}
-
-        <div className="mt-5 flex min-w-0 items-end justify-between gap-3">
-          <h3 className="min-w-0 truncate text-[24px] font-semibold leading-none text-[#2F2B3D] dark:text-[#D0D2D6] md:text-[30px]">
-            {value}
-          </h3>
-
-          <span
-            className="shrink-0 rounded px-2.5 py-1 text-[13px] font-medium md:text-[14px]"
-            style={{
-              color: positive ? "#28C76F" : "#EA5455",
-              backgroundColor: positive ? "#E9F9EF" : "#FCEAEA",
-            }}
-          >
-            {positive ? "+" : ""}
-            {change}%
-          </span>
-        </div>
+      <div className="mt-3 flex min-w-0 items-center justify-between gap-3">
+        {loading ? (
+          <div className="skeleton h-4 w-28 rounded dark:bg-[#3B405A]" />
+        ) : (
+          <>
+            <p className="truncate text-[12px] text-[#A8AAAE] dark:text-[#A5A8B6]">
+              {subtitle}
+            </p>
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                color: positive ? "#28C76F" : "#EA5455",
+                backgroundColor: positive ? "#E9F9EF" : "#FCEAEA",
+              }}
+            >
+              {positive ? "+" : ""}
+              {change}%
+            </span>
+          </>
+        )}
       </div>
+
+      {(loading || type === "bar" || type === "line") && (
+        <div className="mt-3 min-w-0">
+          {loading ? (
+            <div className="skeleton h-10 w-full rounded-md dark:bg-[#3B405A]" />
+          ) : (
+            <>
+              {type === "bar" && <MiniBars color={color} />}
+              {type === "line" && <MiniLine color={color} />}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -332,14 +354,14 @@ const Dashboard = () => {
           '"Public Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <div className="w-full max-w-full overflow-x-hidden space-y-4 md:space-y-6">
-        <div className="flex w-full max-w-full flex-col justify-between gap-4 xl:flex-row xl:items-center">
+      <div className="w-full max-w-full overflow-x-hidden space-y-5">
+        <div className="flex w-full max-w-full flex-col justify-between gap-3 animate-fade-up motion-reduce:animate-none xl:flex-row xl:items-center">
           <div className="min-w-0">
             <h1 className={`break-words text-[22px] font-semibold md:text-[24px] ${mainTextClass}`}>
               Good morning, {firstName} 👋
             </h1>
 
-            <p className={`mt-1 break-words text-[14px] md:text-[15px] ${mutedClass}`}>
+            <p className={`mt-1 break-words text-[13px] md:text-[14px] ${mutedClass}`}>
               {today} · {roleName} ·{" "}
               {selectedOutletId === "all"
                 ? "Company overview"
@@ -347,30 +369,31 @@ const Dashboard = () => {
             </p>
           </div>
 
-          <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-3">
+          <div className="grid w-full grid-cols-1 gap-2.5 sm:w-auto sm:grid-cols-3">
             <div
-              className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+              className={`flex min-w-0 items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
             >
-              <Calendar size={18} className="shrink-0" />
+              <Calendar size={16} className={`shrink-0 ${mutedClass}`} />
               <span className="truncate">{currentMonthLabel}</span>
             </div>
 
             <button
               type="button"
               onClick={handleRefresh}
-              className={`flex min-w-0 items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-[15px] font-medium ${cardClass}`}
+              disabled={loading}
+              className={`flex min-w-0 items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-[14px] font-medium transition-all duration-200 hover:border-[#7367F0]/50 disabled:opacity-60 motion-reduce:transition-none ${cardClass}`}
             >
-              <RefreshCw size={18} className="shrink-0" />
-              <span className="truncate">Refresh</span>
+              <RefreshCw size={16} className={`shrink-0 ${loading ? "animate-spin" : ""}`} />
+              <span className="truncate">{loading ? "Refreshing..." : "Refresh"}</span>
             </button>
 
             <button
               type="button"
               onClick={handleExport}
-              className="flex min-w-0 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
+              className="group flex min-w-0 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] transition-all duration-200 hover:shadow-[0_5px_18px_rgba(115,103,240,0.45)] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none"
               style={{ backgroundColor: primaryColor }}
             >
-              <Download size={18} className="shrink-0" />
+              <Download size={16} className="shrink-0 transition-transform duration-200 group-hover:translate-y-0.5 motion-reduce:transform-none" />
               <span className="truncate">
                 {permissions.isReadOnly ? "Download" : "Export"}
               </span>
@@ -378,16 +401,17 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="grid w-full max-w-full grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-6">
+        <div className="grid w-full max-w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             title="Gross Sales"
-            subtitle={loading ? "Loading..." : "PetPooja sales"}
+            subtitle="PetPooja sales"
             value={fmtK(summary?.gross_sales)}
             change={0}
             icon={ShoppingCart}
             color={primaryColor}
             bg={`${primaryColor}18`}
             type="bar"
+            loading={loading && !summary}
           />
 
           <StatCard
@@ -399,6 +423,7 @@ const Dashboard = () => {
             color="#28C76F"
             bg="#E9F9EF"
             type="line"
+            loading={loading && !summary}
           />
 
           <StatCard
@@ -409,6 +434,7 @@ const Dashboard = () => {
             icon={Wallet}
             color="#EA5455"
             bg="#FCEAEA"
+            loading={loading && !summary}
           />
 
           <StatCard
@@ -419,52 +445,65 @@ const Dashboard = () => {
             icon={DollarSign}
             color="#28C76F"
             bg="#E9F9EF"
+            loading={loading && !summary}
           />
         </div>
 
         {/* 7D4B: canonical outlet-vendor payables - all figures backend-computed */}
         {canViewVendors ? (
-          <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+          <div className={`min-w-0 overflow-hidden rounded-lg border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] animate-fade-up motion-reduce:animate-none md:p-5 ${cardClass}`}>
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Truck size={18} style={{ color: primaryColor }} />
-                <h3 className={`truncate text-[18px] font-semibold md:text-[20px] ${mainTextClass}`}>Vendor Payables</h3>
-                {vendorSummary?.as_of_date ? (
-                  <span className={`text-[12px] ${mutedClass}`}>As of {vendorSummary.as_of_date}</span>
-                ) : null}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${primaryColor}18` }}>
+                  <Truck size={15} style={{ color: primaryColor }} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className={`truncate text-[16px] font-semibold ${mainTextClass}`}>Vendor Payables</h3>
+                  {vendorSummary?.as_of_date ? (
+                    <p className={`text-[11px] ${mutedClass}`}>As of {vendorSummary.as_of_date}</p>
+                  ) : null}
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
-                className={`rounded-md border px-3 py-1.5 text-[13px] font-medium ${cardClass}`}
+                className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors duration-200 hover:border-[#7367F0]/50 hover:text-[#7367F0] motion-reduce:transition-none ${cardClass}`}
               >
                 View Vendor Ledger
               </button>
             </div>
 
             {vendorLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 size={22} className="animate-spin" style={{ color: primaryColor }} />
+              <div className="mt-4 space-y-3">
+                <div className="grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[...Array(4)].map((_, i) => <div key={i} className="skeleton h-[74px] rounded-lg dark:bg-[#3B405A]" />)}
+                </div>
+                <div className="skeleton h-4 w-40 rounded dark:bg-[#3B405A]" />
+                {[...Array(3)].map((_, i) => <div key={i} className="skeleton h-8 w-full rounded dark:bg-[#3B405A]" />)}
               </div>
             ) : vendorError ? (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <AlertTriangle size={16} className="text-[#EA5455]" />
-                <span className={`text-[14px] ${mutedClass}`}>{vendorError}</span>
+              <div className={`mt-4 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 animate-fade-in motion-reduce:animate-none ${isDark ? "border-[#EA5455]/30 bg-[#EA5455]/10" : "border-[#F0D5D5] bg-[#FCEAEA]/60"}`}>
+                <AlertTriangle size={16} className="shrink-0 text-[#EA5455]" />
+                <div className="min-w-0 flex-1">
+                  <p className={`text-[13px] font-medium ${mainTextClass}`}>Vendor payables unavailable</p>
+                  <p className={`text-[12px] ${mutedClass}`}>We couldn't load this summary.</p>
+                </div>
                 <button
                   type="button"
                   onClick={fetchVendorSummary}
-                  className={`rounded-md border px-3 py-1.5 text-[13px] font-medium ${cardClass}`}
+                  disabled={vendorLoading}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors duration-200 hover:border-[#7367F0]/50 hover:text-[#7367F0] disabled:opacity-60 motion-reduce:transition-none ${cardClass}`}
                 >
-                  Retry
+                  <RefreshCw size={13} /> Retry
                 </button>
               </div>
             ) : vendorSummary ? (
               <>
-                <div className="mt-4 grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-4 grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 animate-fade-in motion-reduce:animate-none">
                   <button
                     type="button"
                     onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
-                    className={`rounded-md border p-4 text-left ${cardClass}`}
+                    className={`rounded-lg border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7367F0]/50 hover:shadow-[0_4px_14px_rgba(47,43,61,0.10)] motion-reduce:transform-none motion-reduce:transition-none ${cardClass}`}
                   >
                     <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><Wallet size={13} /> Total Vendor Outstanding</p>
                     <h4 className={`mt-1.5 text-[20px] font-semibold ${mainTextClass}`}>{fmtK(vendorSummary.total_outstanding)}</h4>
@@ -472,13 +511,13 @@ const Dashboard = () => {
                   <button
                     type="button"
                     onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
-                    className={`rounded-md border p-4 text-left ${cardClass}`}
+                    className={`rounded-lg border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7367F0]/50 hover:shadow-[0_4px_14px_rgba(47,43,61,0.10)] motion-reduce:transform-none motion-reduce:transition-none ${cardClass}`}
                   >
                     <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><AlertTriangle size={13} /> Overdue Vendor Payables</p>
                     <h4 className="mt-1.5 text-[20px] font-semibold text-[#FF9F43]">{fmtK(vendorSummary.overdue_amount)}</h4>
                     <p className={`mt-1 text-[12px] ${mutedClass}`}>Not Due: {fmtK(vendorSummary.not_due_amount)}</p>
                   </button>
-                  <div className={`rounded-md border p-4 ${cardClass}`}>
+                  <div className={`rounded-lg border p-4 ${cardClass}`}>
                     <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><Users size={13} /> Vendors with Outstanding</p>
                     <h4 className={`mt-1.5 text-[20px] font-semibold ${mainTextClass}`}>{vendorSummary.vendors_with_outstanding ?? 0}</h4>
                   </div>
@@ -486,7 +525,7 @@ const Dashboard = () => {
                     <button
                       type="button"
                       onClick={() => navigate("/daily-accounts/vendor-ledger-payments")}
-                      className={`rounded-md border p-4 text-left ${cardClass}`}
+                      className={`rounded-lg border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7367F0]/50 hover:shadow-[0_4px_14px_rgba(47,43,61,0.10)] motion-reduce:transform-none motion-reduce:transition-none ${cardClass}`}
                     >
                       <p className={`flex items-center gap-1.5 text-[12px] font-medium ${mutedClass}`}><ClipboardCheck size={13} /> Pending Vendor Payment Approvals</p>
                       <h4 className="mt-1.5 text-[20px] font-semibold text-[#7367F0]">{vendorSummary.pending_approvals}</h4>
@@ -500,7 +539,7 @@ const Dashboard = () => {
                   {(vendorSummary.top_vendors || []).length === 0 ? (
                     <p className={`mt-2 text-[14px] ${mutedClass}`}>No vendor outstanding</p>
                   ) : (
-                    <div className="mt-2 overflow-x-auto">
+                    <div className="mt-2 overflow-x-auto overscroll-x-contain">
                       <table className="min-w-full" style={{ minWidth: "560px" }}>
                         <thead>
                           <tr>
@@ -511,7 +550,7 @@ const Dashboard = () => {
                         </thead>
                         <tbody>
                           {(vendorSummary.top_vendors || []).map((v) => (
-                            <tr key={`${v.outlet_id}:${v.vendor_id}`} className="border-t border-[#EBE9F1] dark:border-[#3B405A]">
+                            <tr key={`${v.outlet_id}:${v.vendor_id}`} className="border-t border-[#EBE9F1] transition-colors hover:bg-[#F8F7FA] dark:border-[#3B405A] dark:hover:bg-[#3B405A]/40">
                               <td className={`px-3 py-2 text-[13px] font-medium ${mainTextClass}`}>{v.vendor_name || `#${v.vendor_id}`}</td>
                               <td className={`px-3 py-2 text-[13px] ${mutedClass}`}>{v.outlet_name || `#${v.outlet_id}`}</td>
                               <td className={`px-3 py-2 text-[13px] font-semibold ${mainTextClass}`}>{fmtK(v.outstanding)}</td>
@@ -529,19 +568,24 @@ const Dashboard = () => {
           </div>
         ) : null}
 
-        <div className={`min-w-0 overflow-hidden rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] md:p-6 ${cardClass}`}>
+        <div className={`min-w-0 overflow-hidden rounded-lg border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.08)] animate-fade-up motion-reduce:animate-none md:p-5 ${cardClass}`}>
           <div className="flex min-w-0 flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <div className="min-w-0">
-              <h3 className={`truncate text-[20px] font-semibold md:text-[22px] ${mainTextClass}`}>
-                Quick Actions
-              </h3>
-              <p className={`mt-1 break-words text-[14px] md:text-[15px] ${mutedClass}`}>
-                Frequently used Big Bean Café operations
-              </p>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${primaryColor}18` }}>
+                <ClipboardCheck size={15} style={{ color: primaryColor }} />
+              </span>
+              <div className="min-w-0">
+                <h3 className={`truncate text-[16px] font-semibold ${mainTextClass}`}>
+                  Quick Actions
+                </h3>
+                <p className={`break-words text-[12px] ${mutedClass}`}>
+                  Frequently used Big Bean Café operations
+                </p>
+              </div>
             </div>
 
-            <div className="flex min-w-0 items-center gap-2 rounded-md bg-[#F8F7FA] px-4 py-2 text-[13px] font-medium text-[#6F6B7D] dark:bg-[#25293C] dark:text-[#A5A8B6]">
-              <CheckCircle2 size={16} className="shrink-0 text-[#28C76F]" />
+            <div className="flex min-w-0 items-center gap-2 rounded-full bg-[#F8F7FA] px-3.5 py-1.5 text-[12px] font-medium text-[#6F6B7D] dark:bg-[#25293C] dark:text-[#A5A8B6]">
+              <CheckCircle2 size={14} className="shrink-0 text-[#28C76F]" />
               <span className="truncate">
                 Last refreshed{" "}
                 {lastUpdated.toLocaleTimeString("en-IN", {
@@ -552,8 +596,8 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="mt-6 grid w-full max-w-full grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-            {quickActions.map((action) => {
+          <div className="mt-5 grid w-full max-w-full grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+            {quickActions.map((action, i) => {
               const Icon = action.icon;
 
               return (
@@ -561,17 +605,19 @@ const Dashboard = () => {
                   key={action.label}
                   type="button"
                   onClick={() => navigate(action.path)}
-                  className="group flex min-w-0 flex-col items-center gap-3 overflow-hidden rounded-md border border-[#EBE9F1] bg-[#F8F7FA] p-5 text-center transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_4px_18px_rgba(47,43,61,0.12)] dark:border-[#3B405A] dark:bg-[#25293C] dark:hover:bg-[#2F3349]"
+                  className="group flex min-w-0 flex-col items-center gap-2.5 overflow-hidden rounded-lg border border-[#EBE9F1] bg-[#F8F7FA] p-4 text-center transition-all duration-200 hover:-translate-y-0.5 hover:border-[#7367F0]/50 hover:bg-white hover:shadow-[0_4px_18px_rgba(47,43,61,0.12)] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none dark:border-[#3B405A] dark:bg-[#25293C] dark:hover:bg-[#2F3349] animate-fade-up"
+                  style={{ animationDelay: `${Math.min(i * 40, 200)}ms` }}
                 >
                   <div
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-105 motion-reduce:transform-none"
                     style={{ backgroundColor: action.bg }}
                   >
-                    <Icon size={22} style={{ color: action.color }} />
+                    <Icon size={20} style={{ color: action.color }} />
                   </div>
 
-                  <span className="max-w-full truncate text-[14px] font-medium text-[#5D596C] dark:text-[#D0D2D6]">
-                    {action.label}
+                  <span className="flex max-w-full items-center gap-1 text-[13px] font-medium text-[#5D596C] transition-colors duration-200 group-hover:text-[#7367F0] dark:text-[#D0D2D6]">
+                    <span className="truncate">{action.label}</span>
+                    <ChevronRight size={13} className="shrink-0 opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:opacity-100 motion-reduce:transform-none" />
                   </span>
                 </button>
               );
