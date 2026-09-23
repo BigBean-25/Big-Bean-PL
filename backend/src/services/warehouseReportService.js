@@ -1,6 +1,7 @@
 import { query } from '../config/database.js';
 import { getCurrentStock, getStockLedger } from './warehouseService.js';
 import { getReorderData } from './warehouseReorderService.js';
+import { findConversionFactor } from '../utils/uomUtils.js';
 import ExcelJS from 'exceljs';
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
@@ -874,5 +875,140 @@ export const getPurchaseReturnGSTSummary = async (filters) => {
     total_tax: totalTax,
     total_credit_value: totalTaxable + totalTax,
     by_supplier: Object.values(bySupplier).sort((a, b) => (a.supplier_name > b.supplier_name ? 1 : -1)),
+  };
+};
+
+// Phase 7E1B: read-only Purchase Price Variance - Posted GRN receipt lines
+// attributed to their exact PO line via grn_items.purchase_order_item_id
+// (7E1A). Ex-tax/ex-discount pure price variance only; no document-total
+// variance because PO/GRN discount+tax bases differ. Nothing here writes to
+// stock, accounting, or payables.
+export const getPurchasePriceVariance = async (filters) => {
+  const params = [];
+  let where = `WHERE g.status = 'Posted' AND g.purchase_order_id IS NOT NULL`;
+  if (filters.location_id) { where += ` AND g.warehouse_location_id = ?`; params.push(filters.location_id); }
+  if (filters.from_date) { where += ` AND g.grn_date >= ?`; params.push(filters.from_date); }
+  if (filters.to_date) { where += ` AND g.grn_date <= ?`; params.push(filters.to_date); }
+  if (filters.supplier_id) { where += ` AND g.supplier_id = ?`; params.push(filters.supplier_id); }
+  if (filters.raw_material_id) { where += ` AND gri.raw_material_id = ?`; params.push(filters.raw_material_id); }
+
+  // Attribution (same rule as 7E1A receiving): exact link, or unlinked legacy
+  // rows ONLY where the PO has exactly one line for that material.
+  // The linked branch re-asserts same-PO-header AND same-material even though
+  // 7E1A createGRN/postGRN validate both: a corrupt or pre-7E1A-era link must
+  // never make the report compare Material A's receipt against Material B's
+  // PO rate, or against a rate from an unrelated PO.
+  const attribJoin = `JOIN purchase_order_items poi
+      ON ((gri.purchase_order_item_id = poi.id
+           AND poi.purchase_order_id = g.purchase_order_id
+           AND poi.raw_material_id = gri.raw_material_id)
+          OR (gri.purchase_order_item_id IS NULL
+              AND poi.purchase_order_id = g.purchase_order_id
+              AND poi.raw_material_id = gri.raw_material_id
+              AND (SELECT COUNT(*) FROM purchase_order_items p2
+                   WHERE p2.purchase_order_id = g.purchase_order_id
+                     AND p2.raw_material_id = gri.raw_material_id) = 1))`;
+
+  const rows = await query(
+    `SELECT
+       gri.id AS grn_item_id, g.id AS grn_id, g.grn_no, g.grn_date,
+       g.purchase_order_id, po.po_no, poi.id AS purchase_order_item_id,
+       poi.ordered_qty AS po_qty, poi.unit_id AS po_unit_id, pu.unit_name AS po_unit_name, poi.rate AS po_rate,
+       g.supplier_id, s.supplier_name,
+       g.warehouse_location_id, l.location_name AS warehouse_location_name,
+       gri.raw_material_id, rm.material_code, rm.material_name, rm.unit_id AS base_unit_id, bu.unit_name AS base_unit_name,
+       gri.accepted_qty, gri.unit_id AS grn_unit_id, gu.unit_name AS grn_unit_name, gri.rate AS actual_rate
+     FROM grn g
+     JOIN grn_items gri ON gri.grn_id = g.id
+     JOIN purchase_orders po ON po.id = g.purchase_order_id
+     ${attribJoin}
+     LEFT JOIN suppliers s ON s.id = g.supplier_id
+     JOIN locations l ON l.id = g.warehouse_location_id
+     JOIN raw_materials rm ON rm.id = gri.raw_material_id
+     JOIN units pu ON pu.id = poi.unit_id
+     JOIN units gu ON gu.id = gri.unit_id
+     JOIN units bu ON bu.id = rm.unit_id
+     ${where}
+     ORDER BY g.grn_date DESC, g.id, gri.id`,
+    params
+  );
+
+  // Posted PO-backed rows that could not be attributed to a unique PO line
+  // (duplicate-material PO + NULL link) - reported, never guessed.
+  const [unattr] = await query(
+    `SELECT COUNT(*) AS c
+     FROM grn g JOIN grn_items gri ON gri.grn_id = g.id
+     ${where}
+       AND gri.purchase_order_item_id IS NULL
+       AND (SELECT COUNT(*) FROM purchase_order_items p2
+            WHERE p2.purchase_order_id = g.purchase_order_id
+              AND p2.raw_material_id = gri.raw_material_id) != 1`,
+    params
+  );
+
+  // Canonical conversion via the shared helpers, with a per-call factor cache
+  // so uom_conversions is not re-queried for every row.
+  const factorCache = new Map();
+  const factor = async (from, to) => {
+    const k = `${from}:${to}`;
+    if (!factorCache.has(k)) factorCache.set(k, await findConversionFactor(from, to));
+    return factorCache.get(k);
+  };
+
+  const items = [];
+  for (const r of rows) {
+    const baseUnitId = r.base_unit_id;
+    const poFactor = await factor(r.po_unit_id, baseUnitId);
+    const grnFactor = await factor(r.grn_unit_id, baseUnitId);
+    const poBaseRate = num(r.po_rate) / poFactor;           // = normalizeRateToBase
+    const actualBaseRate = num(r.actual_rate) / grnFactor;
+    const acceptedBaseQty = num(r.accepted_qty) * grnFactor; // = convertToBase
+    const unitPpv = actualBaseRate - poBaseRate;
+    const ppvAmount = unitPpv * acceptedBaseQty;
+    items.push({
+      grn_item_id: r.grn_item_id, grn_id: r.grn_id, grn_no: r.grn_no, grn_date: r.grn_date,
+      purchase_order_id: r.purchase_order_id, purchase_order_item_id: r.purchase_order_item_id, po_no: r.po_no,
+      supplier_id: r.supplier_id, supplier_name: r.supplier_name,
+      warehouse_location_id: r.warehouse_location_id, warehouse_location_name: r.warehouse_location_name,
+      raw_material_id: r.raw_material_id, material_code: r.material_code, material_name: r.material_name,
+      po_qty: num(r.po_qty), po_unit_id: r.po_unit_id, po_unit_name: r.po_unit_name, po_rate: num(r.po_rate),
+      accepted_qty: num(r.accepted_qty), grn_unit_id: r.grn_unit_id, grn_unit_name: r.grn_unit_name, actual_rate: num(r.actual_rate),
+      base_unit_id: baseUnitId, base_unit_name: r.base_unit_name,
+      po_base_rate: poBaseRate, actual_base_rate: actualBaseRate,
+      unit_ppv: unitPpv, accepted_base_qty: acceptedBaseQty, ppv_amount: ppvAmount,
+    });
+  }
+
+  // Summary is computed over the ENTIRE filtered, attributable set - never
+  // over the displayed page. A page-only "Total PPV" would be a false
+  // financial figure. Mixed-UOM normalization makes a SQL-side SUM unsafe,
+  // so the totals come from the same per-row canonical conversion above.
+  const summary = {
+    receipt_line_count: items.length,
+    unattributed_rows: num(unattr[0]?.c),
+    total_received_value_ex_tax: items.reduce((s, i) => s + i.actual_base_rate * i.accepted_base_qty, 0),
+    total_ppv: items.reduce((s, i) => s + i.ppv_amount, 0),
+    positive_ppv: items.reduce((s, i) => s + (i.ppv_amount > 0 ? i.ppv_amount : 0), 0),
+    negative_ppv: items.reduce((s, i) => s + (i.ppv_amount < 0 ? i.ppv_amount : 0), 0),
+  };
+
+  // Display rows are paginated; summary above stays whole-dataset. The
+  // response states exactly what the row window contains so neither the UI
+  // nor an export can present a page as the complete report.
+  const limit = Math.min(Math.max(Number(filters.limit) || 500, 1), 1000);
+  const totalRows = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / limit));
+  const page = Math.min(Math.max(Number(filters.page) || 1, 1), totalPages);
+  const pageItems = items.slice((page - 1) * limit, page * limit);
+  return {
+    summary,
+    items: pageItems,
+    pagination: {
+      page, limit,
+      total_rows: totalRows,        // attributable PPV rows only
+      total_pages: totalPages,
+      returned_rows: pageItems.length,
+      truncated: pageItems.length < totalRows,
+    },
   };
 };

@@ -33,6 +33,8 @@ const groups = [
       { key: "grn", label: "Goods Receipt" },
       { key: "supplier-receipt", label: "Supplier Receipt" },
       { key: "purchase-return", label: "Purchase Return" },
+      // 7E1B: read-only PO-vs-receipt price variance (7E1A line linkage).
+      { key: "purchase-price-variance", label: "Purchase Price Variance" },
     ],
   },
   {
@@ -82,7 +84,7 @@ const groups = [
   },
 ];
 
-const STRUCTURED_REPORTS = ["gstr3b", "purchase-return-gst"];
+const STRUCTURED_REPORTS = ["gstr3b", "purchase-return-gst", "purchase-price-variance"];
 const RECONCILIATION_KEY = "reconciliation";
 const PROPOSED_CLOSING_STOCK_KEY = "proposed-closing-stock";
 
@@ -146,7 +148,14 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
         setData(res?.data?.data || []);
         setStructuredData(null);
       }
-    } catch (error) { toast.error(error.response?.data?.message || "Failed to load report"); }
+    } catch (error) {
+      // Clear on failure: keeping the previous report's rows/KPIs under the
+      // newly-selected report title would present stale numbers as this
+      // report's result. Empty state (no data) stays distinct from the toast.
+      setStructuredData(null);
+      setData([]);
+      toast.error(error.response?.data?.message || "Failed to load report");
+    }
     finally { setLoading(false); }
   };
 
@@ -292,6 +301,8 @@ export default function WarehouseReports({ locationId, materials, suppliers, cat
               <SectionCard isDark={isDark}><LoadingRows rows={5} cols={5} isDark={isDark} /></SectionCard>
             ) : active === "gstr3b" ? (
               <GSTR3BView data={structuredData} isDark={isDark} />
+            ) : active === "purchase-price-variance" ? (
+              <PPVView data={structuredData} isDark={isDark} canExport={Boolean(permissions?.warehouse_reports?.can_export)} />
             ) : (
               <PurchaseReturnGSTView data={structuredData} isDark={isDark} />
             )
@@ -1418,6 +1429,110 @@ function StockReconciliationView({ isDark, inputClass }) {
       {!loading && !result && (
         <EmptyState isDark={isDark} title="No data" subtitle="Select an outlet and as-of date, then click Generate." />
       )}
+    </div>
+  );
+}
+
+// Phase 7E1B: read-only Purchase Price Variance - pure ex-tax price variance
+// per Posted GRN line (backend computes all PPV math; this view only formats).
+// Positive = receipt price above PO; negative = below. Directional facts only.
+function PPVView({ data, isDark, canExport }) {
+  const thCls = `border-b whitespace-nowrap text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`;
+  const trCls = `border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`;
+  const items = data?.items || [];
+  const summary = data?.summary || {};
+  const pg = data?.pagination || {};
+  // KPI values come from backend whole-dataset summary; `items` is only the
+  // displayed page. Export must therefore say which of the two it wrote.
+  const isTruncated = Boolean(pg.truncated);
+
+  const csvText = (v) => { let s = String(v ?? ""); if (/^[=+\-@]/.test(s)) s = `'${s}`; return `"${s.replace(/"/g, '""')}"`; };
+  const csvNum = (v) => `"${Number(v || 0).toFixed(4)}"`;
+  const exportCsv = () => {
+    if (!items.length) { toast.error("No data to export"); return; }
+    const head = ["Date", "PO No", "GRN No", "Supplier", "Material", "PO Qty", "PO UOM", "Accepted Qty", "GRN UOM", "PO Rate", "Actual Rate", "Base UOM", "PO Base Rate", "Actual Base Rate", "Unit PPV", "Accepted Base Qty", "PPV Amount"];
+    const lines = [head.map(csvText).join(",")];
+    for (const r of items) {
+      lines.push([
+        csvText(fmtDate(r.grn_date)), csvText(r.po_no), csvText(r.grn_no), csvText(r.supplier_name), csvText(r.material_name),
+        csvNum(r.po_qty), csvText(r.po_unit_name), csvNum(r.accepted_qty), csvText(r.grn_unit_name),
+        csvNum(r.po_rate), csvNum(r.actual_rate), csvText(r.base_unit_name),
+        csvNum(r.po_base_rate), csvNum(r.actual_base_rate), csvNum(r.unit_ppv), csvNum(r.accepted_base_qty), csvNum(r.ppv_amount),
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `PPV${isTruncated ? `_page${pg.page}` : ""}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  if (!data) return <SectionCard isDark={isDark}><EmptyState isDark={isDark} message="No report data" subMessage="Select a date range and click Load" /></SectionCard>;
+
+  const signedCls = (v) => v > 0 ? "text-rose-500" : v < 0 ? "text-emerald-500" : "";
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiCard icon={BarChart3} label="Total PPV" value={fmtCurrency(summary.total_ppv)} isDark={isDark} />
+        <KpiCard icon={BarChart3} label="Positive PPV" value={fmtCurrency(summary.positive_ppv)} isDark={isDark} />
+        <KpiCard icon={BarChart3} label="Negative PPV" value={fmtCurrency(summary.negative_ppv)} isDark={isDark} />
+        <KpiCard icon={Truck} label="Receipt Lines" value={summary.receipt_line_count ?? 0} isDark={isDark} />
+      </div>
+      {isTruncated && (
+        <div className={`rounded-lg border px-3 py-2 text-[13px] ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
+          Showing rows {(pg.page - 1) * pg.limit + 1}–{(pg.page - 1) * pg.limit + pg.returned_rows} of {pg.total_rows}. The totals above cover all {pg.total_rows} rows.
+        </div>
+      )}
+      {num(summary.unattributed_rows) > 0 && (
+        <div className={`rounded-lg border px-3 py-2 text-[13px] ${isDark ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+          {num(summary.unattributed_rows)} posted receipt line{num(summary.unattributed_rows) === 1 ? "" : "s"} could not be matched to a unique PO line and {num(summary.unattributed_rows) === 1 ? "is" : "are"} excluded from this report.
+        </div>
+      )}
+      <SectionCard isDark={isDark}>
+        {canExport && (
+          <div className="mb-2 flex justify-end">
+            <button onClick={exportCsv} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+              <Download size={14} /> {isTruncated ? `Export Page ${pg.page} of ${pg.total_pages}` : "Export CSV"}
+            </button>
+          </div>
+        )}
+        <TableWrapper isDark={isDark} className="overscroll-x-contain">
+          <table className="w-full border-collapse text-[13px]">
+            <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
+              <tr className={thCls}>
+                <th className="px-3 py-3">Date</th><th className="px-3 py-3">PO No</th><th className="px-3 py-3">GRN No</th>
+                <th className="px-3 py-3">Supplier</th><th className="px-3 py-3">Material</th>
+                <th className="px-3 py-3 text-right">PO Qty</th><th className="px-3 py-3 text-right">Accepted Qty</th>
+                <th className="px-3 py-3 text-right">PO Rate</th><th className="px-3 py-3 text-right">Actual Rate</th>
+                <th className="px-3 py-3 text-right">PO Base Rate</th><th className="px-3 py-3 text-right">Actual Base Rate</th>
+                <th className="px-3 py-3 text-right">Unit PPV</th><th className="px-3 py-3 text-right">PPV Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!items.length ? (
+                <tr><td colSpan={13} className="px-4 py-10"><EmptyState isDark={isDark} message="No receipt lines" subMessage="No posted PO receipts in the selected range" /></td></tr>
+              ) : items.map((r) => (
+                <tr key={r.grn_item_id} className={trCls}>
+                  <td className="whitespace-nowrap px-3 py-2.5">{fmtDate(r.grn_date)}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 font-medium">{r.po_no}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{r.grn_no}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{r.supplier_name || "-"}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{r.material_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtQty(r.po_qty)} {r.po_unit_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtQty(r.accepted_qty)} {r.grn_unit_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtCurrency(r.po_rate)}/{r.po_unit_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtCurrency(r.actual_rate)}/{r.grn_unit_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtCurrency(r.po_base_rate)}/{r.base_unit_name}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">{fmtCurrency(r.actual_base_rate)}/{r.base_unit_name}</td>
+                  <td className={`whitespace-nowrap px-3 py-2.5 text-right font-medium ${signedCls(r.unit_ppv)}`}>{num(r.unit_ppv) >= 0 ? "+" : ""}{fmtCurrency(r.unit_ppv)}</td>
+                  <td className={`whitespace-nowrap px-3 py-2.5 text-right font-medium ${signedCls(r.ppv_amount)}`}>{num(r.ppv_amount) >= 0 ? "+" : ""}{fmtCurrency(r.ppv_amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrapper>
+      </SectionCard>
     </div>
   );
 }

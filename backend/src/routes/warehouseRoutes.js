@@ -1204,6 +1204,10 @@ router.get('/reports/:type', checkPermission('warehouse_reports', 'can_view'), a
       from_date: req.query.from_date,
       to_date: req.query.to_date,
       status: req.query.status,
+      // 7E1B: display-window controls for reports that paginate their rows
+      // (summary totals stay whole-dataset). Ignored by every other handler.
+      page: req.query.page ? Number(req.query.page) : null,
+      limit: req.query.limit ? Number(req.query.limit) : null,
     };
     const handlers = {
       'current-stock': reportService.getCurrentStockReport,
@@ -1235,6 +1239,8 @@ router.get('/reports/:type', checkPermission('warehouse_reports', 'can_view'), a
       'profit': reportService.getWarehouseProfitReport,
       'gstr3b': reportService.getGSTR3BWarehouseReport,
       'purchase-return-gst': reportService.getPurchaseReturnGSTSummary,
+      // 7E1B: read-only PPV - Posted GRN lines vs their exact PO line rates.
+      'purchase-price-variance': reportService.getPurchasePriceVariance,
     };
     if (!handlers[type]) return res.status(404).json({ success: false, message: 'Report not found' });
     const data = await handlers[type](filters);
