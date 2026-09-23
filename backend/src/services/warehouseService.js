@@ -266,7 +266,15 @@ export const createGRN = async (data, createdBy) => {
   const allowOverReceipt = await getSettingValue(warehouse_location_id, 'allow_over_receipt');
   const overReceiptTolerancePct = num(await getSettingValue(warehouse_location_id, 'over_receipt_tolerance_pct'));
   const requireBatchForBatchTracked = await getSettingValue(warehouse_location_id, 'require_batch_for_batch_tracked');
-  let poRemaining = {};
+  // 7E1A: per-PO-LINE remaining quantities keyed by purchase_order_items.id.
+  // A PO may legally contain the same raw_material_id on multiple lines, so
+  // material-grain tracking is ambiguous. Linked historical rows attribute
+  // exactly; unlinked legacy rows attribute only when the PO has a single
+  // item for that material - otherwise receiving is blocked rather than
+  // guessed (an over-receipt is worse than a blocked receipt).
+  let poRemaining = {};   // purchase_order_item_id -> remaining base qty
+  let poItemsById = new Map();
+  let poItemsByMaterial = new Map(); // raw_material_id -> [items]
   if (purchase_order_id) {
     const [po] = await query('SELECT * FROM purchase_orders WHERE id = ?', [purchase_order_id]);
     if (!po) throw new Error('Purchase order not found');
@@ -274,17 +282,44 @@ export const createGRN = async (data, createdBy) => {
     if (String(po.warehouse_location_id) !== String(warehouse_location_id)) throw new Error('GRN warehouse does not match PO warehouse');
     if (!['Approved','Sent','Partially Received'].includes(po.status)) throw new Error('PO is not ready for GRN');
     const poItems = await query('SELECT id, raw_material_id, ordered_qty, unit_id FROM purchase_order_items WHERE purchase_order_id = ?', [purchase_order_id]);
+    poItemsById = new Map(poItems.map((pi) => [Number(pi.id), pi]));
+    for (const pi of poItems) {
+      const k = Number(pi.raw_material_id);
+      if (!poItemsByMaterial.has(k)) poItemsByMaterial.set(k, []);
+      poItemsByMaterial.get(k).push(pi);
+    }
+    // Ambiguity guard: unlinked legacy receipts + duplicate-material lines
+    // can never be allocated per line safely - block with a clear error.
+    const dupMaterials = [...poItemsByMaterial.keys()].filter((k) => poItemsByMaterial.get(k).length > 1);
+    if (dupMaterials.length) {
+      const unlinked = await query(
+        `SELECT gri.raw_material_id FROM grn g JOIN grn_items gri ON gri.grn_id = g.id
+         WHERE g.purchase_order_id = ? AND gri.purchase_order_item_id IS NULL AND g.status = 'Posted'
+           AND gri.raw_material_id IN (${dupMaterials.map(() => '?').join(',')})`,
+        [purchase_order_id, ...dupMaterials]
+      );
+      if (unlinked.length) {
+        throw new Error('This PO has multiple lines for the same material with unlinked historical receipts; per-line remaining quantity cannot be established - link the historical GRN items first');
+      }
+    }
     for (const pi of poItems) {
       const baseUnit = await getMaterialBaseUnit(pi.raw_material_id);
       const orderedBase = await convertToBase(num(pi.ordered_qty), pi.unit_id, baseUnit.id);
-      const [acc] = await query(`
-        SELECT COALESCE(SUM(gri.accepted_qty), 0) as total
-        FROM grn g
-        JOIN grn_items gri ON gri.grn_id = g.id
-        WHERE g.purchase_order_id = ? AND gri.raw_material_id = ? AND g.status = 'Posted'
-      `, [purchase_order_id, pi.raw_material_id]);
-      const acceptedBase = await convertToBase(num(acc.total), pi.unit_id, baseUnit.id);
-      poRemaining[pi.raw_material_id] = Math.max(0, orderedBase - acceptedBase);
+      // Accepted = linked rows for THIS line + unlinked legacy rows only when
+      // the material maps to exactly one line (single-line => attributable).
+      // Per-row conversion in the RECEIPT'S UOM - more faithful than the old
+      // SUM-then-convert-by-PO-unit behavior for mixed-UOM receipts.
+      const accRows = await query(
+        `SELECT gri.accepted_qty, gri.unit_id
+         FROM grn g JOIN grn_items gri ON gri.grn_id = g.id
+         WHERE g.purchase_order_id = ? AND g.status = 'Posted'
+           AND (gri.purchase_order_item_id = ?
+                OR (gri.purchase_order_item_id IS NULL AND gri.raw_material_id = ? AND ? = 1))`,
+        [purchase_order_id, pi.id, pi.raw_material_id, poItemsByMaterial.get(Number(pi.raw_material_id)).length]
+      );
+      let acceptedBase = 0;
+      for (const r of accRows) acceptedBase += await convertToBase(num(r.accepted_qty), r.unit_id, baseUnit.id);
+      poRemaining[Number(pi.id)] = Math.max(0, orderedBase - acceptedBase);
     }
   }
   const connection = await getConnection();
@@ -302,6 +337,7 @@ export const createGRN = async (data, createdBy) => {
       [grn_no, grn_date, supplier_id || null, warehouse_location_id, purchase_order_id || null, purchase_reference || null, invoice_reference || null, totalAmount, remarks || null, createdBy]
     );
     const grnId = grnRes.insertId;
+    const acceptedThisGRN = {}; // po_item_id -> base qty accepted in THIS GRN
     for (const it of items) {
       const received = num(it.received_qty);
       const rejected = num(it.rejected_qty);
@@ -309,17 +345,41 @@ export const createGRN = async (data, createdBy) => {
       if (received < 0 || rejected < 0 || rejected > received || accepted < 0) throw new Error('Invalid GRN item quantities');
       if (num(it.rate) < 0) throw new Error('Rate cannot be negative');
       if (num(it.tax_amount) < 0) throw new Error('Tax amount cannot be negative');
+      // 7E1A: resolve source PO line - validated identity, unique inference,
+      // or explicit ambiguity rejection. Never trusted blindly from client.
+      let poItemId = null;
       if (purchase_order_id) {
+        if (it.purchase_order_item_id) {
+          const pi = poItemsById.get(Number(it.purchase_order_item_id));
+          if (!pi) {
+            await connection.rollback();
+            throw new Error('Purchase order item does not belong to this purchase order');
+          }
+          if (Number(pi.raw_material_id) !== Number(it.raw_material_id)) {
+            await connection.rollback();
+            throw new Error('GRN item material does not match the selected purchase order line');
+          }
+          poItemId = pi.id;
+        } else {
+          const candidates = poItemsByMaterial.get(Number(it.raw_material_id)) || [];
+          if (candidates.length > 1) {
+            await connection.rollback();
+            throw new Error('Purchase order contains multiple lines for this material; select the source PO line');
+          }
+          if (candidates.length === 1) poItemId = candidates[0].id;
+        }
         const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
         const acceptedBase = await convertToBase(accepted, it.unit_id, baseUnit.id);
-        const remaining = num(poRemaining[it.raw_material_id]);
+        const already = num(poItemId ? acceptedThisGRN[poItemId] : 0);
+        const remaining = num(poItemId ? poRemaining[poItemId] : 0);
         const allowedCeiling = allowOverReceipt ? remaining * (1 + overReceiptTolerancePct / 100) : remaining;
-        if (acceptedBase > allowedCeiling + 0.0001) {
+        if (already + acceptedBase > allowedCeiling + 0.0001) {
           await connection.rollback();
           throw new Error(allowOverReceipt
             ? `Accepted quantity exceeds remaining PO quantity plus the ${overReceiptTolerancePct}% over-receipt tolerance`
             : 'Accepted quantity exceeds remaining PO quantity');
         }
+        if (poItemId) acceptedThisGRN[poItemId] = already + acceptedBase;
       }
       if (requireBatchForBatchTracked) {
         const [matInfo] = await query('SELECT is_batch_tracked FROM raw_materials WHERE id = ?', [it.raw_material_id]);
@@ -330,9 +390,9 @@ export const createGRN = async (data, createdBy) => {
       }
       const itemTotal = accepted * num(it.rate) + num(it.tax_amount);
       await connection.execute(
-        `INSERT INTO grn_items (grn_id, raw_material_id, ordered_qty, received_qty, rejected_qty, accepted_qty, unit_id, rate, tax_amount, total_amount, batch_no, expiry_date, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [grnId, it.raw_material_id, it.ordered_qty ? num(it.ordered_qty) : null, received, rejected, accepted, it.unit_id, it.rate, num(it.tax_amount), itemTotal, it.batch_no || null, it.expiry_date || null, it.remarks || null]
+        `INSERT INTO grn_items (grn_id, purchase_order_item_id, raw_material_id, ordered_qty, received_qty, rejected_qty, accepted_qty, unit_id, rate, tax_amount, total_amount, batch_no, expiry_date, remarks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [grnId, poItemId, it.raw_material_id, it.ordered_qty ? num(it.ordered_qty) : null, received, rejected, accepted, it.unit_id, it.rate, num(it.tax_amount), itemTotal, it.batch_no || null, it.expiry_date || null, it.remarks || null]
       );
     }
     await connection.commit();
@@ -367,28 +427,55 @@ export const postGRN = async (grnId, postedBy) => {
       const allowOverReceipt = await getSettingValue(grn.warehouse_location_id, 'allow_over_receipt');
       const overReceiptTolerancePct = num(await getSettingValue(grn.warehouse_location_id, 'over_receipt_tolerance_pct'));
       const [poItems] = await connection.execute('SELECT id, raw_material_id, ordered_qty, unit_id FROM purchase_order_items WHERE purchase_order_id = ?', [grn.purchase_order_id]);
-      const poItemByMaterial = Object.fromEntries(poItems.map((pi) => [Number(pi.raw_material_id), pi]));
+      const poItemsById = new Map(poItems.map((pi) => [Number(pi.id), pi]));
+      const poItemsByMaterial = new Map();
+      for (const pi of poItems) {
+        const k = Number(pi.raw_material_id);
+        if (!poItemsByMaterial.has(k)) poItemsByMaterial.set(k, []);
+        poItemsByMaterial.get(k).push(pi);
+      }
+      // 7E1A: same per-line attribution rules as createGRN - linked rows
+      // resolve to their exact PO line; unlinked legacy rows resolve only
+      // when the material maps to a single line, else posting is blocked.
+      const thisAccepted = {};
       for (const it of items) {
-        const pi = poItemByMaterial[Number(it.raw_material_id)];
+        let pi = it.purchase_order_item_id ? poItemsById.get(Number(it.purchase_order_item_id)) : null;
+        if (!pi && it.purchase_order_item_id) {
+          await connection.rollback();
+          throw new Error('Linked purchase order item no longer belongs to this purchase order');
+        }
+        if (!pi) {
+          const candidates = poItemsByMaterial.get(Number(it.raw_material_id)) || [];
+          if (candidates.length > 1) {
+            await connection.rollback();
+            throw new Error('Cannot post: PO has multiple lines for this material and the receipt is unlinked - link the GRN item first');
+          }
+          pi = candidates[0] || null;
+        }
         if (!pi) continue;
         const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
         const orderedBase = await convertToBase(num(pi.ordered_qty), pi.unit_id, baseUnit.id);
         const [acc] = await connection.execute(
-          `SELECT COALESCE(SUM(gri.accepted_qty), 0) as total
+          `SELECT gri.accepted_qty, gri.unit_id
            FROM grn g JOIN grn_items gri ON gri.grn_id = g.id
-           WHERE g.purchase_order_id = ? AND gri.raw_material_id = ? AND g.status = 'Posted' AND g.id != ?`,
-          [grn.purchase_order_id, it.raw_material_id, grnId]
+           WHERE g.purchase_order_id = ? AND g.status = 'Posted' AND g.id != ?
+             AND (gri.purchase_order_item_id = ?
+                  OR (gri.purchase_order_item_id IS NULL AND gri.raw_material_id = ? AND ? = 1))`,
+          [grn.purchase_order_id, grnId, pi.id, pi.raw_material_id, poItemsByMaterial.get(Number(pi.raw_material_id)).length]
         );
-        const alreadyAcceptedBase = await convertToBase(num(acc[0].total), pi.unit_id, baseUnit.id);
+        let alreadyAcceptedBase = 0;
+        for (const r of acc[0]) alreadyAcceptedBase += await convertToBase(num(r.accepted_qty), r.unit_id, baseUnit.id);
         const thisAcceptedBase = await convertToBase(num(it.accepted_qty), it.unit_id, baseUnit.id);
+        const already = num(thisAccepted[pi.id]);
         const remaining = Math.max(0, orderedBase - alreadyAcceptedBase);
         const allowedCeiling = allowOverReceipt ? remaining * (1 + overReceiptTolerancePct / 100) : remaining;
-        if (thisAcceptedBase > allowedCeiling + 0.0001) {
+        if (already + thisAcceptedBase > allowedCeiling + 0.0001) {
           await connection.rollback();
           throw new Error(allowOverReceipt
             ? `Cannot post: accepted quantity now exceeds remaining PO quantity plus the ${overReceiptTolerancePct}% over-receipt tolerance (another GRN against this PO was posted first)`
             : 'Cannot post: accepted quantity now exceeds remaining PO quantity (another GRN against this PO was posted first)');
         }
+        thisAccepted[pi.id] = already + thisAcceptedBase;
       }
     }
     for (const it of items) {

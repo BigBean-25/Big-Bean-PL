@@ -1,5 +1,5 @@
 import { query, getConnection } from '../config/database.js';
-import { getUnit, getMaterialBaseUnit, convertToBase } from '../utils/uomUtils.js';
+import { getUnit, getMaterialBaseUnit, convertToBase, findConversionFactor } from '../utils/uomUtils.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 const fmt = (v) => Math.round(num(v) * 10000) / 10000;
@@ -58,16 +58,25 @@ const recalcTotals = (items) => {
 // "Cannot read properties of null (reading 'execute')" on every single
 // call, so both PO receipt-summary and GRN-prefill-from-PO were completely
 // broken. Uses the plain query() helper instead of requiring a connection.
-const getAcceptedByPOItem = async (poId, itemId) => {
+// 7E1A/7E1A-fix: returns accepted quantity in the material's BASE unit.
+// Each attributed GRN row is converted by its OWN unit_id before summing -
+// SUM(accepted_qty) across mixed receipt UOMs (BOX + PCS) is meaningless.
+// Attribution: linked rows -> exact PO line; unlinked legacy rows count only
+// when the material maps to a single line (materialLineCount = 1).
+const getAcceptedBaseByPOItem = async (poId, itemId, materialLineCount, baseUnitId) => {
   const rows = await query(`
-    SELECT COALESCE(SUM(gri.accepted_qty), 0) as total
+    SELECT gri.accepted_qty, gri.unit_id
     FROM grn g
     JOIN grn_items gri ON gri.grn_id = g.id
-    WHERE g.purchase_order_id = ? AND gri.raw_material_id = (
-      SELECT raw_material_id FROM purchase_order_items WHERE id = ?
-    ) AND g.status = 'Posted'
-  `, [poId, itemId]);
-  return num(rows[0]?.total);
+    WHERE g.purchase_order_id = ? AND g.status = 'Posted'
+      AND (gri.purchase_order_item_id = ?
+           OR (gri.purchase_order_item_id IS NULL AND gri.raw_material_id = (
+             SELECT raw_material_id FROM purchase_order_items WHERE id = ?
+           ) AND ? = 1))
+  `, [poId, itemId, itemId, num(materialLineCount)]);
+  let acceptedBase = 0;
+  for (const r of rows) acceptedBase += await convertToBase(num(r.accepted_qty), r.unit_id, baseUnitId);
+  return acceptedBase;
 };
 
 export const getPOs = async (filters = {}) => {
@@ -265,17 +274,21 @@ export const getPOReceiptSummary = async (poId) => {
   const po = await getPOById(poId);
   if (!po) throw new Error('PO not found');
   const summary = [];
+  const materialLineCounts = {};
+  for (const it of po.items) materialLineCounts[it.raw_material_id] = (materialLineCounts[it.raw_material_id] || 0) + 1;
   for (const it of po.items) {
     const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
-    const accepted = await getAcceptedByPOItem(poId, it.id);
-    const acceptedBase = await convertToBase(accepted, it.unit_id, baseUnit.id);
+    const acceptedBase = await getAcceptedBaseByPOItem(poId, it.id, materialLineCounts[it.raw_material_id], baseUnit.id);
     const orderedBase = await convertToBase(num(it.ordered_qty), it.unit_id, baseUnit.id);
+    // accepted_qty/remaining_qty stay in the PO line's UOM: base -> PO unit
+    // via the canonical factor (qty_PO = qty_base / units-per-PO-unit).
+    const poFactor = await findConversionFactor(it.unit_id, baseUnit.id);
     summary.push({
       ...it,
       ordered_base: orderedBase,
-      accepted_qty: accepted,
+      accepted_qty: acceptedBase / poFactor,
       accepted_base: acceptedBase,
-      remaining_qty: Math.max(0, orderedBase - acceptedBase),
+      remaining_qty: Math.max(0, (orderedBase - acceptedBase) / poFactor),
     });
   }
   return { po, items: summary };
@@ -286,20 +299,24 @@ export const getGRNPrefill = async (poId) => {
   if (!po) throw new Error('PO not found');
   if (!['Approved','Sent','Partially Received'].includes(po.status)) throw new Error('PO cannot be received yet');
   const items = [];
+  const materialLineCounts = {};
+  for (const it of po.items) materialLineCounts[it.raw_material_id] = (materialLineCounts[it.raw_material_id] || 0) + 1;
   for (const it of po.items) {
-    const accepted = await getAcceptedByPOItem(poId, it.id);
     const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
+    const acceptedBase = await getAcceptedBaseByPOItem(poId, it.id, materialLineCounts[it.raw_material_id], baseUnit.id);
     const orderedBase = await convertToBase(num(it.ordered_qty), it.unit_id, baseUnit.id);
-    const acceptedBase = await convertToBase(accepted, it.unit_id, baseUnit.id);
-    const remaining = Math.max(0, orderedBase - acceptedBase);
-    if (remaining > 0) {
+    const remainingBase = Math.max(0, orderedBase - acceptedBase);
+    if (remainingBase > 0) {
+      // remaining_qty is in the PO line's UOM (what the receive form enters),
+      // not base units - a 10-BOX PO with 48 PCS received shows 6 BOX.
+      const poFactor = await findConversionFactor(it.unit_id, baseUnit.id);
       items.push({
         raw_material_id: it.raw_material_id,
         material_code: it.material_code,
         material_name: it.material_name,
         ordered_qty: it.ordered_qty,
         ordered_base: orderedBase,
-        remaining_qty: remaining,
+        remaining_qty: remainingBase / poFactor,
         unit_id: it.unit_id,
         unit_name: it.unit_name,
         base_unit_id: baseUnit.id,
@@ -319,16 +336,29 @@ export const updatePOStatusAfterGRN = async (conn, poId) => {
   const po = (await conn.execute('SELECT status FROM purchase_orders WHERE id = ?', [poId]))[0][0];
   if (!po) return;
   const [rows] = await conn.execute(`
-    SELECT poi.ordered_qty, poi.unit_id, poi.raw_material_id,
-      COALESCE((SELECT SUM(gri.accepted_qty) FROM grn g JOIN grn_items gri ON gri.grn_id = g.id WHERE g.purchase_order_id = ? AND gri.raw_material_id = poi.raw_material_id AND g.status = 'Posted'), 0) as accepted
+    SELECT poi.id, poi.ordered_qty, poi.unit_id, poi.raw_material_id,
+      (SELECT COUNT(*) FROM purchase_order_items p2
+       WHERE p2.purchase_order_id = ? AND p2.raw_material_id = poi.raw_material_id) as material_line_count
     FROM purchase_order_items poi
     WHERE poi.purchase_order_id = ?
   `, [poId, poId]);
   let allReceived = true;
   let anyReceived = false;
   for (const r of rows) {
-    const baseOrdered = await convertToBase(num(r.ordered_qty), r.unit_id, (await getMaterialBaseUnit(r.raw_material_id)).id);
-    const baseAccepted = await convertToBase(num(r.accepted), r.unit_id, (await getMaterialBaseUnit(r.raw_material_id)).id);
+    // 7E1A-fix: per-row UOM conversion - each attributed receipt converts by
+    // its own unit_id; a SUM across mixed UOMs would silently misstate status.
+    const baseUnit = await getMaterialBaseUnit(r.raw_material_id);
+    const [acc] = await conn.execute(
+      `SELECT gri.accepted_qty, gri.unit_id
+       FROM grn g JOIN grn_items gri ON gri.grn_id = g.id
+       WHERE g.purchase_order_id = ? AND g.status = 'Posted'
+         AND (gri.purchase_order_item_id = ?
+              OR (gri.purchase_order_item_id IS NULL AND gri.raw_material_id = ? AND ? = 1))`,
+      [poId, r.id, r.raw_material_id, num(r.material_line_count)]
+    );
+    let baseAccepted = 0;
+    for (const a of acc) baseAccepted += await convertToBase(num(a.accepted_qty), a.unit_id, baseUnit.id);
+    const baseOrdered = await convertToBase(num(r.ordered_qty), r.unit_id, baseUnit.id);
     if (baseAccepted > 0) anyReceived = true;
     if (baseAccepted < baseOrdered) allReceived = false;
   }

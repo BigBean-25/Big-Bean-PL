@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
@@ -84,6 +84,11 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     };
   }, [print]);
 
+  // Stable per-row identity: index keys cause React to reuse a DOM row for a
+  // different item after removeItem, which can steal focus/scroll mid-edit.
+  const itemSeq = useRef(0);
+  const newItemRow = (seed = {}) => ({ _key: `it-${++itemSeq.current}`, ...seed });
+
   const emptyForm = () => ({
     grn_no: "",
     grn_date: new Date().toISOString().split("T")[0],
@@ -92,7 +97,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     purchase_reference: "",
     invoice_reference: "",
     remarks: "",
-    items: [{ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }],
+    items: [newItemRow({ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" })],
   });
   const [form, setForm] = useState(emptyForm());
 
@@ -118,7 +123,8 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
         if (!alive) return;
         const prefill = res?.data?.data || {};
         const po = prefill.po || {};
-        const items = (prefill.items || []).map((it) => ({
+        const items = (prefill.items || []).map((it) => newItemRow({
+          purchase_order_item_id: it.purchase_order_item_id ?? null, // 7E1A: exact PO-line identity - duplicate same-material lines stay distinct
           raw_material_id: String(it.raw_material_id || ""),
           received_qty: String(it.remaining_qty ?? it.ordered_qty ?? ""),
           rejected_qty: "0",
@@ -165,7 +171,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
     fetchGRNs(page);
   }, [page]);
 
-  const addItem = () => setForm({ ...form, items: [...form.items, { raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" }] });
+  const addItem = () => setForm({ ...form, items: [...form.items, newItemRow({ raw_material_id: "", received_qty: "", rejected_qty: "0", rate: "", batch_no: "", expiry_date: "" })] });
   const updateItem = (idx, key, value) => {
     const items = [...form.items];
     items[idx][key] = value;
@@ -190,6 +196,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
         warehouse_location_id: Number(locationId),
         supplier_id: form.supplier_id ? Number(form.supplier_id) : null,
         items: form.items.map((it) => ({
+          purchase_order_item_id: it.purchase_order_item_id ? Number(it.purchase_order_item_id) : null,
           raw_material_id: Number(it.raw_material_id),
           received_qty: Number(it.received_qty),
           rejected_qty: Number(it.rejected_qty || 0),
@@ -233,14 +240,14 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
         <div className="flex flex-wrap items-end gap-3">
           <div className="relative min-w-[220px] flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search Goods Receipt" />
+            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Search Goods Receipt" />
           </div>
-          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`}>
             <option value="">All Status</option>
             <option value="Draft">Draft</option>
             <option value="Posted">Posted</option>
           </select>
-          <select value={filters.supplier} onChange={(e) => setFilters({ ...filters, supplier: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+          <select value={filters.supplier} onChange={(e) => setFilters({ ...filters, supplier: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`}>
             <option value="">All Suppliers</option>
             {suppliers.map((s) => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
           </select>
@@ -256,7 +263,9 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
       </SectionCard>
 
       <SectionCard isDark={isDark}>
-        <TableWrapper isDark={isDark}>
+        {/* overscroll-x-contain: horizontal drag momentum must not chain to
+            the page's vertical scroll at the container edge */}
+        <TableWrapper isDark={isDark} className="overscroll-x-contain">
           <table className="w-full border-collapse text-[13px]">
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
@@ -320,9 +329,9 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
             <div className="space-y-5 p-4">
               <SectionCard title="Goods Receipt Information" isDark={isDark}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <input value={form.grn_no} onChange={(e) => setForm({ ...form, grn_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Goods Receipt Number" />
-                  <input type="date" value={form.grn_date} onChange={(e) => setForm({ ...form, grn_date: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-                  <select value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}><option value="">Supplier</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
+                  <input value={form.grn_no} onChange={(e) => setForm({ ...form, grn_no: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Goods Receipt Number" />
+                  <input type="date" value={form.grn_date} onChange={(e) => setForm({ ...form, grn_date: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`} />
+                  <select value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`}><option value="">Supplier</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
                   <div className={`flex h-10 items-center rounded-lg border px-3 text-[14px] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                     {locations.find((l) => String(l.id) === locationId)?.location_name || "Select location"}
                   </div>
@@ -331,14 +340,16 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
 
               <SectionCard title="References" isDark={isDark}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <input value={form.purchase_reference} onChange={(e) => setForm({ ...form, purchase_reference: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Purchase Reference" />
-                  <input value={form.invoice_reference} onChange={(e) => setForm({ ...form, invoice_reference: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Invoice Reference" />
-                  <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} placeholder="Remarks" />
+                  <input value={form.purchase_reference} onChange={(e) => setForm({ ...form, purchase_reference: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Purchase Reference" />
+                  <input value={form.invoice_reference} onChange={(e) => setForm({ ...form, invoice_reference: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Invoice Reference" />
+                  <input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className={`h-10 rounded-lg border px-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Remarks" />
                 </div>
               </SectionCard>
 
               <SectionCard title="Material Items" isDark={isDark}>
-                <TableWrapper isDark={isDark}>
+                {/* overscroll-x-contain: inside the vertically-scrolling modal,
+                    horizontal drag momentum must not chain into a page jump */}
+                <TableWrapper isDark={isDark} className="overscroll-x-contain">
                   <table className="w-full border-collapse text-[13px]">
                     <thead className={`${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                       <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
@@ -363,17 +374,17 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         const tax = getItemTax(it);
                         const total = accepted * rate + tax;
                         return (
-                          <tr key={idx} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                          <tr key={it._key ?? idx} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                             <td className="px-2 py-2">
-                              <select value={it.raw_material_id} onChange={(e) => updateItem(idx, "raw_material_id", e.target.value)} className={`h-9 w-40 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}><option value="">Select</option>{materials.map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
+                              <select value={it.raw_material_id} onChange={(e) => updateItem(idx, "raw_material_id", e.target.value)} className={`h-9 w-40 rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`}><option value="">Select</option>{materials.map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
                             </td>
-                            <td className="px-2 py-2"><input type="number" min="0" value={it.received_qty} onChange={(e) => updateItem(idx, "received_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-[13px] outline-none ${inputClass}`} /></td>
-                            <td className="px-2 py-2"><input type="number" min="0" value={it.rejected_qty} onChange={(e) => updateItem(idx, "rejected_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-[13px] outline-none ${inputClass}`} /></td>
+                            <td className="px-2 py-2"><input type="number" min="0" value={it.received_qty} onChange={(e) => updateItem(idx, "received_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-base md:text-[13px] outline-none ${inputClass}`} /></td>
+                            <td className="px-2 py-2"><input type="number" min="0" value={it.rejected_qty} onChange={(e) => updateItem(idx, "rejected_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-base md:text-[13px] outline-none ${inputClass}`} /></td>
                             <td className="px-2 py-2 text-right text-[13px]">{fmtQty(accepted)}</td>
-                            <td className="px-2 py-2"><input type="number" min="0" value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-[13px] outline-none ${inputClass}`} /></td>
+                            <td className="px-2 py-2"><input type="number" min="0" value={it.rate} onChange={(e) => updateItem(idx, "rate", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-base md:text-[13px] outline-none ${inputClass}`} /></td>
                             <td className="px-2 py-2 text-right text-[13px]">{getMaterialGstRate(it.raw_material_id)}%</td>
-                            <td className="px-2 py-2"><input value={it.batch_no} onChange={(e) => updateItem(idx, "batch_no", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
-                            <td className="px-2 py-2"><input type="date" value={it.expiry_date} onChange={(e) => updateItem(idx, "expiry_date", e.target.value)} className={`h-9 w-32 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
+                            <td className="px-2 py-2"><input value={it.batch_no} onChange={(e) => updateItem(idx, "batch_no", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`} /></td>
+                            <td className="px-2 py-2"><input type="date" value={it.expiry_date} onChange={(e) => updateItem(idx, "expiry_date", e.target.value)} className={`h-9 w-32 rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`} /></td>
                             <td className="px-2 py-2 text-right text-[13px]">{fmtCurrency(total)}</td>
                             <td className="px-2 py-2"><button onClick={() => removeItem(idx)} className="text-rose-500" disabled={form.items.length === 1}><X size={16} /></button></td>
                           </tr>
