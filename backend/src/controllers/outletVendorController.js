@@ -1,12 +1,23 @@
 import { query, getConnection } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { validateContactFields } from '../utils/validators.js';
-import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing } from '../services/outletVendorLedgerService.js';
+import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing, getOpeningBalance } from '../services/outletVendorLedgerService.js';
 import { assertDateEditable } from '../utils/periodLock.js';
 import { isOwnDocument } from '../utils/makerChecker.js';
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 const isAllOutlets = (v) => !v || v === 'all';
+
+// 7D3A1: credit_days must be a non-negative integer (no arbitrary max)
+const isValidCreditDays = (v) => Number.isInteger(Number(v)) && Number(v) >= 0;
+
+// due_date snapshot = purchase_date + vendor credit_days at creation time.
+// Once stored it never moves when vendor credit_days changes later.
+const computeDueDate = (dateStr, creditDays) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + num(creditDays));
+  return d.toISOString().slice(0, 10);
+};
 
 const generatePurchaseNo = async () => {
   const year = new Date().getFullYear();
@@ -55,8 +66,8 @@ export const createVendor = async (req, res) => {
     if (!vendor_name || !String(vendor_name).trim()) {
       return res.status(400).json({ success: false, message: 'Vendor name is required' });
     }
-    if (credit_days !== undefined && (Number.isNaN(Number(credit_days)) || num(credit_days) < 0)) {
-      return res.status(400).json({ success: false, message: 'Credit days must be a non-negative number' });
+    if (credit_days !== undefined && !isValidCreditDays(credit_days)) {
+      return res.status(400).json({ success: false, message: 'Credit days must be a non-negative integer' });
     }
     const contactError = validateContactFields({ gstin, email, phone });
     if (contactError) return res.status(400).json({ success: false, message: contactError });
@@ -84,8 +95,8 @@ export const updateVendor = async (req, res) => {
     if (vendor_name !== undefined && !String(vendor_name).trim()) {
       return res.status(400).json({ success: false, message: 'Vendor name is required' });
     }
-    if (credit_days !== undefined && (Number.isNaN(Number(credit_days)) || num(credit_days) < 0)) {
-      return res.status(400).json({ success: false, message: 'Credit days must be a non-negative number' });
+    if (credit_days !== undefined && !isValidCreditDays(credit_days)) {
+      return res.status(400).json({ success: false, message: 'Credit days must be a non-negative integer' });
     }
     const contactError = validateContactFields({ gstin, email, phone });
     if (contactError) return res.status(400).json({ success: false, message: contactError });
@@ -189,20 +200,23 @@ export const createVendorPurchase = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
     }
 
-    const vendorRows = await query('SELECT id, is_active FROM outlet_vendors WHERE id = ?', [vendor_id]);
+    const vendorRows = await query('SELECT id, is_active, credit_days FROM outlet_vendors WHERE id = ?', [vendor_id]);
     if (!vendorRows.length) return res.status(400).json({ success: false, message: 'Vendor not found' });
     if (Number(vendorRows[0].is_active) !== 1) return res.status(400).json({ success: false, message: 'Selected vendor is not active' });
 
     await assertDateEditable(outlet_id, purchase_date, 'An outlet vendor purchase');
 
+    // 7D3A1: persist the due-date snapshot so later vendor credit_days edits
+    // cannot move this purchase's due date.
+    const dueDate = computeDueDate(purchase_date, vendorRows[0].credit_days);
     const purchaseNo = await generatePurchaseNo();
     const result = await query(
-      `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, remarks, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, due_date, remarks, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         purchaseNo, outlet_id, vendor_id, purchase_date, String(description).trim(), num(amount),
         paid_by === 'Management' ? 'Management' : 'Outlet',
-        payment_mode_id || null, is_emergency ? 1 : 0, invoice_no || null, remarks || null, req.user.id,
+        payment_mode_id || null, is_emergency ? 1 : 0, invoice_no || null, dueDate, remarks || null, req.user.id,
       ]
     );
     await logAudit(req.user.id, 'CREATE', 'outlet_vendor_purchases', result.insertId, null, req.body, 'Created outlet vendor purchase');
@@ -249,12 +263,13 @@ export const createVendorPurchasesBatch = async (req, res) => {
         return res.status(400).json({ success: false, message: `${rowLabel}: amount must be a positive number` });
       }
 
-      const vendorRows = await query('SELECT id, is_active FROM outlet_vendors WHERE id = ?', [vendor_id]);
+      const vendorRows = await query('SELECT id, is_active, credit_days FROM outlet_vendors WHERE id = ?', [vendor_id]);
       if (!vendorRows.length) return res.status(400).json({ success: false, message: `${rowLabel}: vendor not found` });
       if (Number(vendorRows[0].is_active) !== 1) return res.status(400).json({ success: false, message: `${rowLabel}: selected vendor is not active` });
 
       validatedItems.push({
         vendor_id,
+        due_date: computeDueDate(purchase_date, vendorRows[0].credit_days),
         description: String(description).trim(),
         amount: num(amount),
         paid_by: paid_by === 'Management' ? 'Management' : 'Outlet',
@@ -286,11 +301,11 @@ export const createVendorPurchasesBatch = async (req, res) => {
         const purchaseNo = `${prefix}${String(nextSeq).padStart(5, '0')}`;
         nextSeq += 1;
         const [result] = await conn.execute(
-          `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, remarks, created_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          `INSERT INTO outlet_vendor_purchases (purchase_no, outlet_id, vendor_id, purchase_date, description, amount, paid_by, payment_mode_id, is_emergency, invoice_no, due_date, remarks, created_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             purchaseNo, outlet_id, item.vendor_id, purchase_date, item.description, item.amount,
-            item.paid_by, item.payment_mode_id, item.is_emergency, item.invoice_no, item.remarks, req.user.id,
+            item.paid_by, item.payment_mode_id, item.is_emergency, item.invoice_no, item.due_date, item.remarks, req.user.id,
           ]
         );
         created.push({ id: result.insertId, purchase_no: purchaseNo });
@@ -586,7 +601,11 @@ export const verifyVendorPayment = async (req, res) => {
        WHERE outlet_id = ? AND vendor_id = ? AND date <= ? AND status = 'Verified' AND id != ?`,
       [pay.outlet_id, pay.vendor_id, pay.date, pay.id]
     );
-    const outstandingAsOfPaymentDate = num(purchaseRows[0].total) - num(paymentRows[0].total);
+    // 7D3A1: opening balance participates by the same effective-date cutoff
+    // as purchases/payments - read on the transaction connection so it is
+    // covered by the vendor serialization lock.
+    const openingAsOfPaymentDate = await getOpeningBalance(pay.outlet_id, pay.vendor_id, pay.date, conn);
+    const outstandingAsOfPaymentDate = openingAsOfPaymentDate + num(purchaseRows[0].total) - num(paymentRows[0].total);
     if (num(pay.paid_amount) > outstandingAsOfPaymentDate + 0.005) {
       await conn.rollback();
       return res.status(400).json({ success: false, message: `Payment exceeds the outstanding of ₹${outstandingAsOfPaymentDate.toFixed(2)} as of its payment date` });
@@ -606,7 +625,8 @@ export const verifyVendorPayment = async (req, res) => {
        WHERE outlet_id = ? AND vendor_id = ? AND date <= ? AND status = 'Verified' AND id != ?`,
       [pay.outlet_id, pay.vendor_id, currentCutoff, pay.id]
     );
-    const currentOutstanding = num(curPurchaseRows[0].total) - num(curPaymentRows[0].total);
+    const openingCurrent = await getOpeningBalance(pay.outlet_id, pay.vendor_id, currentCutoff, conn);
+    const currentOutstanding = openingCurrent + num(curPurchaseRows[0].total) - num(curPaymentRows[0].total);
     if (num(pay.paid_amount) > currentOutstanding + 0.005) {
       await conn.rollback();
       return res.status(400).json({ success: false, message: `Payment amount cannot exceed current outstanding of ₹${currentOutstanding.toFixed(2)}` });
@@ -659,5 +679,148 @@ export const rejectVendorPayment = async (req, res) => {
   } catch (error) {
     console.error('Reject vendor payment error:', error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error rejecting vendor payment' });
+  }
+};
+
+// ============================================================================
+// Phase 7D3A1 - Outlet Vendor Opening Balance (one row per outlet+vendor).
+// Permission module: outlet_vendors (view/create/edit) - same module that owns
+// vendor financials; no parallel module invented. Mutations take the vendor
+// FOR UPDATE lock so they serialize against payment verification (which holds
+// the same outlet_vendors row lock during its authoritative checks).
+// ============================================================================
+
+export const getVendorOpeningBalance = async (req, res) => {
+  try {
+    const { outlet_id, vendor_id } = req.query;
+    if (!outlet_id || !vendor_id) {
+      return res.status(400).json({ success: false, message: 'outlet_id and vendor_id are required' });
+    }
+    const outletScope = req.outletScope;
+    if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+    }
+    const rows = await query(
+      'SELECT * FROM outlet_vendor_opening_balances WHERE outlet_id = ? AND vendor_id = ? LIMIT 1',
+      [outlet_id, vendor_id]
+    );
+    res.status(200).json({ success: true, data: rows[0] || null });
+  } catch (error) {
+    console.error('Get vendor opening balance error:', error);
+    res.status(500).json({ success: false, message: 'Error loading opening balance' });
+  }
+};
+
+const validateOpeningInput = (res, { effective_date, due_date, opening_amount }) => {
+  if (!effective_date || Number.isNaN(new Date(effective_date).getTime())) {
+    res.status(400).json({ success: false, message: 'A valid effective_date is required' });
+    return false;
+  }
+  if (due_date && Number.isNaN(new Date(due_date).getTime())) {
+    res.status(400).json({ success: false, message: 'due_date must be a valid date' });
+    return false;
+  }
+  if (Number.isNaN(Number(opening_amount)) || num(opening_amount) < 0) {
+    res.status(400).json({ success: false, message: 'Opening amount must be a non-negative number' });
+    return false;
+  }
+  return true;
+};
+
+export const createVendorOpeningBalance = async (req, res) => {
+  const conn = await getConnection();
+  try {
+    const { outlet_id, vendor_id, effective_date, due_date, opening_amount, remarks } = req.body;
+    if (!outlet_id || !vendor_id) {
+      return res.status(400).json({ success: false, message: 'outlet_id and vendor_id are required' });
+    }
+    if (!validateOpeningInput(res, { effective_date, due_date, opening_amount })) return;
+
+    const outletScope = req.outletScope;
+    if (outletScope && !outletScope.all && !outletScope.outletIds.includes(Number(outlet_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+    }
+    const vendorRows = await query('SELECT id, is_active FROM outlet_vendors WHERE id = ?', [vendor_id]);
+    if (!vendorRows.length) return res.status(400).json({ success: false, message: 'Vendor not found' });
+    if (Number(vendorRows[0].is_active) !== 1) return res.status(400).json({ success: false, message: 'Selected vendor is not active' });
+
+    await conn.beginTransaction();
+    // Serialize against payment verification for this vendor.
+    await conn.execute('SELECT id FROM outlet_vendors WHERE id = ? FOR UPDATE', [vendor_id]);
+    await assertDateEditable(outlet_id, effective_date, 'An outlet vendor opening balance');
+    const [dup] = await conn.execute(
+      'SELECT id FROM outlet_vendor_opening_balances WHERE outlet_id = ? AND vendor_id = ? LIMIT 1',
+      [outlet_id, vendor_id]
+    );
+    if (dup.length) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Opening balance already exists for this outlet and vendor - edit it instead' });
+    }
+    const [result] = await conn.execute(
+      `INSERT INTO outlet_vendor_opening_balances (outlet_id, vendor_id, effective_date, due_date, opening_amount, remarks, created_by, updated_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [outlet_id, vendor_id, effective_date, due_date || effective_date, num(opening_amount), remarks || null, req.user.id, req.user.id]
+    );
+    await conn.commit();
+    await logAudit(req.user.id, 'CREATE', 'outlet_vendor_opening_balances', result.insertId, null, req.body, 'Created outlet vendor opening balance');
+    res.status(201).json({ success: true, message: 'Opening balance recorded', data: { id: result.insertId } });
+  } catch (error) {
+    await conn.rollback().catch(() => {});
+    console.error('Create vendor opening balance error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error recording opening balance' });
+  } finally {
+    conn.release();
+  }
+};
+
+export const updateVendorOpeningBalance = async (req, res) => {
+  const conn = await getConnection();
+  try {
+    const scopedRecord = req.record; // scope gate already applied by middleware
+    const { effective_date, due_date, opening_amount, remarks } = req.body;
+    if (!validateOpeningInput(res, {
+      effective_date: effective_date ?? scopedRecord.effective_date,
+      due_date: due_date ?? scopedRecord.due_date,
+      opening_amount: opening_amount ?? scopedRecord.opening_amount,
+    })) return;
+
+    await conn.beginTransaction();
+    // Same vendor anchor as payment verification - a verify and an opening edit
+    // cannot race to different outstanding figures.
+    await conn.execute('SELECT id FROM outlet_vendors WHERE id = ? FOR UPDATE', [scopedRecord.vendor_id]);
+    // req.record was read BEFORE this lock and may be stale: a concurrent
+    // committed update must not be overwritten by stale fallback values.
+    // Re-read the row under the lock - it becomes the sole source for stored
+    // values, period-lock checks and the audit "before" image.
+    const [lockedRows] = await conn.execute(
+      'SELECT * FROM outlet_vendor_opening_balances WHERE id = ? FOR UPDATE',
+      [scopedRecord.id]
+    );
+    const record = lockedRows[0];
+    if (!record) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Opening balance no longer exists' });
+    }
+    await assertDateEditable(record.outlet_id, record.effective_date, 'An outlet vendor opening balance');
+    const newEffective = effective_date ?? record.effective_date;
+    if (String(newEffective).slice(0, 10) !== String(record.effective_date).slice(0, 10)) {
+      await assertDateEditable(record.outlet_id, newEffective, 'An outlet vendor opening balance');
+    }
+    // outlet_id/vendor_id are immutable identity - never updated from the body.
+    await conn.execute(
+      `UPDATE outlet_vendor_opening_balances
+       SET effective_date = ?, due_date = ?, opening_amount = ?, remarks = ?, updated_by = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [newEffective, due_date ?? record.due_date, num(opening_amount ?? record.opening_amount), remarks ?? record.remarks, req.user.id, record.id]
+    );
+    await conn.commit();
+    await logAudit(req.user.id, 'UPDATE', 'outlet_vendor_opening_balances', record.id, record, req.body, 'Updated outlet vendor opening balance');
+    res.status(200).json({ success: true, message: 'Opening balance updated' });
+  } catch (error) {
+    await conn.rollback().catch(() => {});
+    console.error('Update vendor opening balance error:', error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error updating opening balance' });
+  } finally {
+    conn.release();
   }
 };

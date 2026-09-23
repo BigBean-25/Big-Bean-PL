@@ -85,6 +85,7 @@ const MIGRATIONS = [
   { name: 'add_outlet_vendor_payment_workflow.sql', file: 'database/add_outlet_vendor_payment_workflow.sql', why: 'Phase 7D2A1: outlet_vendor_payments Draft/Submitted/Verified/Rejected maker-checker columns (backfills existing rows as Verified, NULL verifier - mirrors Phase 5D1 supplier_payments)' },
   { name: 'phase7d2a2_vendor_payment_permissions_migration.mjs', file: 'backend/phase7d2a2_vendor_payment_permissions_migration.mjs', why: 'Phase 7D2A2: permission-data only - outlet_vendors can_submit for Outlet Admin/Manager, can_submit/can_verify/can_reject for Accountant; idempotent, additive' },
   { name: 'add_outlet_vendor_payment_reversal.sql', file: 'database/add_outlet_vendor_payment_reversal.sql', why: 'Phase 7D2B1: outlet_vendor_payments controlled-reversal link columns (is_reversal, reversal_of_payment_id UNIQUE, reversal_exception_id) - additive, mirrors supplier_payments' },
+  { name: 'add_outlet_vendor_opening_balance.sql', file: 'database/add_outlet_vendor_opening_balance.sql', why: 'Phase 7D3A1: outlet_vendor_opening_balances per (outlet,vendor) + purchases.due_date snapshot; legacy due_date backfill uses CURRENT credit_days - best-effort approximation, not historical truth' },
 ];
 
 async function ensureTrackingTable(conn) {
