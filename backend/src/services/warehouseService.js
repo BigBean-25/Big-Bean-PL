@@ -1133,7 +1133,14 @@ export const receiveTransfer = async (id, data, userId) => {
   const { items } = data;
   const transfer = await getTransferById(id);
   if (!transfer) throw new Error('Transfer not found');
-  if (transfer.status === 'Received') throw new Error('Transfer already received');
+  // Only a dispatched transfer may be received. Draft (direct outlet->outlet
+  // creates, #16), Dispatched, Cancelled and Received must all stay out of
+  // receipt processing - previously only 'Received' was excluded, which would
+  // have let a Draft be "received" and post TRANSFER_IN stock with nothing
+  // ever having left the source.
+  if (transfer.status !== 'In Transit' && transfer.status !== 'Partially Received') {
+    throw new Error('Only an in-transit or partially received transfer can be received');
+  }
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
@@ -1201,6 +1208,107 @@ export const receiveTransfer = async (id, data, userId) => {
     await connection.execute(`UPDATE stock_requisitions SET status = ? WHERE id = ?`, [reqStatus, transfer.requisition_id]);
     await connection.commit();
     return getTransferById(id);
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+};
+
+// Req #16: direct Outlet -> Outlet transfer. The transfer number is generated
+// server-side with the same locked-sequence pattern as generateOutletPoNo -
+// a caller must never be able to pick (or squat on) a document number.
+const TRF_NO_MAX_ATTEMPTS = 5;
+
+const generateDirectTransferNo = async (connection) => {
+  const year = new Date().getFullYear();
+  const prefix = `TRF-${year}-`;
+  const [rows] = await connection.execute(
+    `SELECT transfer_no FROM stock_transfers
+     WHERE transfer_no LIKE ?
+     ORDER BY CAST(SUBSTRING_INDEX(transfer_no, '-', -1) AS UNSIGNED) DESC
+     LIMIT 1 FOR UPDATE`,
+    [`${prefix}%`]
+  );
+  const lastSeq = rows.length ? Number(String(rows[0].transfer_no).split('-').pop()) || 0 : 0;
+  return `${prefix}${String(lastSeq + 1).padStart(6, '0')}`;
+};
+
+// Creates a Draft direct transfer between two Outlet locations. Location
+// ACCESS is the route's job (isLocationAccessible on both ends); this function
+// is authoritative for existence/activity/type validation and item rules.
+// A Draft is intent only: no dispatched qty, no receipt, and absolutely no
+// stock_ledger write - stock moves only when the later dispatch/receive
+// workflow (#17) acts on it.
+export const createDirectTransfer = async (data, userId) => {
+  const { from_location_id, to_location_id, remarks, items } = data;
+  // transfer_no is deliberately NOT read from the payload.
+  if (!from_location_id || !to_location_id) throw new Error('Source and destination outlets are required');
+  if (Number(from_location_id) === Number(to_location_id)) throw new Error('Source and destination cannot be the same outlet');
+  if (!items?.length) throw new Error('At least one item is required');
+
+  const locRows = await query(
+    `SELECT id, location_type, is_active, is_inventory_location FROM locations WHERE id IN (?, ?)`,
+    [from_location_id, to_location_id]
+  );
+  const locById = Object.fromEntries(locRows.map((l) => [Number(l.id), l]));
+  for (const [label, locId] of [['Source', from_location_id], ['Destination', to_location_id]]) {
+    const loc = locById[Number(locId)];
+    if (!loc) throw new Error(`${label} outlet location not found`);
+    if (loc.location_type !== 'Outlet') throw new Error(`${label} must be an Outlet location`);
+    if (num(loc.is_active) !== 1) throw new Error(`${label} outlet is not active`);
+    if (num(loc.is_inventory_location) !== 1) throw new Error(`${label} outlet is not an inventory location`);
+  }
+
+  const seenMaterials = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const matId = Number(it.raw_material_id);
+    const qty = num(it.quantity);
+    if (!matId || !it.unit_id) throw new Error(`Invalid item on line ${i + 1}`);
+    if (!(qty > 0)) throw new Error(`Quantity must be greater than 0 on line ${i + 1}`);
+    if (seenMaterials.has(matId)) throw new Error(`Duplicate material on line ${i + 1} - combine it into one line`);
+    seenMaterials.add(matId);
+    const [mat] = await query('SELECT id FROM raw_materials WHERE id = ? AND is_active = 1 LIMIT 1', [matId]);
+    if (!mat) throw new Error(`Raw material on line ${i + 1} not found or inactive`);
+    const baseUnit = await getMaterialBaseUnit(matId);
+    try {
+      await findConversionFactor(it.unit_id, baseUnit.id);
+    } catch (e) {
+      throw new Error(`Line ${i + 1}: ${e.message}`);
+    }
+  }
+
+  // A Draft has not been dispatched - dispatch_date is NULL by definition
+  // (nullable since allow_null_transfer_dispatch_date.sql).
+  const connection = await getConnection();
+  try {
+    await connection.beginTransaction();
+    let transferId = null;
+    for (let attempt = 0; attempt < TRF_NO_MAX_ATTEMPTS && !transferId; attempt++) {
+      const transfer_no = await generateDirectTransferNo(connection);
+      try {
+        const [res] = await connection.execute(
+          `INSERT INTO stock_transfers (transfer_no, requisition_id, production_request_id, from_location_id, to_location_id, dispatch_date, status, remarks, dispatched_by)
+           VALUES (?, NULL, NULL, ?, ?, NULL, 'Draft', ?, NULL)`,
+          [transfer_no, from_location_id, to_location_id, remarks || null]
+        );
+        transferId = res.insertId;
+      } catch (e) {
+        if (e.code === 'ER_DUP_ENTRY' || e.errno === 1062) continue;
+        throw e;
+      }
+    }
+    if (!transferId) throw new Error('Could not allocate a transfer number - please retry');
+    for (const it of items) {
+      // Intended quantity lives in approved_qty for a Draft: dispatched/
+      // received/short/damaged all stay 0, unit_cost stays 0, and the
+      // warehouse->outlet margin columns stay NULL - outlet-to-outlet has no
+      // sale semantics.
+      await connection.execute(
+        `INSERT INTO stock_transfer_items (transfer_id, raw_material_id, approved_qty, dispatched_qty, received_qty, short_qty, damaged_qty, unit_id, unit_cost, transfer_price, sale_value, remarks)
+         VALUES (?, ?, ?, 0, 0, 0, 0, ?, 0, NULL, NULL, ?)`,
+        [transferId, it.raw_material_id, num(it.quantity), it.unit_id, it.remarks || null]
+      );
+    }
+    await connection.commit();
+    return getTransferById(transferId);
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 };
 

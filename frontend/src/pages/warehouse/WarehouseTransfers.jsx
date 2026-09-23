@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { warehouseAPI } from "../../services/api";
+import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
 import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, ArrowRightLeft, Eye, Package, CheckCircle, Printer } from "lucide-react";
+import { Search, RotateCcw, ArrowRightLeft, Eye, Package, CheckCircle, Printer, Plus, X, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { amountInWords } from "./invoiceWords";
 
-export default function WarehouseTransfers({ locationId, locations, isDark }) {
+export default function WarehouseTransfers({ locationId, locations, materials = [], isDark }) {
   const [loading, setLoading] = useState(true);
   const [transfers, setTransfers] = useState([]);
   const [filters, setFilters] = useState({ search: "", status: "", from: "", to: "" });
@@ -16,6 +16,76 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
   const [saving, setSaving] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const inputClass = getInputClass(isDark);
+
+  // Req #16: direct Outlet -> Outlet transfer creation (Draft only).
+  const canCreate = Boolean(getStoredPermissions()?.warehouse_transfers?.can_create);
+  const [createOpen, setCreateOpen] = useState(false);
+  const emptyTransferForm = () => ({
+    from_location_id: "", to_location_id: "", remarks: "",
+    items: [{ raw_material_id: "", quantity: "", unit_id: "", remarks: "" }],
+  });
+  const [createForm, setCreateForm] = useState(emptyTransferForm);
+  const [uomOptions, setUomOptions] = useState({});
+  const [creating, setCreating] = useState(false);
+
+  // Outlet-type, active inventory locations only - the backend re-validates
+  // scope and type authoritatively; this is just the picker surface.
+  const outletLocations = (locations || []).filter(
+    (l) => l.location_type === "Outlet" && num(l.is_active) === 1 && num(l.is_inventory_location) === 1
+  );
+  const activeMaterials = (materials || []).filter((m) => m.is_active !== 0);
+
+  const loadUoms = async (rawMaterialId) => {
+    const key = String(rawMaterialId);
+    if (uomOptions[key]) return;
+    try {
+      const res = await warehouseAPI.getTransferValidUoms(key);
+      const opts = res?.data?.data || [];
+      setUomOptions((p) => ({ ...p, [key]: opts }));
+      const base = opts.find((o) => num(o.is_base) === 1) || opts[0];
+      if (base) {
+        setCreateForm((f) => ({
+          ...f,
+          items: f.items.map((it) =>
+            String(it.raw_material_id) === key && !opts.some((o) => String(o.id) === String(it.unit_id))
+              ? { ...it, unit_id: String(base.id) } : it),
+        }));
+      }
+    } catch { toast.error("Failed to load units for material"); }
+  };
+
+  const openCreate = () => { setCreateForm(emptyTransferForm()); setCreateOpen(true); };
+
+  const setCreateItem = (idx, patch) =>
+    setCreateForm((f) => ({ ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)) }));
+
+  const submitCreate = async () => {
+    if (creating) return;
+    const { from_location_id, to_location_id, items } = createForm;
+    if (!from_location_id || !to_location_id) { toast.error("Select source and destination outlets"); return; }
+    if (String(from_location_id) === String(to_location_id)) { toast.error("Source and destination cannot be the same outlet"); return; }
+    if (!items.length || items.some((it) => !it.raw_material_id)) { toast.error("Select a material for every item row"); return; }
+    if (items.some((it) => !(num(it.quantity) > 0))) { toast.error("Quantity must be greater than 0 on every row"); return; }
+    if (items.some((it) => !it.unit_id)) { toast.error("Select a unit for every item row"); return; }
+    const seen = new Set(items.map((it) => String(it.raw_material_id)));
+    if (seen.size !== items.length) { toast.error("Duplicate material - combine it into one row"); return; }
+    setCreating(true);
+    try {
+      const res = await warehouseAPI.createTransfer({
+        from_location_id: Number(from_location_id),
+        to_location_id: Number(to_location_id),
+        remarks: createForm.remarks || null,
+        items: items.map((it) => ({ raw_material_id: Number(it.raw_material_id), quantity: num(it.quantity), unit_id: Number(it.unit_id), remarks: it.remarks || null })),
+      });
+      toast.success("Transfer created as Draft");
+      setCreateOpen(false);
+      setCreateForm(emptyTransferForm());
+      fetchTransfers();
+      const created = res?.data?.data;
+      if (created?.id) openDetail(created);
+    } catch (error) { toast.error(error.response?.data?.message || "Failed to create transfer"); }
+    finally { setCreating(false); }
+  };
 
   const fetchTransfers = async () => {
     setLoading(true);
@@ -68,7 +138,8 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
 
   const reset = () => setFilters({ search: "", status: "", from: "", to: "" });
 
-  const statusOptions = ["In Transit", "Partially Received", "Received"];
+  const statusOptions = ["Draft", "In Transit", "Partially Received", "Received"];
+  const canReceive = detail && ["In Transit", "Partially Received"].includes(detail.status);
 
   return (
     <div className="space-y-5">
@@ -100,6 +171,11 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
           <button onClick={reset} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
+          {canCreate && (
+            <button onClick={openCreate} className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#6354D8] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none">
+              <Plus size={16} /> New Transfer
+            </button>
+          )}
         </div>
       </SectionCard>
 
@@ -176,12 +252,13 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
                     <thead className={`${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                       <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                         <th className="px-2 py-2">Material</th>
+                        <th className="px-2 py-2 text-right">Planned</th>
                         <th className="px-2 py-2 text-right">Dispatched</th>
                         <th className="px-2 py-2 text-right">Received</th>
                         <th className="px-2 py-2 text-right">Damaged</th>
                         <th className="px-2 py-2 text-right">Short</th>
                         <th className="px-2 py-2 text-right">Unit</th>
-                        {detail.status !== "Received" && <th className="px-2 py-2 text-center">Receive</th>}
+                        {canReceive && <th className="px-2 py-2 text-center">Receive</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -190,12 +267,13 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
                         return (
                           <tr key={it.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                             <td className="px-2 py-2">{it.material_name}</td>
+                            <td className="px-2 py-2 text-right">{fmtQty(it.approved_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.dispatched_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.received_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.damaged_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.short_qty)}</td>
                             <td className="px-2 py-2 text-right">{it.unit_name}</td>
-                            {detail.status !== "Received" && (
+                            {canReceive && (
                               <td className="px-2 py-2">
                                 <div className="grid grid-cols-2 gap-2">
                                   <input type="number" min="0" value={receipt[it.id]?.received || ""} onChange={(e) => updateReceipt(it.id, "received", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder={`Recv (${remaining})`} />
@@ -217,11 +295,90 @@ export default function WarehouseTransfers({ locationId, locations, isDark }) {
 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setDetail(null)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Close</button>
-                {detail.status !== "Received" && (
+                {canReceive && (
                   <button onClick={submitReceipt} disabled={saving} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white hover:bg-[#20B158] disabled:opacity-50">
                     <CheckCircle size={16} className="inline mr-1" /> {saving ? "Recording…" : "Confirm Receipt"}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto overscroll-x-contain rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+            <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+              <div>
+                <h3 className="text-lg font-semibold">New Outlet Transfer</h3>
+                <p className={`text-[12px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Created as Draft - stock moves only when dispatched and received.</p>
+              </div>
+              <button onClick={() => setCreateOpen(false)} className="text-2xl leading-none" aria-label="Close"><X size={20} /></button>
+            </div>
+            <div className="space-y-4 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Source Outlet *</span>
+                  <select value={createForm.from_location_id} onChange={(e) => setCreateForm({ ...createForm, from_location_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-base md:text-[14px] outline-none ${inputClass}`}>
+                    <option value="">Select source</option>
+                    {outletLocations.filter((l) => String(l.id) !== String(createForm.to_location_id)).map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Destination Outlet *</span>
+                  <select value={createForm.to_location_id} onChange={(e) => setCreateForm({ ...createForm, to_location_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-base md:text-[14px] outline-none ${inputClass}`}>
+                    <option value="">Select destination</option>
+                    {outletLocations.filter((l) => String(l.id) !== String(createForm.from_location_id)).map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
+                  </select>
+                </label>
+              </div>
+              <label className="block">
+                <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Remarks</span>
+                <input value={createForm.remarks} onChange={(e) => setCreateForm({ ...createForm, remarks: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-base md:text-[14px] outline-none ${inputClass}`} placeholder="Optional note" />
+              </label>
+
+              <div className={`rounded-lg border ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                <div className={`flex items-center justify-between border-b px-3 py-2 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+                  <span className={`text-[12px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Items</span>
+                  <button type="button" onClick={() => setCreateForm({ ...createForm, items: [...createForm.items, { raw_material_id: "", quantity: "", unit_id: "", remarks: "" }] })} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-[#7367F0] transition-colors hover:bg-[#7367F0]/10">
+                    <Plus size={13} /> Add Item
+                  </button>
+                </div>
+                <div className="space-y-2 p-3">
+                  {createForm.items.map((it, idx) => {
+                    const usedIds = createForm.items.filter((x, i) => i !== idx).map((x) => String(x.raw_material_id)).filter(Boolean);
+                    const uoms = uomOptions[String(it.raw_material_id)] || [];
+                    return (
+                      <div key={idx} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_110px_130px_1fr_36px]">
+                        <select
+                          value={it.raw_material_id}
+                          onChange={(e) => { setCreateItem(idx, { raw_material_id: e.target.value, unit_id: "" }); if (e.target.value) loadUoms(e.target.value); }}
+                          className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`}
+                        >
+                          <option value="">Raw Material *</option>
+                          {activeMaterials.filter((m) => !usedIds.includes(String(m.id))).map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
+                        </select>
+                        <input type="number" min="0" step="any" value={it.quantity} onChange={(e) => setCreateItem(idx, { quantity: e.target.value })} placeholder="Qty *" className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`} />
+                        <select value={it.unit_id} onChange={(e) => setCreateItem(idx, { unit_id: e.target.value })} disabled={!it.raw_material_id} className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none disabled:opacity-50 ${inputClass}`}>
+                          <option value="">UOM *</option>
+                          {uoms.map((u) => <option key={u.id} value={u.id}>{u.unit_name}{num(u.is_base) === 1 ? " (base)" : ""}</option>)}
+                        </select>
+                        <input value={it.remarks} onChange={(e) => setCreateItem(idx, { remarks: e.target.value })} placeholder="Remarks" className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`} />
+                        <button type="button" onClick={() => setCreateForm({ ...createForm, items: createForm.items.filter((_, i) => i !== idx) })} disabled={createForm.items.length === 1} aria-label="Remove item" className={`flex h-10 w-9 items-center justify-center rounded-md border disabled:opacity-40 ${isDark ? "border-[#3B405A] text-[#A5A8B6] hover:text-[#EA5455]" : "border-[#EBE9F1] text-[#A8AAAE] hover:text-[#EA5455]"}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setCreateOpen(false)} disabled={creating} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Cancel</button>
+                <button onClick={submitCreate} disabled={creating} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">
+                  {creating ? "Creating..." : "Create Draft Transfer"}
+                </button>
               </div>
             </div>
           </div>

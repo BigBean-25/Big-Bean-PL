@@ -206,7 +206,7 @@ export default function Warehouse() {
       {locationId && activeTab === "grn" && <WarehouseGRN locationId={locationId} locations={locations} materials={materials} suppliers={suppliers} isDark={isDark} />}
       {locationId && activeTab === "ledger" && <WarehouseLedger locationId={locationId} locations={locations} isDark={isDark} />}
       {locationId && activeTab === "requisitions" && <WarehouseRequisitions locationId={locationId} locations={locations} materials={materials} units={units} isDark={isDark} />}
-      {locationId && activeTab === "transfers" && <WarehouseTransfers locationId={locationId} locations={locations} isDark={isDark} />}
+      {locationId && activeTab === "transfers" && <WarehouseTransfers locationId={locationId} locations={locations} materials={materials} isDark={isDark} />}
       {locationId && activeTab === "physical-stock-counts" && <WarehousePhysicalStockCounts locationId={locationId} locations={locations} materials={materials} units={units} isDark={isDark} />}
       {locationId && activeTab === "stock-adjustments" && <WarehouseStockAdjustments locationId={locationId} locations={locations} materials={materials} units={units} isDark={isDark} />}
       {locationId && activeTab === "warehouse-wastage" && <WarehouseWastage locationId={locationId} locations={locations} materials={materials} units={units} isDark={isDark} />}

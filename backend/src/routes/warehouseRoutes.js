@@ -16,7 +16,7 @@ import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
   getRequisitions, getRequisitionById, getValidUnitsForMaterial, createRequisition, submitRequisition,
-  approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer,
+  approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer, createDirectTransfer,
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
 import { getProcurementSources } from '../services/warehouseProcurementDiagnosticsService.js';
@@ -406,6 +406,17 @@ router.get('/transfers', checkPermission('warehouse_transfers', 'can_view'), app
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
+// Same UOM validation source as requisitions, gated on the transfer module so
+// a transfer creator does not need warehouse_requisitions access. Registered
+// BEFORE /transfers/:id so "valid-uoms" is never captured as an id.
+router.get('/transfers/valid-uoms/:rawMaterialId', checkPermission('warehouse_transfers', 'can_view'), async (req, res) => {
+  try {
+    const data = await getValidUnitsForMaterial(req.params.rawMaterialId);
+    res.json({ success: true, data });
+  }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
+});
+
 router.get('/transfers/:id', checkPermission('warehouse_transfers', 'can_view'), applyLocationScope, async (req, res) => {
   try {
     const data = await getTransferById(req.params.id);
@@ -419,6 +430,25 @@ router.get('/transfers/:id', checkPermission('warehouse_transfers', 'can_view'),
     res.json({ success: true, data });
   }
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
+// Req #16: direct Outlet -> Outlet transfer creation (Draft only - no stock
+// movement in this phase). Location access is enforced here with the same
+// isLocationAccessible helper the receive route already uses, applied to BOTH
+// ends so a scoped outlet user can never name a location outside their scope.
+router.post('/transfers', checkPermission('warehouse_transfers', 'can_create'), async (req, res) => {
+  try {
+    const { from_location_id, to_location_id } = req.body || {};
+    if (!(await isLocationAccessible(req.user, from_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the source outlet' });
+    }
+    if (!(await isLocationAccessible(req.user, to_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the destination outlet' });
+    }
+    const data = await createDirectTransfer(req.body, req.user.id);
+    res.status(201).json({ success: true, data });
+  }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
 router.post('/transfers/:id/receive', checkPermission('warehouse_transfers', 'can_edit'), async (req, res) => {

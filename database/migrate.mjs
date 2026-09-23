@@ -87,6 +87,7 @@ const MIGRATIONS = [
   { name: 'add_outlet_vendor_payment_reversal.sql', file: 'database/add_outlet_vendor_payment_reversal.sql', why: 'Phase 7D2B1: outlet_vendor_payments controlled-reversal link columns (is_reversal, reversal_of_payment_id UNIQUE, reversal_exception_id) - additive, mirrors supplier_payments' },
   { name: 'add_outlet_vendor_opening_balance.sql', file: 'database/add_outlet_vendor_opening_balance.sql', why: 'Phase 7D3A1: outlet_vendor_opening_balances per (outlet,vendor) + purchases.due_date snapshot; legacy due_date backfill uses CURRENT credit_days - best-effort approximation, not historical truth' },
   { name: 'add_grn_purchase_order_item_link.sql', file: 'database/add_grn_purchase_order_item_link.sql', why: 'Phase 7E1A: grn_items.purchase_order_item_id source attribution (RESTRICT FK); backfill only for uniquely-attributable rows - duplicate-material POs stay NULL; metadata only, no financial values change' },
+  { name: 'allow_null_transfer_dispatch_date.sql', file: 'database/allow_null_transfer_dispatch_date.sql', why: 'Req #16: stock_transfers.dispatch_date nullable - direct Draft transfers have not been dispatched; no data change, guarded MODIFY only' },
 ];
 
 async function ensureTrackingTable(conn) {
