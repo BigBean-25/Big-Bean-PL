@@ -780,6 +780,9 @@ export const outletVendorAPI = {
   submitPayment: (id) => api.post(`/outlet-vendors/payments/${id}/submit`),
   verifyPayment: (id) => api.post(`/outlet-vendors/payments/${id}/verify`),
   rejectPayment: (id, data) => api.post(`/outlet-vendors/payments/${id}/reject`, data),
+  getOpeningBalance: (params) => api.get("/outlet-vendors/opening-balance", { params }),
+  createOpeningBalance: (data) => api.post("/outlet-vendors/opening-balance", data),
+  updateOpeningBalance: (id, data) => api.put(`/outlet-vendors/opening-balance/${id}`, data),
 };
 
 export const outletDashboardAPI = {

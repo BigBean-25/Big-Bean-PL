@@ -14,6 +14,7 @@ import {
   Send,
   XCircle,
   Undo2,
+  Download,
 } from "lucide-react";
 import useAuthStore from "../../store/authStore";
 import { outletVendorAPI, masterAPI, exceptionAPI, getStoredPermissions } from "../../services/api";
@@ -138,6 +139,10 @@ export default function VendorLedgerPayments() {
   const [editForm, setEditForm] = useState({});
   const [reversalTarget, setReversalTarget] = useState(null);
   const [reversalReason, setReversalReason] = useState("");
+  // 7D3A2: vendor opening balance (outlet+vendor scoped backend row)
+  const [openingRecord, setOpeningRecord] = useState(null);
+  const [openingModal, setOpeningModal] = useState(null); // 'create' | 'edit'
+  const [openingForm, setOpeningForm] = useState({ opening_amount: "", effective_date: "", due_date: "", remarks: "" });
   const requestSeq = useRef(0);
 
   // Workflow permissions live on the outlet_vendors module key
@@ -166,6 +171,7 @@ export default function VendorLedgerPayments() {
     setPayments([]);
     setCurrentLedger(null);
     setOpeningBalance(0);
+    setOpeningRecord(null);
   }, []);
 
   useEffect(() => {
@@ -235,12 +241,19 @@ export default function VendorLedgerPayments() {
           })
         );
       }
-      const [pRes, pmRes, curRes, openRes] = await Promise.all(calls);
+      calls.push(
+        outletVendorAPI.getOpeningBalance({
+          outlet_id: filters.outlet_id,
+          vendor_id: filters.vendor_id,
+        })
+      );
+      const [pRes, pmRes, curRes, openRes, obRes] = await Promise.all(calls);
       if (seq !== requestSeq.current) return;
       setPurchases(pRes?.data?.data || []);
       setPayments(pmRes?.data?.data || []);
       setCurrentLedger(curRes?.data?.data || null);
       setOpeningBalance(openRes?.data?.data?.current_outstanding || 0);
+      setOpeningRecord(obRes?.data?.data || null);
     } catch {
       if (seq !== requestSeq.current) return;
       toast.error("Failed to load ledger");
@@ -307,13 +320,39 @@ export default function VendorLedgerPayments() {
       notes: p.remarks || "",
     }));
 
-    const rows = [...purchaseRows, ...paymentRows].sort((a, b) => {
+    // 7D3A2: vendor opening balance becomes a first-class liability row only
+    // when its effective_date lands inside the displayed window. The
+    // openingBalance stat already carries everything on/before the window
+    // start (previousDay(from_date)), so an earlier effective date would
+    // double-count; a future/after-to_date one is invisible until its window.
+    const openingRows = [];
+    if (openingRecord) {
+      const eff = String(openingRecord.effective_date).slice(0, 10);
+      const windowStart = filters.from_date ? previousDay(filters.from_date) : null;
+      const windowEnd = filters.to_date || today();
+      if ((!windowStart || eff > windowStart) && eff <= windowEnd) {
+        openingRows.push({
+          id: `ob-${openingRecord.id}`,
+          type: "Opening Balance",
+          date: eff,
+          created_at: openingRecord.created_at,
+          reference: "Opening Balance",
+          description: `Vendor opening balance (due ${formatDisplayDate(openingRecord.due_date)})`,
+          debit: Number(openingRecord.opening_amount || 0),
+          credit: 0,
+          notes: openingRecord.remarks || "",
+        });
+      }
+    }
+
+    const typeRank = { "Opening Balance": 0, Purchase: 1, Payment: 2 };
+    const rows = [...openingRows, ...purchaseRows, ...paymentRows].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
+      const rank = (typeRank[a.type] ?? 9) - (typeRank[b.type] ?? 9);
+      if (rank !== 0) return rank;
       const aTs = toTs(a.created_at);
       const bTs = toTs(b.created_at);
       if (aTs !== bTs) return aTs - bTs;
-      if (a.type === "Purchase" && b.type === "Payment") return -1;
-      if (a.type === "Payment" && b.type === "Purchase") return 1;
       return String(a.id).localeCompare(String(b.id));
     });
 
@@ -332,7 +371,7 @@ export default function VendorLedgerPayments() {
     const outstanding = openingBalance + totalPayable - totalPayments;
 
     return { timeline, totalPayable, totalPayments, outstanding };
-  }, [purchases, payments, openingBalance]);
+  }, [purchases, payments, openingBalance, openingRecord, filters.from_date, filters.to_date]);
 
   // Display-only status filter - applied AFTER running balances are computed
   // from the full ledger, so a filtered row keeps its true ledger balance.
@@ -462,6 +501,128 @@ export default function VendorLedgerPayments() {
       setReversalTarget(null);
       setReversalReason("");
     }, "Reversal request created");
+  };
+
+  // Opening balance (7D3A2): identity (outlet/vendor) comes from the selected
+  // context - never editable in the modal. No delete exists by design.
+  const openOpeningModal = (mode) => {
+    setOpeningModal(mode);
+    setOpeningForm(
+      mode === "edit" && openingRecord
+        ? {
+            opening_amount: openingRecord.opening_amount,
+            effective_date: String(openingRecord.effective_date).slice(0, 10),
+            due_date: openingRecord.due_date ? String(openingRecord.due_date).slice(0, 10) : "",
+            remarks: openingRecord.remarks || "",
+          }
+        : { opening_amount: "", effective_date: "", due_date: "", remarks: "" }
+    );
+  };
+
+  const handleOpeningSave = () => {
+    const amount = Number(openingForm.opening_amount);
+    if (openingForm.opening_amount === "" || Number.isNaN(amount) || amount < 0) {
+      toast.error("Enter a valid non-negative opening amount");
+      return;
+    }
+    if (!openingForm.effective_date) {
+      toast.error("Effective date is required");
+      return;
+    }
+    const payload = {
+      outlet_id: filters.outlet_id,
+      vendor_id: filters.vendor_id,
+      effective_date: openingForm.effective_date,
+      due_date: openingForm.due_date || undefined, // backend defaults to effective_date
+      opening_amount: amount,
+      remarks: openingForm.remarks?.trim() || null,
+    };
+    runAction("opening-save", async () => {
+      if (openingModal === "edit") {
+        await outletVendorAPI.updateOpeningBalance(openingRecord.id, {
+          effective_date: payload.effective_date,
+          due_date: payload.due_date,
+          opening_amount: payload.opening_amount,
+          remarks: payload.remarks,
+        });
+      } else {
+        await outletVendorAPI.createOpeningBalance(payload);
+      }
+      setOpeningModal(null);
+    }, openingModal === "edit" ? "Opening balance updated" : "Opening balance recorded");
+  };
+
+  // Complete-statement CSV export - intentionally uses `timeline` (the full
+  // ledger population), NOT visibleTimeline: the payment status filter is
+  // display-only and must never alter financial truth. Signed amounts are
+  // preserved so reversal credits stay negative.
+  const csvTextCell = (v) => {
+    let s = String(v ?? "");
+    if (/^[=+\-@]/.test(s)) s = `'${s}`; // formula-injection guard, text cells only
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  const csvNumCell = (v) => `"${Number(v || 0).toFixed(2)}"`;
+
+  const handleExportLedger = () => {
+    // Statement completeness (7D3A2 fix): when a from_date window is active,
+    // `openingBalance` is the cumulative payable before that window (prior
+    // opening + purchases - Verified payments/reversals). The UI timeline
+    // starts its running balance from it, so the CSV needs an explicit
+    // "Balance Brought Forward" row - otherwise an export could open at an
+    // unexplained balance, or export nothing while 11,000 is still owed.
+    // It is NOT a transaction: Debit/Credit stay blank, Running Balance alone
+    // carries the amount, and `timeline` already starts from openingBalance,
+    // so nothing is double-counted. The in-window "Opening Balance" row is
+    // unaffected; it only exists when its effective_date is inside the window.
+    const bfAmount = Number(openingBalance || 0);
+    const hasBF = Boolean(filters.from_date) && bfAmount !== 0;
+    if (!timeline.length && !hasBF) {
+      toast.error("Nothing to export");
+      return;
+    }
+    const bfRow = hasBF
+      ? [
+          formatDisplayDate(filters.from_date),
+          "Balance Brought Forward",
+          "B/F",
+          `Balance before ${formatDisplayDate(filters.from_date)}`,
+          "",
+          "",
+          "",
+          bfAmount,
+        ]
+      : null;
+    const headers = ["Date", "Type", "Reference", "Description", "Debit", "Credit", "Status", "Running Balance"];
+    const rows = timeline.map((r) => [
+      formatDisplayDate(r.date),
+      r.type,
+      r.reference || "",
+      [r.description, r.notes].filter(Boolean).join(" - "),
+      r.debit || 0,
+      r.credit || 0,
+      r.status || "",
+      r.balance ?? 0,
+    ]);
+    const statementRows = bfRow ? [bfRow, ...rows] : rows;
+    const csv = [headers, ...statementRows]
+      .map((row) =>
+        // Blank B/F debit/credit cells stay empty text; real numeric cells
+        // (including negative reversal credits) stay numeric.
+        row.map((c, i) =>
+          (i === 4 || i === 5 || i === 7) && c !== "" ? csvNumCell(c) : csvTextCell(c)
+        ).join(",")
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safe = (s) => String(s || "").replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/^-+|-+$/g, "");
+    const outletName = visibleOutlets.find((o) => String(o.id) === String(filters.outlet_id))?.outlet_name || filters.outlet_id;
+    link.href = url;
+    link.download = `vendor-ledger-${safe(selectedVendor?.vendor_name || filters.vendor_id)}-${safe(outletName)}-${today()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Ledger statement exported");
   };
 
   const handleOutletChange = (value) => {
@@ -605,6 +766,48 @@ export default function VendorLedgerPayments() {
 
       {filters.outlet_id && filters.vendor_id && (
         <>
+          {/* 7D3A2: outlet+vendor opening balance management (no delete by design) */}
+          <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <IndianRupee size={16} style={{ color: primaryColor }} />
+                <span className={`text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Opening Balance</span>
+              </div>
+              {openingRecord ? (
+                can("can_edit") && (
+                  <button
+                    onClick={() => openOpeningModal("edit")}
+                    disabled={Boolean(actionLoading)}
+                    className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] font-medium ${inputCls}`}
+                  >
+                    <Pencil size={12} /> Edit Opening Balance
+                  </button>
+                )
+              ) : (
+                can("can_create") && (
+                  <button
+                    onClick={() => openOpeningModal("create")}
+                    disabled={Boolean(actionLoading)}
+                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    + Add Opening Balance
+                  </button>
+                )
+              )}
+            </div>
+            {openingRecord ? (
+              <div className={`mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-[13px] ${mutedCls}`}>
+                <span><span className={mainCls}>Amount:</span> {fmtINR(openingRecord.opening_amount)}</span>
+                <span><span className={mainCls}>Effective:</span> {formatDisplayDate(openingRecord.effective_date)}</span>
+                <span><span className={mainCls}>Due:</span> {formatDisplayDate(openingRecord.due_date)}</span>
+                {openingRecord.remarks ? <span><span className={mainCls}>Remarks:</span> {openingRecord.remarks}</span> : null}
+              </div>
+            ) : (
+              <p className={`mt-3 text-[13px] ${mutedCls}`}>No opening balance recorded</p>
+            )}
+          </div>
+
           <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
             <div className="mb-3 flex items-center gap-2">
               <Wallet size={16} style={{ color: primaryColor }} />
@@ -662,8 +865,17 @@ export default function VendorLedgerPayments() {
           </div>
 
           <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
-            <div className={`border-b px-4 py-3 sm:px-6 ${borderCls}`}>
+            <div className={`flex items-center justify-between border-b px-4 py-3 sm:px-6 ${borderCls}`}>
               <span className={`text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Ledger</span>
+              {can("can_export") && (
+                <button
+                  onClick={handleExportLedger}
+                  className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] font-medium ${inputCls}`}
+                  title="Export the complete financial statement (all statuses)"
+                >
+                  <Download size={13} /> Export Ledger
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto p-4 sm:p-5">
               <table className="min-w-full" style={{ minWidth: "900px" }}>
@@ -1031,6 +1243,90 @@ export default function VendorLedgerPayments() {
               >
                 {actionLoading === `edit-${editTarget.paymentId}` ? <Loader2 size={14} className="animate-spin" /> : null}
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Opening Balance modal (7D3A2) - outlet/vendor identity is context-fixed */}
+      {openingModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className={`w-full max-w-md rounded-lg border p-5 ${cardCls}`}>
+            <h3 className={`text-[15px] font-semibold ${mainCls}`}>
+              {openingModal === "edit" ? "Edit Opening Balance" : "Add Opening Balance"}
+            </h3>
+            <div className={`mt-3 space-y-1.5 text-[13px] ${mutedCls}`}>
+              <p><span className={mainCls}>Vendor:</span> {selectedVendor?.vendor_name || `#${filters.vendor_id}`}</p>
+              <p><span className={mainCls}>Outlet:</span> {visibleOutlets.find((o) => String(o.id) === String(filters.outlet_id))?.outlet_name || `#${filters.outlet_id}`}</p>
+            </div>
+            <p className="mt-3 rounded-md border border-[#FF9F43]/40 bg-[#FFF4E5] p-2.5 text-[12px] text-[#FF9F43]">
+              Opening balance is financially effective from its effective date and feeds vendor
+              outstanding and ageing. Periods already locked cannot be edited; corrections there
+              require the controlled process.
+            </p>
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className={`text-[12px] font-medium ${mutedCls}`}>
+                  Opening amount <span className="text-[#EA5455]">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={openingForm.opening_amount}
+                  onChange={(e) => setOpeningForm((p) => ({ ...p, opening_amount: e.target.value }))}
+                  placeholder="Amount payable to vendor"
+                  className={`mt-1 h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
+                />
+              </div>
+              <div>
+                <label className={`text-[12px] font-medium ${mutedCls}`}>
+                  Effective date <span className="text-[#EA5455]">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={openingForm.effective_date}
+                  onChange={(e) => setOpeningForm((p) => ({ ...p, effective_date: e.target.value }))}
+                  className={`mt-1 h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
+                />
+              </div>
+              <div>
+                <label className={`text-[12px] font-medium ${mutedCls}`}>Due date</label>
+                <input
+                  type="date"
+                  value={openingForm.due_date}
+                  onChange={(e) => setOpeningForm((p) => ({ ...p, due_date: e.target.value }))}
+                  className={`mt-1 h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
+                />
+                <p className={`mt-1 text-[11px] ${mutedCls}`}>Defaults to the effective date; may be earlier for already-overdue balances.</p>
+              </div>
+              <div>
+                <label className={`text-[12px] font-medium ${mutedCls}`}>Remarks</label>
+                <input
+                  value={openingForm.remarks}
+                  onChange={(e) => setOpeningForm((p) => ({ ...p, remarks: e.target.value }))}
+                  placeholder="e.g. Balance carried over from previous system"
+                  className={`mt-1 h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setOpeningModal(null)}
+                disabled={Boolean(actionLoading)}
+                className={`rounded-md border px-4 py-2 text-[13px] ${inputCls}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleOpeningSave}
+                disabled={Boolean(actionLoading) || openingForm.opening_amount === "" || !openingForm.effective_date}
+                className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {actionLoading === "opening-save" ? <Loader2 size={14} className="animate-spin" /> : null}
+                {openingModal === "edit" ? "Save" : "Record"}
               </button>
             </div>
           </div>
