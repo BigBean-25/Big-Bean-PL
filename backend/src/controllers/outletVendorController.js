@@ -1,8 +1,9 @@
 import { query, getConnection } from '../config/database.js';
 import { logAudit } from '../utils/logger.js';
 import { validateContactFields } from '../utils/validators.js';
-import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing, getOpeningBalance } from '../services/outletVendorLedgerService.js';
+import { getVendorLedgerSummary, getAllVendorOutstanding, getVendorAgeing, getOpeningBalance, getVendorPayablesSummary } from '../services/outletVendorLedgerService.js';
 import { assertDateEditable } from '../utils/periodLock.js';
+import { loadRolePermissions } from '../middleware/permissionMiddleware.js';
 import { isOwnDocument } from '../utils/makerChecker.js';
 
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -822,5 +823,31 @@ export const updateVendorOpeningBalance = async (req, res) => {
     res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : 'Error updating opening balance' });
   } finally {
     conn.release();
+  }
+};
+
+// ============================================================================
+// Phase 7D4A - Vendor payable dashboard summary. Thin endpoint: resolves scope
+// + cutoff once, delegates all financial math to the canonical bulk service
+// (fixed query count, no per-pair N+1). pending_approvals is checker workload
+// - only computed/returned when the caller holds outlet_vendors.can_verify;
+// null otherwise (never a misleading 0).
+// ============================================================================
+
+export const getVendorDashboardSummary = async (req, res) => {
+  try {
+    const outletScope = req.outletScope;
+    const allowedOutletIds = outletScope && !outletScope.all ? outletScope.outletIds : null;
+    const rolePerms = await loadRolePermissions(req.user.role_id);
+    const canVerify = Boolean(rolePerms?.outlet_vendors?.can_verify);
+    const data = await getVendorPayablesSummary({
+      asOfDate: new Date().toISOString().slice(0, 10),
+      allowedOutletIds,
+      includePendingApprovals: canVerify,
+    });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Get vendor dashboard summary error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching vendor payables summary' });
   }
 };

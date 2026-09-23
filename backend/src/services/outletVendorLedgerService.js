@@ -87,6 +87,54 @@ export const getCurrentOutstanding = async (outletId, vendorId, asOfDate = null)
 };
 
 /**
+ * 7D4A: canonical FIFO allocator - the single source of truth for applying
+ * net Verified signed payments (incl. negative reversal rows) across a pair's
+ * liability timeline. Used by BOTH getVendorAgeing and the bulk dashboard
+ * summary, so the two paths can never diverge. `liabilities` must already be
+ * deterministically ordered; overdue boundary is strict `due < cutoff`.
+ */
+export const allocateVendorLiabilities = (liabilities, paymentsTotal, cutoff) => {
+  let remainingPayments = num(paymentsTotal);
+  let overdueAmount = 0;
+  let notDueAmount = 0;
+  const cutoffDate = new Date(cutoff);
+  for (const liab of liabilities) {
+    const covered = Math.min(remainingPayments, liab.amount);
+    remainingPayments -= covered;
+    const unpaid = liab.amount - covered;
+    if (unpaid <= 0) continue;
+    if (liab.due < cutoffDate) overdueAmount += unpaid;
+    else notDueAmount += unpaid;
+  }
+  return { overdueAmount, notDueAmount };
+};
+
+// Deterministic liability ordering shared by ageing + bulk summary:
+// liability date ASC; opening ('ob-') precedes purchase ('pur-') on ties.
+const liabilitySort = (a, b) => {
+  const da = String(a.date).slice(0, 10);
+  const db = String(b.date).slice(0, 10);
+  if (da !== db) return da.localeCompare(db);
+  return a.key.localeCompare(b.key);
+};
+
+const addDays = (d, days) => { const x = new Date(d); x.setDate(x.getDate() + days); return x; };
+
+const purchaseLiability = (p, creditDays) => ({
+  key: `pur-${p.id}`,
+  date: p.purchase_date,
+  due: p.due_date ? new Date(p.due_date) : addDays(p.purchase_date, creditDays),
+  amount: num(p.amount),
+});
+
+const openingLiability = (o) => ({
+  key: `ob-${o.id}`,
+  date: o.effective_date,
+  due: new Date(o.due_date),
+  amount: num(o.opening_amount),
+});
+
+/**
  * FIFO ageing: payments are applied against the oldest purchases first
  * (there's no per-invoice payment allocation in this simple ledger, so this
  * is the standard AP-ageing assumption). Each purchase's due date is
@@ -115,45 +163,17 @@ export const getVendorAgeing = async ({ outletId, vendorId, date }) => {
   ]);
 
   const creditDays = num(vendorRows[0]?.credit_days);
-  const addDays = (d, days) => { const x = new Date(d); x.setDate(x.getDate() + days); return x; };
 
   // Liability timeline: opening payable + purchases, ordered by liability date
   // (opening wins same-date ties deterministically). Stored purchase.due_date
   // always wins; NULL falls back to purchase_date + current credit_days only
   // for pre-snapshot rows the migration could not reach.
   const liabilities = [
-    ...openingRows.map((o) => ({
-      key: `ob-${o.id}`,
-      date: o.effective_date,
-      due: new Date(o.due_date),
-      amount: num(o.opening_amount),
-    })),
-    ...purchases.map((p) => ({
-      key: `pur-${p.id}`,
-      date: p.purchase_date,
-      due: p.due_date ? new Date(p.due_date) : addDays(p.purchase_date, creditDays),
-      amount: num(p.amount),
-    })),
-  ].sort((a, b) => {
-    const da = String(a.date).slice(0, 10);
-    const db = String(b.date).slice(0, 10);
-    if (da !== db) return da.localeCompare(db);
-    return a.key.localeCompare(b.key); // 'ob-' < 'pur-' => opening first on ties
-  });
+    ...openingRows.map(openingLiability),
+    ...purchases.map((p) => purchaseLiability(p, creditDays)),
+  ].sort(liabilitySort);
 
-  let remainingPayments = paymentsTotal;
-  let overdueAmount = 0;
-  let notDueAmount = 0;
-  const cutoff = new Date(date);
-
-  for (const liab of liabilities) {
-    const covered = Math.min(remainingPayments, liab.amount);
-    remainingPayments -= covered;
-    const unpaid = liab.amount - covered;
-    if (unpaid <= 0) continue;
-    if (liab.due < cutoff) overdueAmount += unpaid;
-    else notDueAmount += unpaid;
-  }
+  const { overdueAmount, notDueAmount } = allocateVendorLiabilities(liabilities, paymentsTotal, date);
 
   return {
     overdue_amount: overdueAmount,
@@ -201,4 +221,125 @@ export const getAllVendorOutstanding = async (asOfDate = null, allowedOutletIds 
     }
   }
   return results;
+};
+
+/**
+ * 7D4A: bulk vendor-payables summary for dashboards. Same canonical semantics
+ * as getVendorLedgerSummary/getVendorAgeing (opening + qualifying purchases -
+ * Verified signed payments; FIFO ageing via the shared allocator), but with a
+ * FIXED query count: 5 set-based queries regardless of outlet+vendor pair
+ * count - no per-pair ledger/ageing calls (the N+1 this replaces).
+ *
+ * allowedOutletIds: null = all-outlet caller; [] = no access; list = scoped.
+ * includePendingApprovals gates the Submitted-count query (caller-side
+ * can_verify decision) so checker-workload data is never computed - let alone
+ * returned - for users without it.
+ */
+export const getVendorPayablesSummary = async ({ asOfDate, allowedOutletIds = null, includePendingApprovals = false }) => {
+  const cutoff = asOfDate || new Date().toISOString().slice(0, 10);
+  const scoped = Array.isArray(allowedOutletIds);
+  if (scoped && allowedOutletIds.length === 0) {
+    return { as_of_date: cutoff, total_outstanding: 0, overdue_amount: 0, not_due_amount: 0, vendors_with_outstanding: 0, pending_approvals: includePendingApprovals ? 0 : null, top_vendors: [] };
+  }
+  const outletFilter = scoped
+    ? ` AND outlet_id IN (${allowedOutletIds.map(() => '?').join(',')})`
+    : '';
+  const outletParams = scoped ? allowedOutletIds : [];
+
+  const [openings, purchases, payments, vendors, outlets, pendingRows] = await Promise.all([
+    query(
+      `SELECT id, outlet_id, vendor_id, effective_date, due_date, opening_amount
+       FROM outlet_vendor_opening_balances WHERE effective_date <= ?${outletFilter}`,
+      [cutoff, ...outletParams]
+    ),
+    query(
+      `SELECT p.id, p.outlet_id, p.vendor_id, p.purchase_date, p.due_date, p.amount, v.credit_days
+       FROM outlet_vendor_purchases p
+       LEFT JOIN outlet_vendors v ON v.id = p.vendor_id
+       WHERE p.purchase_date <= ? AND p.paid_by != 'Outlet'${outletFilter.replace('outlet_id', 'p.outlet_id')}`,
+      [cutoff, ...outletParams]
+    ),
+    query(
+      `SELECT outlet_id, vendor_id, SUM(paid_amount) AS total
+       FROM outlet_vendor_payments
+       WHERE date <= ? AND status = 'Verified'${outletFilter}
+       GROUP BY outlet_id, vendor_id`,
+      [cutoff, ...outletParams]
+    ),
+    query('SELECT id, vendor_name FROM outlet_vendors'),
+    query('SELECT id, outlet_name FROM outlets'),
+    includePendingApprovals
+      ? query(
+          `SELECT COUNT(*) AS total FROM outlet_vendor_payments WHERE status = 'Submitted'${outletFilter}`,
+          outletParams
+        )
+      : Promise.resolve(null),
+  ]);
+
+  const vendorNames = new Map(vendors.map((v) => [Number(v.id), v.vendor_name]));
+  const outletNames = new Map(outlets.map((o) => [Number(o.id), o.outlet_name]));
+
+  // Buckets keyed by outlet+vendor pair; a pair exists if ANY financial
+  // source references it (payments-only pairs keep their negative balance).
+  const buckets = new Map();
+  const bucket = (outletId, vendorId) => {
+    const k = `${outletId}:${vendorId}`;
+    if (!buckets.has(k)) buckets.set(k, { outlet_id: Number(outletId), vendor_id: Number(vendorId), liabilities: [], payments: 0, liabilityTotal: 0 });
+    return buckets.get(k);
+  };
+
+  for (const o of openings) {
+    const liab = openingLiability(o);
+    const b = bucket(o.outlet_id, o.vendor_id);
+    b.liabilities.push(liab);
+    b.liabilityTotal += liab.amount;
+  }
+  for (const p of purchases) {
+    const liab = purchaseLiability(p, num(p.credit_days));
+    const b = bucket(p.outlet_id, p.vendor_id);
+    b.liabilities.push(liab);
+    b.liabilityTotal += liab.amount;
+  }
+  for (const pay of payments) {
+    bucket(pay.outlet_id, pay.vendor_id).payments = num(pay.total);
+  }
+
+  let totalOutstanding = 0;
+  let overdueAmount = 0;
+  let notDueAmount = 0;
+  let vendorsWithOutstanding = 0;
+  const top = [];
+
+  for (const b of buckets.values()) {
+    b.liabilities.sort(liabilitySort);
+    const { overdueAmount: od, notDueAmount: nd } = allocateVendorLiabilities(b.liabilities, b.payments, cutoff);
+    const pairOutstanding = b.liabilityTotal - b.payments;
+    totalOutstanding += pairOutstanding;
+    overdueAmount += od;
+    notDueAmount += nd;
+    if (pairOutstanding > 0.005) {
+      vendorsWithOutstanding += 1;
+      top.push({
+        outlet_id: b.outlet_id,
+        outlet_name: outletNames.get(b.outlet_id) || null,
+        vendor_id: b.vendor_id,
+        vendor_name: vendorNames.get(b.vendor_id) || null,
+        outstanding: pairOutstanding,
+        overdue_amount: od,
+        not_due_amount: nd,
+      });
+    }
+  }
+
+  top.sort((a, b) => (b.outstanding - a.outstanding) || (a.outlet_id - b.outlet_id) || (a.vendor_id - b.vendor_id));
+
+  return {
+    as_of_date: cutoff,
+    total_outstanding: totalOutstanding,
+    overdue_amount: overdueAmount,
+    not_due_amount: notDueAmount,
+    vendors_with_outstanding: vendorsWithOutstanding,
+    pending_approvals: includePendingApprovals ? num(pendingRows[0]?.total) : null,
+    top_vendors: top.slice(0, 5),
+  };
 };

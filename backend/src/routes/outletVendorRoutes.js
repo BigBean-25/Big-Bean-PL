@@ -8,6 +8,7 @@ import {
   submitVendorPayment, verifyVendorPayment, rejectVendorPayment,
   getVendorLedger, getVendorOutstandingReport,
   getVendorOpeningBalance, createVendorOpeningBalance, updateVendorOpeningBalance,
+  getVendorDashboardSummary,
 } from '../controllers/outletVendorController.js';
 
 const router = express.Router();
@@ -16,6 +17,7 @@ router.get('/', protect, checkPermission('outlet_vendors', 'can_view'), getVendo
 router.get('/outstanding-report', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorOutstandingReport);
 router.get('/ledger', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorLedger);
 router.get('/opening-balance', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorOpeningBalance);
+router.get('/dashboard-summary', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_view'), getVendorDashboardSummary);
 router.post('/opening-balance', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_create'), createVendorOpeningBalance);
 router.put('/opening-balance/:id', protect, applyOutletScope, checkPermission('outlet_vendors', 'can_edit'), loadScopedRecord('outlet_vendor_opening_balances'), updateVendorOpeningBalance);
 router.get('/:id', protect, checkPermission('outlet_vendors', 'can_view'), getVendorById);
