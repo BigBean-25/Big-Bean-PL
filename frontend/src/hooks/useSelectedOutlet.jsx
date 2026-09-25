@@ -52,6 +52,28 @@ export const useSelectedOutlet = (onChange) => {
   return { selectedOutletId, selectedOutletLabel };
 };
 
+// Shared report-filter sync: pins a page's filters.outlet_id to the global
+// selector and locks the local dropdown while a specific outlet is selected.
+// allModeValue restores the page's ORIGINAL default when the global selector
+// returns to "all" ("" for required-pick reports, "all" for aggregate reports).
+// clearResult wipes stale rendered report state whenever the outlet target
+// actually changes, so an old outlet's output can't linger under a new pick.
+export const useReportOutletSync = ({ setFilters, allModeValue = "", clearResult } = {}) => {
+  const { selectedOutletId } = useSelectedOutlet();
+  const outletLocked = Boolean(selectedOutletId && String(selectedOutletId) !== "all" && String(selectedOutletId) !== "");
+
+  useEffect(() => {
+    const next = outletLocked ? String(selectedOutletId) : String(allModeValue);
+    setFilters((prev) => {
+      if (String(prev.outlet_id) === next) return prev;
+      if (typeof clearResult === "function") clearResult();
+      return { ...prev, outlet_id: next };
+    });
+  }, [selectedOutletId]);
+
+  return { outletLocked, selectedOutletId };
+};
+
 export const OutletScopeBadge = ({ className = "" }) => {
   const { selectedOutletLabel } = useSelectedOutlet();
 

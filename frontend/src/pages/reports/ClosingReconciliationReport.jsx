@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Loader2, Scale, AlertTriangle, CheckCircle2, AlertCircle, FileSearch } from 'lucide-react';
 import { closingReconciliationAPI, masterAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { useReportOutletSync } from '../../hooks/useSelectedOutlet';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
 const getThemeMode = () => { try { const m = localStorage.getItem("bbc_theme_mode") || "light"; return m === "system" ? (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light") : m; } catch { return "light"; } };
@@ -23,6 +24,7 @@ const ClosingReconciliationReport = () => {
   const [hasGenerated, setHasGenerated] = useState(false);
   const now = new Date();
   const [filters, setFilters] = useState({ outlet_id: '', month: String(now.getMonth() + 1), year: String(now.getFullYear()) });
+  const { outletLocked } = useReportOutletSync({ setFilters, allModeValue: "", clearResult: () => setData(null) });
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -81,7 +83,7 @@ const ClosingReconciliationReport = () => {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div>
             <label className={`mb-1 block text-[12px] font-medium ${labelCls}`}>Outlet</label>
-            <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
+            <select value={filters.outlet_id} disabled={outletLocked} style={outletLocked ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
               className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
               <option value="">Select outlet</option>
               {outlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}

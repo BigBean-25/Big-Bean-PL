@@ -3,6 +3,7 @@ import { Download, Search, TrendingUp, TrendingDown, FileText, Loader2, Shopping
 import { reportAPI, masterAPI } from '../../services/api';
 import useAuthStore from '../../store/authStore';
 import toast from 'react-hot-toast';
+import { useReportOutletSync } from '../../hooks/useSelectedOutlet';
 import { exportReportPDF } from '../../utils/pdfReport';
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
@@ -53,6 +54,7 @@ const MonthlyPLReport = () => {
   const inputCls = isDark ? "border-[#3B405A] bg-[#25293C] text-[#D0D2D6] placeholder:text-[#A5A8B6]" : "border-[#DBDADE] bg-white text-[#2F2B3D] placeholder:text-[#A8AAAE]";
   const mutedCls = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
 
+  const { outletLocked } = useReportOutletSync({ setFilters, allModeValue: "", clearResult: () => setReportData(null) });
   useEffect(() => { fetchOutlets(); }, []);
 
   const fetchOutlets = async () => {
@@ -180,7 +182,7 @@ const MonthlyPLReport = () => {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className={`mb-1.5 block text-[13px] font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#5D596C]"}`}>Outlet *</label>
-              <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
+              <select value={filters.outlet_id} disabled={outletLocked} style={outletLocked ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
                 className={`h-[42px] w-full rounded-md border px-3 text-[14px] outline-none transition focus:border-[#7367F0] focus:shadow-[0_0_0_3px_rgba(115,103,240,0.16)] ${inputCls}`}>
                 <option value="">Select Outlet</option>
                 {outlets.map(o => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
