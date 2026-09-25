@@ -5,7 +5,7 @@ import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import {
   getCentralKitchenLocations, getProductionDashboard, getProductionRequests, getProductionRequestById,
-  createProductionRequest, updateProductionRequestStatus, getProductionPlans, getProductionPlanById,
+  createProductionRequest, updateProductionRequestStatus, updateProductionRequestItems, getProductionPlans, getProductionPlanById,
   createProductionPlan, updateProductionPlanStatus, getProductionBatches, getProductionBatchById, createProductionBatch,
   getRawMaterialAvailability, postProductionBatch, setProductionBatchMaterials, updateProductionBatchActualQty,
   getFinishedGoodsStock, getProductionStockLedger,
@@ -204,6 +204,27 @@ router.post('/requests', checkPermission('production_requests', 'can_create'), a
 
 router.patch('/requests/:id/status', canTransitionProductionRequest, async (req, res) => {
   try { const data = await updateProductionRequestStatus(Number(req.params.id), req.body.status, req.user.id, req.body); res.json({ success: true, data }); }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
+});
+
+// Req #21: Bakehouse adjusts its accepted quantity (planned_qty) while the
+// request is still Submitted/Reviewed. Kitchen-side only: locked outlet roles
+// can only ever sit on the raising side of a request, so any non-all-access
+// role is denied outright; the creator is denied by the same maker-checker
+// rule the status transitions use (re-checked inside the service too).
+router.patch('/requests/:id/items', checkPermission('production_requests', 'can_edit'), async (req, res) => {
+  try {
+    const [request] = await query('SELECT from_outlet_id, created_by FROM production_requests WHERE id = ?', [req.params.id]);
+    if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (Number(request.created_by) === Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'You cannot adjust quantities on your own request' });
+    }
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      return res.status(403).json({ success: false, message: 'Only kitchen-side users can adjust requested quantities' });
+    }
+    const data = await updateProductionRequestItems(Number(req.params.id), req.body.items, req.user.id);
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 

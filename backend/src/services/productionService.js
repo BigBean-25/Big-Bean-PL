@@ -180,10 +180,26 @@ export async function updateProductionRequestStatus(id, status, userId, reasons 
     // can ever be created against an approved request. Item-level quantity overrides
     // can be passed via reasons.items; otherwise this approves the full requested qty.
     if (status === 'Approved') {
-      const overrides = Object.fromEntries((reasons.items || []).map((it) => [Number(it.id), it.planned_qty]));
-      const items = await connection.execute('SELECT id, requested_qty, planned_qty FROM production_request_items WHERE production_request_id = ?', [id]);
-      for (const it of items[0]) {
-        const planned = overrides[it.id] !== undefined ? Number(overrides[it.id]) : Number(it.requested_qty);
+      const overrideItems = reasons.items || [];
+      if (overrideItems.length) validateQtyItemsPayload(overrideItems);
+      const [itemRows] = await connection.execute('SELECT id, requested_qty, planned_qty FROM production_request_items WHERE production_request_id = ? FOR UPDATE', [id]);
+      const itemIds = new Set(itemRows.map((r) => Number(r.id)));
+      for (const it of overrideItems) {
+        if (!itemIds.has(Number(it.id))) {
+          const err = new Error('One or more request items are invalid for this request.');
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+      const overrides = Object.fromEntries(overrideItems.map((it) => [Number(it.id), Number(it.planned_qty)]));
+      for (const it of itemRows) {
+        // Preserve a planned_qty already saved by the Bakehouse adjustment
+        // endpoint - approval must not silently reset it back to requested_qty.
+        // Only fall back to requested_qty when planned_qty is unset (schema
+        // default 0 = unset; a valid adjusted qty is always > 0).
+        const planned = overrides[Number(it.id)] !== undefined
+          ? overrides[Number(it.id)]
+          : (Number(it.planned_qty) > 0 ? Number(it.planned_qty) : Number(it.requested_qty));
         if (Number(it.planned_qty) !== planned) {
           await connection.execute('UPDATE production_request_items SET planned_qty = ? WHERE id = ?', [planned, it.id]);
         }
@@ -192,6 +208,78 @@ export async function updateProductionRequestStatus(id, status, userId, reasons 
 
     await connection.commit();
     return getProductionRequestById(id);
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+}
+
+// Req #21: shared payload validation for Bakehouse quantity adjustments -
+// used by both the dedicated items endpoint and the Approved-status override.
+const validateQtyItemsPayload = (items) => {
+  const bad = (message) => { const err = new Error(message); err.statusCode = 400; return err; };
+  if (!Array.isArray(items) || items.length === 0) throw bad('items must be a non-empty array');
+  const seen = new Set();
+  for (const it of items || []) {
+    const id = Number(it?.id);
+    if (!Number.isInteger(id) || id <= 0) throw bad('Each item needs a valid request item id');
+    if (seen.has(id)) throw bad('Duplicate request item id in payload');
+    seen.add(id);
+    const planned = Number(it.planned_qty);
+    if (!Number.isFinite(planned) || planned <= 0) throw bad('Bakehouse quantity must be a positive number');
+  }
+};
+
+// Req #21: Bakehouse adjusts its accepted quantity (planned_qty) before the
+// request is approved. requested_qty is never touched - it stays the outlet's
+// original audit quantity. Only allowed while Submitted/Reviewed; once the
+// request is decided or moving downstream the quantities are frozen.
+export async function updateProductionRequestItems(requestId, items, userId) {
+  validateQtyItemsPayload(items);
+  const connection = await getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute('SELECT id, status, created_by FROM production_requests WHERE id = ? FOR UPDATE', [requestId]);
+    const request = rows[0];
+    if (!request) {
+      const err = new Error('Production request not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (!['Submitted', 'Reviewed'].includes(request.status)) {
+      const err = new Error(`Bakehouse quantities can only be adjusted while a request is "Submitted" or "Reviewed" (current: "${request.status}").`);
+      err.statusCode = 409;
+      throw err;
+    }
+    // The creator can never adjust their own request - same maker-checker
+    // rule the status transitions enforce (route also guards this).
+    assertNotOwnDocument(request, userId, 'created_by', 'adjust', 'production request');
+
+    const ids = items.map((it) => Number(it.id));
+    const [itemRows] = await connection.execute(
+      `SELECT id, requested_qty, reason_for_adjustment FROM production_request_items WHERE production_request_id = ? AND id IN (${ids.map(() => '?').join(',')}) FOR UPDATE`,
+      [requestId, ...ids]
+    );
+    if (itemRows.length !== ids.length) {
+      const err = new Error('One or more request items are invalid for this request.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const byId = new Map(itemRows.map((r) => [Number(r.id), r]));
+    for (const it of items) {
+      const row = byId.get(Number(it.id));
+      const planned = Number(it.planned_qty);
+      const requested = Number(row.requested_qty);
+      const reason = String(it.reason_for_adjustment ?? '').trim();
+      if (planned !== requested && reason === '') {
+        const err = new Error('Reason for adjustment is required when changing the requested quantity');
+        err.statusCode = 400;
+        throw err;
+      }
+      // Equal-qty save with a blank reason keeps any existing reason rather
+      // than overwriting it with meaningless whitespace.
+      const nextReason = reason !== '' ? reason : (planned !== requested ? null : row.reason_for_adjustment);
+      await connection.execute('UPDATE production_request_items SET planned_qty = ?, reason_for_adjustment = ? WHERE id = ?', [planned, nextReason, Number(it.id)]);
+    }
+    await connection.commit();
+    return getProductionRequestById(requestId);
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }
 
