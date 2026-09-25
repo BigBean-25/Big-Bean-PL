@@ -272,6 +272,35 @@ const getOutletNames = (user, allOutlets = []) => {
   return getAllOutletNames(allOutlets) || getAllOutletNames(DEFAULT_OUTLETS);
 };
 
+const getOutletNameList = (user, allOutlets = []) => {
+  const outletIds = getOutletIds(user);
+
+  if (outletIds.length > 0) {
+    const mappedNames = allOutlets
+      .filter((outlet) => outletIds.includes(Number(outlet.id)))
+      .map((outlet) => outlet.outlet_name || outlet.name || outlet.outlet_code)
+      .filter(Boolean);
+
+    if (mappedNames.length > 0) return mappedNames;
+  }
+
+  const directNames = getDirectOutletNames(user);
+  if (directNames) {
+    return directNames
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }
+
+  const allNames = allOutlets
+    .map((outlet) => outlet.outlet_name || outlet.name || outlet.outlet_code)
+    .filter(Boolean);
+
+  if (allNames.length > 0) return allNames;
+
+  return DEFAULT_OUTLETS.map((outlet) => outlet.outlet_name);
+};
+
 const emptyForm = () => ({
   full_name: "",
   email: "",
@@ -327,6 +356,14 @@ const UserManagement = () => {
 
   const mutedClass = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
   const mainTextClass = isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]";
+
+  const borderClass = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
+  const softBgClass = isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]";
+  const hoverBgClass = isDark ? "hover:bg-[#3B405A]/60" : "hover:bg-[#F8F7FA]";
+  const iconBtnClass = isDark
+    ? "bg-[#3B405A] text-[#A5A8B6] hover:bg-[#474B66]"
+    : "bg-[#F3F2F7] text-[#6F6B7D] hover:bg-[#EBE9F1]";
+  const subtleTextClass = isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]";
 
   useEffect(() => {
     fetchInitialData();
@@ -832,15 +869,39 @@ const UserManagement = () => {
     toast.success("Users exported");
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setRoleFilter("all");
+    setStatusFilter("all");
+    setOutletFilter("all");
+  };
+
+  const hasActiveFilters =
+    searchTerm !== "" ||
+    roleFilter !== "all" ||
+    statusFilter !== "all" ||
+    (String(selectedTopbarOutletId) === "all" && outletFilter !== "all");
+
   const StatusBadge = ({ active }) => {
     const isActive = Number(active) === 1;
 
     return (
       <span
-        className={`inline-flex rounded px-3 py-1 text-[12px] font-semibold ${
-          isActive ? "bg-[#E9F9EF] text-[#28C76F]" : "bg-[#F3F2F7] text-[#6F6B7D]"
+        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold ${
+          isActive
+            ? isDark
+              ? "border-[#28C76F]/30 bg-[#28C76F]/15 text-[#4ADE80]"
+              : "border-[#28C76F]/30 bg-[#E9F9EF] text-[#28C76F]"
+            : isDark
+              ? "border-[#3B405A] bg-[#3B405A]/40 text-[#A5A8B6]"
+              : "border-[#EBE9F1] bg-[#F3F2F7] text-[#6F6B7D]"
         }`}
       >
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            isActive ? "bg-[#28C76F]" : isDark ? "bg-[#A5A8B6]" : "bg-[#B9B7C0]"
+          }`}
+        />
         {isActive ? "Active" : "Inactive"}
       </span>
     );
@@ -848,16 +909,58 @@ const UserManagement = () => {
 
   const RoleBadge = ({ role }) => (
     <span
-      className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[13px] font-medium"
+      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold"
       style={{
-        color: primaryColor,
-        backgroundColor: `${primaryColor}18`,
+        color: isDark ? "#A9A2F8" : primaryColor,
+        backgroundColor: `${primaryColor}${isDark ? "26" : "18"}`,
+        borderColor: `${primaryColor}40`,
       }}
     >
-      <Shield size={14} />
+      <Shield size={13} />
       {displayLabel(role) || "User"}
     </span>
   );
+
+  const OutletBadges = ({ user, max = 2 }) => {
+    const names = getOutletNameList(user, outlets);
+
+    if (names.length === 0) {
+      return <span className={`text-[13px] ${mutedClass}`}>-</span>;
+    }
+
+    const shown = names.slice(0, max);
+    const extra = names.length - shown.length;
+
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {shown.map((name, index) => (
+          <span
+            key={`${name}-${index}`}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] font-medium ${
+              isDark
+                ? "border-[#3B405A] bg-[#25293C] text-[#D0D2D6]"
+                : "border-[#EBE9F1] bg-[#F8F7FA] text-[#5D596C]"
+            }`}
+          >
+            <Store size={11} className="opacity-70" />
+            {name}
+          </span>
+        ))}
+        {extra > 0 && (
+          <span
+            className="inline-flex items-center rounded-md px-2 py-0.5 text-[12px] font-semibold"
+            style={{
+              color: isDark ? "#A9A2F8" : primaryColor,
+              backgroundColor: `${primaryColor}18`,
+            }}
+            title={names.join(", ")}
+          >
+            +{extra} more
+          </span>
+        )}
+      </div>
+    );
+  };
 
   const UserAvatar = ({ user, size = "md" }) => {
     const sizes = {
@@ -880,22 +983,24 @@ const UserManagement = () => {
 
   const StatCard = ({ title, value, subtitle, icon: Icon, color, bg }) => (
     <div
-      className={`rounded-md border p-5 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}
+      className={`rounded-lg border p-5 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className={`text-[14px] font-medium ${mutedClass}`}>{title}</p>
-          <h3 className={`mt-2 text-[24px] font-semibold ${mainTextClass}`}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className={`truncate text-[13px] font-medium uppercase tracking-wide ${mutedClass}`}>
+            {title}
+          </p>
+          <h3 className={`mt-1.5 text-[26px] font-semibold leading-tight ${mainTextClass}`}>
             {value}
           </h3>
           <p className={`mt-1 text-[13px] ${mutedClass}`}>{subtitle}</p>
         </div>
 
         <div
-          className="flex h-12 w-12 items-center justify-center rounded-md"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
           style={{ backgroundColor: bg }}
         >
-          <Icon size={24} style={{ color }} />
+          <Icon size={22} style={{ color }} />
         </div>
       </div>
     </div>
@@ -924,7 +1029,7 @@ const UserManagement = () => {
             User Management
           </h1>
           <p className={`mt-1 text-[15px] ${mutedClass}`}>
-            Manage Big Bean Café users, roles and outlet assignments.
+            Manage users, roles, outlet access and account status.
           </p>
         </div>
 
@@ -1009,138 +1114,160 @@ const UserManagement = () => {
             <button
               type="button"
               onClick={closeForm}
-              className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+              className={`flex h-10 w-10 items-center justify-center rounded-md transition ${iconBtnClass}`}
               aria-label="Close form"
             >
               <X size={20} />
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.full_name}
-                  onChange={(event) =>
-                    setFormData({ ...formData, full_name: event.target.value })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                  required
-                />
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-7">
+            <div>
+              <h4 className={`text-[15px] font-semibold ${mainTextClass}`}>
+                Account Information
+              </h4>
+              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div>
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.full_name}
+                    onChange={(event) =>
+                      setFormData({ ...formData, full_name: event.target.value })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                    required
+                  />
+                </div>
 
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(event) =>
-                    setFormData({ ...formData, email: event.target.value })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                  required
-                />
-              </div>
+                <div>
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(event) =>
+                      setFormData({ ...formData, email: event.target.value })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                    required
+                  />
+                </div>
 
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Password {editingUser ? "(leave blank to keep current)" : "*"}
-                </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(event) =>
-                    setFormData({ ...formData, password: event.target.value })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                  required={!editingUser}
-                />
-              </div>
-
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(event) =>
-                    setFormData({ ...formData, phone: event.target.value })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                />
-              </div>
-
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Role *
-                </label>
-                <select
-                  value={formData.role_id}
-                  onChange={(event) =>
-                    setFormData({ ...formData, role_id: event.target.value })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                  required
-                >
-                  <option value="">Select Role</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {displayLabel(role.role_name)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Status
-                </label>
-                <select
-                  value={formData.is_active}
-                  onChange={(event) =>
-                    setFormData({
-                      ...formData,
-                      is_active: Number(event.target.value),
-                    })
-                  }
-                  className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
-                >
-                  <option value={1}>Active</option>
-                  <option value={0}>Inactive</option>
-                </select>
+                <div>
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Phone
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(event) =>
+                      setFormData({ ...formData, phone: event.target.value })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  />
+                </div>
               </div>
             </div>
 
             <div>
-              <div className="mb-3 flex items-center justify-between">
+              <h4 className={`text-[15px] font-semibold ${mainTextClass}`}>
+                Access
+              </h4>
+              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className={`block text-[15px] font-semibold ${mainTextClass}`}>
-                    Assign Outlets
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Role *
                   </label>
+                  <select
+                    value={formData.role_id}
+                    onChange={(event) =>
+                      setFormData({ ...formData, role_id: event.target.value })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                    required
+                  >
+                    <option value="">Select Role</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {displayLabel(role.role_name)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Status
+                  </label>
+                  <select
+                    value={formData.is_active}
+                    onChange={(event) =>
+                      setFormData({
+                        ...formData,
+                        is_active: Number(event.target.value),
+                      })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                  >
+                    <option value={1}>Active</option>
+                    <option value={0}>Inactive</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className={`text-[15px] font-semibold ${mainTextClass}`}>
+                Security
+              </h4>
+              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div>
+                  <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+                    Password {editingUser ? "(leave blank to keep current)" : "*"}
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(event) =>
+                      setFormData({ ...formData, password: event.target.value })
+                    }
+                    className={`h-11 w-full rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+                    required={!editingUser}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className={`block text-[15px] font-semibold ${mainTextClass}`}>
+                    Outlet Assignment
+                  </h4>
                   <p className={`mt-1 text-[13px] ${mutedClass}`}>
                     Leave empty to map every outlet.
                   </p>
                 </div>
 
                 <span
-                  className="rounded px-3 py-1 text-[13px] font-semibold"
+                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-semibold"
                   style={{
-                    color: primaryColor,
+                    color: isDark ? "#A9A2F8" : primaryColor,
                     backgroundColor: `${primaryColor}18`,
                   }}
                 >
-                  {formData.outlet_ids.length || outlets.length} Mapped
+                  <Store size={13} />
+                  {formData.outlet_ids.length > 0
+                    ? `${formData.outlet_ids.length} outlet${formData.outlet_ids.length === 1 ? "" : "s"} selected`
+                    : `All ${outlets.length} outlets`}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 rounded-md border border-[#DBDADE] bg-[#F8F7FA] p-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className={`grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-2 xl:grid-cols-4 ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#DBDADE] bg-[#F8F7FA]"}`}>
                 {outlets.map((outlet) => {
                   const checked = formData.outlet_ids?.includes(Number(outlet.id));
 
@@ -1149,8 +1276,12 @@ const UserManagement = () => {
                       key={outlet.id}
                       className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-3 text-[14px] transition ${
                         checked
-                          ? "border-[#7367F0] bg-white text-[#7367F0]"
-                          : "border-[#EBE9F1] bg-white text-[#5D596C]"
+                          ? isDark
+                            ? "border-[#7367F0] bg-[#7367F0]/15 text-[#A9A2F8]"
+                            : "border-[#7367F0] bg-white text-[#7367F0]"
+                          : isDark
+                            ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6] hover:bg-[#3B405A]/60"
+                            : "border-[#EBE9F1] bg-white text-[#5D596C]"
                       }`}
                     >
                       <input
@@ -1207,7 +1338,7 @@ const UserManagement = () => {
               <button
                 type="button"
                 onClick={() => setSelectedUser(null)}
-                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
+                className={`flex h-9 w-9 items-center justify-center rounded-md transition ${iconBtnClass}`}
                 aria-label="Close user details"
               >
                 <X size={18} />
@@ -1227,36 +1358,40 @@ const UserManagement = () => {
             </div>
 
             <div className="mt-8 grid grid-cols-2 gap-4">
-              <div className="rounded-md bg-[#F8F7FA] p-4 text-left">
+              <div className={`rounded-md p-4 text-left ${softBgClass}`}>
                 <div className="flex items-center gap-3">
                   <div
                     className="flex h-11 w-11 items-center justify-center rounded-md"
                     style={{
-                      color: primaryColor,
+                      color: isDark ? "#A9A2F8" : primaryColor,
                       backgroundColor: `${primaryColor}18`,
                     }}
                   >
                     <Store size={22} />
                   </div>
                   <div>
-                    <p className="text-[20px] font-semibold text-[#2F2B3D]">
+                    <p className={`text-[20px] font-semibold ${mainTextClass}`}>
                       {selectedOutletIds.length || outlets.length || 0}
                     </p>
-                    <p className="text-[13px] text-[#6F6B7D]">Outlets</p>
+                    <p className={`text-[13px] ${subtleTextClass}`}>Outlets</p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-md bg-[#F8F7FA] p-4 text-left">
+              <div className={`rounded-md p-4 text-left ${softBgClass}`}>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#E9F9EF] text-[#28C76F]">
+                  <div
+                    className={`flex h-11 w-11 items-center justify-center rounded-md ${
+                      isDark ? "bg-[#28C76F]/15 text-[#4ADE80]" : "bg-[#E9F9EF] text-[#28C76F]"
+                    }`}
+                  >
                     <CheckCircle size={22} />
                   </div>
                   <div>
-                    <p className="text-[20px] font-semibold text-[#2F2B3D]">
+                    <p className={`text-[20px] font-semibold ${mainTextClass}`}>
                       {Number(selectedUser.is_active) === 1 ? "On" : "Off"}
                     </p>
-                    <p className="text-[13px] text-[#6F6B7D]">Login</p>
+                    <p className={`text-[13px] ${subtleTextClass}`}>Login</p>
                   </div>
                 </div>
               </div>
@@ -1267,7 +1402,7 @@ const UserManagement = () => {
                 Details
               </h3>
 
-              <div className="border-t border-[#DBDADE] pt-4">
+              <div className={`border-t pt-4 ${borderClass}`}>
                 <DetailItem label="Username:" value={selectedUser.full_name} />
                 <DetailItem label="Email:" value={selectedUser.email} />
                 <DetailItem label="Status:" value={Number(selectedUser.is_active) === 1 ? "Active" : "Inactive"} />
@@ -1296,7 +1431,9 @@ const UserManagement = () => {
                       : handleToggleStatus(selectedUser, 1)
                   }
                   disabled={Number(selectedUser.id) === Number(currentUser?.id) || togglingId === selectedUser.id}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[#EEF9FC] px-4 py-2.5 text-[15px] font-semibold text-[#00A6B7] disabled:opacity-50"
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
+                    isDark ? "bg-[#00A6B7]/15 text-[#22D3EE]" : "bg-[#EEF9FC] text-[#00A6B7]"
+                  }`}
                   title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot change your own status" : (selectedUser.is_active === 1 || selectedUser.is_active === true ? "Deactivate" : "Activate")}
                 >
                   {togglingId === selectedUser.id ? (
@@ -1320,7 +1457,9 @@ const UserManagement = () => {
                   type="button"
                   onClick={() => handleDelete(selectedUser.id, selectedUser)}
                   disabled={Number(selectedUser.id) === Number(currentUser?.id) || deletingId === selectedUser.id}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[#FCEAEA] px-4 py-2.5 text-[15px] font-semibold text-[#EA5455] disabled:opacity-50"
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
+                    isDark ? "bg-[#EA5455]/15 text-[#FF6B6B]" : "bg-[#FCEAEA] text-[#EA5455]"
+                  }`}
                   title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
                 >
                   {deletingId === selectedUser.id ? (
@@ -1382,62 +1521,74 @@ const UserManagement = () => {
                   </p>
 
                   <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-                    <div className="rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#E6FAFD] text-[#00A6B7]">
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-md ${
+                            isDark ? "bg-[#00CFE8]/15 text-[#22D3EE]" : "bg-[#E6FAFD] text-[#00A6B7]"
+                          }`}
+                        >
                           <Mail size={22} />
                         </div>
                         <div>
-                          <p className="text-[13px] text-[#6F6B7D]">Email</p>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>Email</p>
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             {selectedUser.email || "-"}
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#E9F9EF] text-[#28C76F]">
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-md ${
+                            isDark ? "bg-[#28C76F]/15 text-[#4ADE80]" : "bg-[#E9F9EF] text-[#28C76F]"
+                          }`}
+                        >
                           <Phone size={22} />
                         </div>
                         <div>
-                          <p className="text-[13px] text-[#6F6B7D]">Phone</p>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>Phone</p>
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             {selectedUser.phone || "-"}
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
                         <div
                           className="flex h-11 w-11 items-center justify-center rounded-md"
                           style={{
-                            color: primaryColor,
+                            color: isDark ? "#A9A2F8" : primaryColor,
                             backgroundColor: `${primaryColor}18`,
                           }}
                         >
                           <Shield size={22} />
                         </div>
                         <div>
-                          <p className="text-[13px] text-[#6F6B7D]">Role</p>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>Role</p>
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             {displayLabel(selectedUser.role_name) || "-"}
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#FFF4E5] text-[#FF9F43]">
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-md ${
+                            isDark ? "bg-[#FF9F43]/15 text-[#FFB976]" : "bg-[#FFF4E5] text-[#FF9F43]"
+                          }`}
+                        >
                           <Store size={22} />
                         </div>
                         <div>
-                          <p className="text-[13px] text-[#6F6B7D]">Outlet Access</p>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>Outlet Access</p>
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             {getOutletNames(selectedUser, outlets)}
                           </p>
                         </div>
@@ -1457,16 +1608,20 @@ const UserManagement = () => {
                   </p>
 
                   <div className="mt-6 space-y-4">
-                    <div className="flex items-center justify-between rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`flex items-center justify-between rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#E9F9EF] text-[#28C76F]">
+                        <div
+                          className={`flex h-11 w-11 items-center justify-center rounded-md ${
+                            isDark ? "bg-[#28C76F]/15 text-[#4ADE80]" : "bg-[#E9F9EF] text-[#28C76F]"
+                          }`}
+                        >
                           <CheckCircle size={22} />
                         </div>
                         <div>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             Login Status
                           </p>
-                          <p className="text-[13px] text-[#6F6B7D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>
                             User account login permission.
                           </p>
                         </div>
@@ -1475,22 +1630,22 @@ const UserManagement = () => {
                       <StatusBadge active={selectedUser.is_active} />
                     </div>
 
-                    <div className="flex items-center justify-between rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`flex items-center justify-between rounded-md border p-5 ${borderClass}`}>
                       <div className="flex items-center gap-3">
                         <div
                           className="flex h-11 w-11 items-center justify-center rounded-md"
                           style={{
-                            color: primaryColor,
+                            color: isDark ? "#A9A2F8" : primaryColor,
                             backgroundColor: `${primaryColor}18`,
                           }}
                         >
                           <Shield size={22} />
                         </div>
                         <div>
-                          <p className="text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`text-[15px] font-semibold ${mainTextClass}`}>
                             Role Permission
                           </p>
-                          <p className="text-[13px] text-[#6F6B7D]">
+                          <p className={`text-[13px] ${subtleTextClass}`}>
                             Access depends on assigned role.
                           </p>
                         </div>
@@ -1514,17 +1669,17 @@ const UserManagement = () => {
                   <div className="mt-6 overflow-x-auto">
                     <table className="w-full min-w-[700px] border-collapse">
                       <thead>
-                        <tr className="border-b border-[#EBE9F1]">
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
+                        <tr className={`border-b ${borderClass}`}>
+                          <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                             Outlet
                           </th>
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
+                          <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                             City
                           </th>
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
+                          <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                             Manager
                           </th>
-                          <th className="px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide text-[#A8AAAE]">
+                          <th className={`px-4 py-3 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                             Status
                           </th>
                         </tr>
@@ -1533,13 +1688,13 @@ const UserManagement = () => {
                       <tbody>
                         {selectedOutletList.length === 0 ? (
                           <tr>
-                            <td colSpan="4" className="px-4 py-8 text-center text-[14px] text-[#6F6B7D]">
+                            <td colSpan="4" className={`px-4 py-8 text-center text-[14px] ${subtleTextClass}`}>
                               No outlets found.
                             </td>
                           </tr>
                         ) : (
                           selectedOutletList.map((outlet) => (
-                            <tr key={outlet.id} className="border-b border-[#EBE9F1]">
+                            <tr key={outlet.id} className={`border-b transition ${borderClass} ${hoverBgClass}`}>
                               <td className="px-4 py-4">
                                 <div className="flex items-center gap-3">
                                   <div
@@ -1549,23 +1704,27 @@ const UserManagement = () => {
                                     <Store size={17} />
                                   </div>
                                   <div>
-                                    <p className="text-[14px] font-semibold text-[#2F2B3D]">
+                                    <p className={`text-[14px] font-semibold ${mainTextClass}`}>
                                       {outlet.outlet_name || outlet.name || "-"}
                                     </p>
-                                    <p className="text-[12px] text-[#A8AAAE]">
+                                    <p className={`text-[12px] ${mutedClass}`}>
                                       {outlet.outlet_code || `OUT-${outlet.id}`}
                                     </p>
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-4 text-[14px] text-[#6F6B7D]">
+                              <td className={`px-4 py-4 text-[14px] ${subtleTextClass}`}>
                                 {outlet.city || "-"}
                               </td>
-                              <td className="px-4 py-4 text-[14px] text-[#6F6B7D]">
+                              <td className={`px-4 py-4 text-[14px] ${subtleTextClass}`}>
                                 {outlet.manager_name || "-"}
                               </td>
                               <td className="px-4 py-4">
-                                <span className="rounded-full bg-[#E9F9EF] px-3 py-1 text-[12px] font-semibold text-[#28C76F]">
+                                <span
+                                  className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
+                                    isDark ? "bg-[#28C76F]/15 text-[#4ADE80]" : "bg-[#E9F9EF] text-[#28C76F]"
+                                  }`}
+                                >
                                   Assigned
                                 </span>
                               </td>
@@ -1588,7 +1747,7 @@ const UserManagement = () => {
                   </p>
 
                   <div className="mt-6 space-y-4">
-                    <div className="rounded-md border border-[#EBE9F1] p-5">
+                    <div className={`rounded-md border p-5 ${borderClass}`}>
                       <DetailItem label="Last Login:" value={formatDate(selectedUser.last_login)} />
                       <DetailItem label="Created At:" value={formatDate(selectedUser.created_at)} />
                       <DetailItem label="Updated At:" value={formatDate(selectedUser.updated_at)} />
@@ -1603,114 +1762,89 @@ const UserManagement = () => {
       )}
 
       <div
-        className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}
+        className={`rounded-lg border shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}
       >
-        <div className="border-b border-[#EBE9F1] p-6">
-          <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>Filters</h3>
-
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <select
-              value={roleFilter}
-              onChange={(event) => setRoleFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-            >
-              <option value="all">Select Role</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {displayLabel(role.role_name)}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={
-                String(selectedTopbarOutletId) === "all"
-                  ? outletFilter
-                  : String(selectedTopbarOutletId)
-              }
-              onChange={(event) => setOutletFilter(event.target.value)}
-              disabled={String(selectedTopbarOutletId) !== "all"}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass} ${
-                String(selectedTopbarOutletId) !== "all"
-                  ? "cursor-not-allowed opacity-75"
-                  : ""
-              }`}
-            >
-              {String(selectedTopbarOutletId) === "all" && (
-                <option value="all">All Outlets</option>
-              )}
-
-              {outletFilterOptions.map((outlet) => (
-                <option key={outlet.id} value={outlet.id}>
-                  {outlet.outlet_name || outlet.name || outlet.outlet_code}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className={`h-12 rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-            >
-              <option value="all">Select Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex flex-col justify-between gap-4 border-b border-[#EBE9F1] p-6 md:flex-row md:items-center">
-          <select
-            className={`h-12 w-[95px] rounded-md border px-4 text-[15px] outline-none ${inputClass}`}
-            defaultValue="10"
-          >
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-          </select>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative">
+        <div className={`border-b p-4 sm:p-5 ${borderClass}`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative w-full lg:w-[300px] lg:shrink-0">
               <Search
-                size={18}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A8AAAE]"
+                size={17}
+                className={`absolute left-4 top-1/2 -translate-y-1/2 ${mutedClass}`}
               />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search User"
-                className={`h-12 w-full rounded-md border pl-11 pr-4 text-[15px] outline-none sm:w-[290px] ${inputClass}`}
+                placeholder="Search name or email"
+                className={`h-11 w-full rounded-md border pl-11 pr-4 text-[14px] outline-none ${inputClass}`}
               />
             </div>
 
-            <button
-              type="button"
-              onClick={handleExport}
-              className="flex h-12 items-center justify-center gap-2 rounded-md bg-[#F3F2F7] px-5 text-[15px] font-semibold text-[#6F6B7D]"
-            >
-              <Download size={17} />
-              Export
-            </button>
+            <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3 lg:ml-auto lg:max-w-[560px]">
+              <select
+                value={roleFilter}
+                onChange={(event) => setRoleFilter(event.target.value)}
+                className={`h-11 rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+              >
+                <option value="all">All Roles</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {displayLabel(role.role_name)}
+                  </option>
+                ))}
+              </select>
 
-            <button
-              type="button"
-              onClick={() => {
-                resetForm();
-                setShowForm(true);
-                setSelectedUser(null);
-              }}
-              className="flex h-12 items-center justify-center gap-2 rounded-md px-5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <Plus size={18} />
-              Add New User
-            </button>
+              <select
+                value={
+                  String(selectedTopbarOutletId) === "all"
+                    ? outletFilter
+                    : String(selectedTopbarOutletId)
+                }
+                onChange={(event) => setOutletFilter(event.target.value)}
+                disabled={String(selectedTopbarOutletId) !== "all"}
+                className={`h-11 rounded-md border px-4 text-[14px] outline-none ${inputClass} ${
+                  String(selectedTopbarOutletId) !== "all"
+                    ? "cursor-not-allowed opacity-75"
+                    : ""
+                }`}
+              >
+                {String(selectedTopbarOutletId) === "all" && (
+                  <option value="all">All Outlets</option>
+                )}
+
+                {outletFilterOptions.map((outlet) => (
+                  <option key={outlet.id} value={outlet.id}>
+                    {outlet.outlet_name || outlet.name || outlet.outlet_code}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className={`h-11 rounded-md border px-4 text-[14px] outline-none ${inputClass}`}
+              >
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className={`flex h-11 shrink-0 items-center justify-center gap-2 rounded-md border px-4 text-[14px] font-medium transition ${cardClass} ${hoverBgClass}`}
+              >
+                <X size={15} />
+                Clear Filters
+              </button>
+            )}
           </div>
         </div>
 
         {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center">
+          <div className="flex min-h-[320px] items-center justify-center">
             <div className="text-center">
               <Loader2
                 size={36}
@@ -1721,23 +1855,47 @@ const UserManagement = () => {
             </div>
           </div>
         ) : loadError ? (
-          <div className="flex min-h-[300px] items-center justify-center px-6 text-center">
-            <div>
-              <AlertCircle size={42} className="mx-auto text-[#EA5455]" />
+          <div className="flex min-h-[320px] items-center justify-center px-6 text-center">
+            <div
+              className={`rounded-lg border px-8 py-6 ${
+                isDark ? "border-[#EA5455]/30 bg-[#EA5455]/10" : "border-[#F5C6C6] bg-[#FFF5F5]"
+              }`}
+            >
+              <AlertCircle size={40} className="mx-auto text-[#EA5455]" />
               <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>Failed to load users</p>
-              <p className={`mt-1 text-[14px] ${mutedClass}`}>{loadError}</p>
+              <p className={`mt-1 max-w-sm text-[14px] ${mutedClass}`}>{loadError}</p>
             </div>
           </div>
         ) : filteredUsers.length === 0 ? (
-          <div className="flex min-h-[300px] items-center justify-center">
+          <div className="flex min-h-[320px] items-center justify-center px-6">
             <div className="text-center">
-              <User size={42} className="mx-auto text-[#A8AAAE]" />
-              <p className={`mt-3 text-[16px] font-semibold ${mainTextClass}`}>
+              <div
+                className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ${softBgClass}`}
+              >
+                <User size={26} className={mutedClass} />
+              </div>
+              <p className={`mt-4 text-[16px] font-semibold ${mainTextClass}`}>
                 No users found
               </p>
               <p className={`mt-1 text-[14px] ${mutedClass}`}>
-                Add a new user or change filters.
+                {hasActiveFilters
+                  ? "Try adjusting or clearing your filters."
+                  : "Add a new user to get started."}
               </p>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2 text-[13px] font-semibold"
+                  style={{
+                    color: isDark ? "#A9A2F8" : primaryColor,
+                    backgroundColor: `${primaryColor}18`,
+                  }}
+                >
+                  <X size={14} />
+                  Clear Filters
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -1745,7 +1903,7 @@ const UserManagement = () => {
             <div className={`block md:hidden divide-y ${isDark ? "divide-[#3B405A]" : "divide-[#EBE9F1]"}`}>
               {filteredUsers.map((user) => (
                 <div key={user.id} className="space-y-3 p-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <UserAvatar user={user} size="sm" />
                       <div className="min-w-0">
@@ -1755,49 +1913,48 @@ const UserManagement = () => {
                     </div>
                     <StatusBadge active={user.is_active} />
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <RoleBadge role={user.role_name} />
+                    <OutletBadges user={user} max={3} />
                   </div>
-                  <div className={`space-y-1 text-[13px] ${mutedClass}`}>
-                    <p><span className={`font-medium ${mainTextClass}`}>Outlets:</span> {getOutletNames(user, outlets)}</p>
+                  <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[13px] ${mutedClass}`}>
                     {user.phone && <p><span className={`font-medium ${mainTextClass}`}>Phone:</span> {user.phone}</p>}
-                    <p className="text-[12px]">Last login: {formatDate(user.last_login)}</p>
+                    <p className="text-[12px] leading-5">Last login: {formatDate(user.last_login)}</p>
                   </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
-                      disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
-                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
-                    >
-                      {togglingId === user.id ? <Loader2 size={16} className="animate-spin" /> : user.is_active === 1 || user.is_active === true ? <X size={16} /> : <CheckCircle size={16} />}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(user.id, user)}
-                      disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
-                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
-                    >
-                      {deletingId === user.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                    </button>
+                  <div className={`flex flex-wrap items-center gap-2 border-t pt-3 ${borderClass}`}>
                     <button
                       type="button"
                       onClick={() => handleView(user)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#7367F0] hover:text-[#7367F0] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#7367F0] hover:text-[#7367F0] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
                       title="View Details"
                     >
-                      <Eye size={16} />
+                      <Eye size={15} /> View
                     </button>
                     <button
                       type="button"
                       onClick={() => handleEdit(user)}
-                      className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
                       title="Edit"
                     >
-                      <Edit2 size={16} />
+                      <Edit2 size={15} /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
+                      disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
+                    >
+                      {togglingId === user.id ? <Loader2 size={15} className="animate-spin" /> : user.is_active === 1 || user.is_active === true ? <><X size={15} /> Deactivate</> : <><CheckCircle size={15} /> Activate</>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(user.id, user)}
+                      disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                    >
+                      {deletingId === user.id ? <Loader2 size={15} className="animate-spin" /> : <><Trash2 size={15} /> Delete</>}
                     </button>
                   </div>
                 </div>
@@ -1806,27 +1963,24 @@ const UserManagement = () => {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[1100px] border-collapse">
               <thead>
-                <tr className="border-b border-[#EBE9F1]">
-                  <th className="px-6 py-4 text-left">
-                    <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
-                  </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                <tr className={`border-b ${borderClass} ${softBgClass}`}>
+                  <th className={`px-6 py-3.5 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                     User
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th className={`px-6 py-3.5 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                     Role
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th className={`px-6 py-3.5 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                     Assigned Outlets
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th className={`px-6 py-3.5 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                     Contact
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
+                  <th className={`px-6 py-3.5 text-left text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
                     Status
                   </th>
-                  <th className="px-6 py-4 text-left text-[13px] font-semibold uppercase tracking-wide text-[#2F2B3D]">
-                    Action
+                  <th className={`px-6 py-3.5 text-right text-[12px] font-semibold uppercase tracking-wide ${mutedClass}`}>
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -1835,20 +1989,16 @@ const UserManagement = () => {
                 {filteredUsers.map((user) => (
                   <tr
                     key={user.id}
-                    className="border-b border-[#EBE9F1] transition hover:bg-[#F8F7FA]"
+                    className={`border-b transition ${borderClass} ${hoverBgClass}`}
                   >
-                    <td className="px-6 py-4">
-                      <input type="checkbox" className="h-5 w-5 rounded accent-[#7367F0]" />
-                    </td>
-
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <UserAvatar user={user} size="sm" />
                         <div className="min-w-0">
-                          <p className="truncate text-[15px] font-semibold text-[#2F2B3D]">
+                          <p className={`truncate text-[15px] font-semibold ${mainTextClass}`}>
                             {user.full_name || "-"}
                           </p>
-                          <p className="truncate text-[13px] text-[#6F6B7D]">
+                          <p className={`truncate text-[13px] ${mutedClass}`}>
                             {user.email || "-"}
                           </p>
                         </div>
@@ -1860,15 +2010,13 @@ const UserManagement = () => {
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="text-[14px] text-[#6F6B7D]">
-                        {getOutletNames(user, outlets)}
-                      </span>
+                      <OutletBadges user={user} max={2} />
                     </td>
 
                     <td className="px-6 py-4">
-                      <div className="text-[14px] text-[#6F6B7D]">
+                      <div className={`text-[14px] ${subtleTextClass}`}>
                         <p>{user.phone || "-"}</p>
-                        <p className="text-[12px] text-[#A8AAAE]">
+                        <p className={`text-[12px] ${mutedClass}`}>
                           Last login: {formatDate(user.last_login)}
                         </p>
                       </div>
@@ -1879,20 +2027,44 @@ const UserManagement = () => {
                     </td>
 
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3 text-[#6F6B7D]">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleView(user)}
+                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#7367F0] hover:text-[#7367F0] ${
+                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                          }`}
+                          title="View Details"
+                        >
+                          <Eye size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(user)}
+                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${
+                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                          }`}
+                          title="Edit"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
                           disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                          className="transition hover:text-[#00A6B7] disabled:opacity-50"
+                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${
+                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                          }`}
                           title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
                         >
                           {togglingId === user.id ? (
-                            <Loader2 size={20} className="animate-spin" />
+                            <Loader2 size={16} className="animate-spin" />
                           ) : user.is_active === 1 || user.is_active === true ? (
-                            <X size={20} />
+                            <X size={16} />
                           ) : (
-                            <CheckCircle size={20} />
+                            <CheckCircle size={16} />
                           )}
                         </button>
 
@@ -1900,34 +2072,17 @@ const UserManagement = () => {
                           type="button"
                           onClick={() => handleDelete(user.id, user)}
                           disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                          className="transition hover:text-[#EA5455] disabled:opacity-50"
+                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${
+                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                          }`}
                           title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
                         >
                           {deletingId === user.id ? (
-                            <Loader2 size={20} className="animate-spin" />
+                            <Loader2 size={16} className="animate-spin" />
                           ) : (
-                            <Trash2 size={20} />
+                            <Trash2 size={16} />
                           )}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleView(user)}
-                          className="transition hover:text-[#7367F0]"
-                          title="View Details"
-                        >
-                          <Eye size={20} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(user)}
-                          className="transition hover:text-[#00A6B7]"
-                          title="Edit"
-                        >
-                          <Edit2 size={20} />
-                        </button>
-
                       </div>
                     </td>
                   </tr>
