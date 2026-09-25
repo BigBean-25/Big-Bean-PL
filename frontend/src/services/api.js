@@ -610,6 +610,7 @@ export const warehouseAPI = {
     api.delete(`/warehouse/requisitions/${id}/attachments/${attachmentId}`),
   getTransfers: (params) => api.get("/warehouse/transfers", { params }),
   createTransfer: (data) => api.post("/warehouse/transfers", data),
+  dispatchTransfer: (id) => api.post(`/warehouse/transfers/${id}/dispatch`),
   getTransferValidUoms: (rawMaterialId) => api.get(`/warehouse/transfers/valid-uoms/${rawMaterialId}`),
   getTransfer: (id) => api.get(`/warehouse/transfers/${id}`),
   receiveTransfer: (id, data) => api.post(`/warehouse/transfers/${id}/receive`, data),

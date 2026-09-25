@@ -1,24 +1,47 @@
 import { useEffect, useState } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from "../../components/ui";
-import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
+import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow, MaterialCombobox } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, ArrowRightLeft, Eye, Package, CheckCircle, Printer, Plus, X, Trash2 } from "lucide-react";
+import { Search, RotateCcw, ArrowRightLeft, Eye, Package, CheckCircle, Printer, Plus, X, Trash2, Download } from "lucide-react";
 import toast from "react-hot-toast";
+import ExcelJS from "exceljs";
 import { amountInWords } from "./invoiceWords";
 
-export default function WarehouseTransfers({ locationId, locations, materials = [], isDark }) {
+export default function WarehouseTransfers({ locationId, outletSelected, locations, materials = [], isDark }) {
   const [loading, setLoading] = useState(true);
   const [transfers, setTransfers] = useState([]);
-  const [filters, setFilters] = useState({ search: "", status: "", from: "", to: "" });
+  // Req #18: filter keys mirror the GET /warehouse/transfers query params -
+  // the backend is the authoritative filtered result, no client re-filtering.
+  const emptyFilters = () => ({ search: "", type: "", status: "", from_location_id: "", to_location_id: "", raw_material_id: "", date_from: "", date_to: "" });
+  const [filters, setFilters] = useState(emptyFilters);
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState({});
   const [saving, setSaving] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const inputClass = getInputClass(isDark);
 
-  // Req #16: direct Outlet -> Outlet transfer creation (Draft only).
-  const canCreate = Boolean(getStoredPermissions()?.warehouse_transfers?.can_create);
+  // Req #16/#17: direct Outlet -> Outlet transfer create + dispatch.
+  const transferPerms = getStoredPermissions()?.warehouse_transfers || {};
+  const canCreate = Boolean(transferPerms.can_create);
+  const canEdit = Boolean(transferPerms.can_edit);
+  const canExport = Boolean(transferPerms.can_export);
+  const [dispatching, setDispatching] = useState(false);
+
+  const dispatchDirect = async () => {
+    if (dispatching || !detail) return;
+    if (!window.confirm("Dispatch this transfer? Source outlet stock will be deducted and the transfer will move to In Transit.")) return;
+    setDispatching(true);
+    try {
+      const res = await warehouseAPI.dispatchTransfer(detail.id);
+      toast.success("Transfer dispatched - source stock deducted");
+      fetchTransfers();
+      const d = res?.data?.data;
+      if (d?.id) await openDetail(d);
+    } catch (error) { toast.error(error.response?.data?.message || "Dispatch failed"); }
+    finally { setDispatching(false); }
+  };
   const [createOpen, setCreateOpen] = useState(false);
   const emptyTransferForm = () => ({
     from_location_id: "", to_location_id: "", remarks: "",
@@ -90,13 +113,15 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
   const fetchTransfers = async () => {
     setLoading(true);
     try {
-      const res = await warehouseAPI.getTransfers(filters);
+      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== "" && v != null));
+      if (outletSelected && locationId) params.location_id = locationId;
+      const res = await warehouseAPI.getTransfers(params);
       setTransfers(res?.data?.data || []);
     } catch (error) { toast.error("Failed to load transfers"); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchTransfers(); }, [filters]);
+  useEffect(() => { fetchTransfers(); }, [filters, locationId, outletSelected]);
 
   const openDetail = async (t) => {
     try {
@@ -128,18 +153,58 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
     finally { setSaving(false); }
   };
 
-  const filtered = transfers.filter((t) => {
-    const term = filters.search.toLowerCase();
-    return (term === "" || (t.transfer_no || "").toLowerCase().includes(term) || (t.requisition_no || "").toLowerCase().includes(term))
-      && (filters.status === "" || t.status === filters.status)
-      && (filters.from === "" || String(t.from_location_id) === filters.from)
-      && (filters.to === "" || String(t.to_location_id) === filters.to);
-  });
-
-  const reset = () => setFilters({ search: "", status: "", from: "", to: "" });
+  const reset = () => setFilters(emptyFilters());
 
   const statusOptions = ["Draft", "In Transit", "Partially Received", "Received"];
+  const typeOptions = [
+    { value: "", label: "All Types" },
+    { value: "outlet", label: "Outlet Transfer" },
+    { value: "requisition", label: "Requisition" },
+    { value: "production", label: "Production" },
+  ];
+  const typeBadge = (t) => {
+    const styles = {
+      "Outlet Transfer": isDark ? "bg-[#7367F0]/20 text-[#A5A0FF]" : "bg-[#EFECFF] text-[#7367F0]",
+      "Requisition": isDark ? "bg-[#00CFE8]/20 text-[#5FDDF0]" : "bg-[#E6FAFD] text-[#00CFE8]",
+      "Production": isDark ? "bg-[#FF9F43]/20 text-[#FFB976]" : "bg-[#FFF4E5] text-[#FF9F43]",
+    };
+    return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${styles[t] || (isDark ? "bg-[#3B405A] text-[#A5A8B6]" : "bg-[#F3F2F7] text-[#6F6B7D]")}`}>{t || "Other"}</span>;
+  };
   const canReceive = detail && ["In Transit", "Partially Received"].includes(detail.status);
+
+  // Req #18: export the CURRENT backend-filtered result set (same ExcelJS
+  // pattern as SupplierHistory / WarehouseReports).
+  const exportToExcel = async () => {
+    if (!transfers.length) { toast.error("No data to export"); return; }
+    setExporting(true);
+    try {
+      const headers = ["Transfer No", "Type", "From", "To", "Status", "Dispatch Date", "Received Date", "Items", "Planned Qty", "Dispatched Qty", "Received Qty", "Damaged Qty", "Short Qty", "Unaccounted Qty", "Transfer Value", "Dispatched By", "Received By", "Remarks"];
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Transfer History");
+      ws.addRow(headers);
+      ws.getRow(1).font = { bold: true };
+      ws.getRow(1).freeze = true;
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+      transfers.forEach((t) => ws.addRow([
+        t.transfer_no, t.transfer_type, t.from_location, t.to_location, t.status,
+        t.dispatch_date ? fmtDate(t.dispatch_date) : "", t.received_at ? fmtDate(t.received_at) : "",
+        num(t.item_count), num(t.planned_qty), num(t.dispatched_qty), num(t.received_qty),
+        num(t.damaged_qty), num(t.short_qty), num(t.unaccounted_qty), num(t.total_value),
+        t.dispatched_by_name || "", t.received_by_name || "", t.remarks || "",
+      ]));
+      ws.columns = headers.map((h, i) => ({ width: Math.max(12, (transfers[0] ? String(ws.getRow(2).getCell(i + 1).value ?? "").length : h.length) + 4, h.length + 2) }));
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `transfer-history-${new Date().toISOString().split("T")[0]}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export complete");
+    } catch (error) { toast.error("Export failed"); }
+    finally { setExporting(false); }
+  };
 
   return (
     <div className="space-y-5">
@@ -147,35 +212,58 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
         <KpiCard icon={ArrowRightLeft} label="In Transit" value={transfers.filter((t) => t.status === "In Transit").length} isDark={isDark} />
         <KpiCard icon={ArrowRightLeft} label="Partially Received" value={transfers.filter((t) => t.status === "Partially Received").length} isDark={isDark} />
         <KpiCard icon={ArrowRightLeft} label="Received" value={transfers.filter((t) => t.status === "Received").length} isDark={isDark} />
-        <KpiCard icon={Package} label="Transit Variance" value={transfers.filter((t) => t.items?.some((i) => num(i.damaged_qty) + num(i.short_qty) > 0)).length} isDark={isDark} />
+        <KpiCard icon={Package} label="Transit Variance" value={transfers.filter((t) => num(t.damaged_qty) + num(t.short_qty) > 0).length} isDark={isDark} />
       </div>
 
       <SectionCard title="Filters" isDark={isDark}>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="relative min-w-[220px] flex-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[200px] flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search transfer or outlet purchase order" />
+            <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`} placeholder="Search transfer, PO or location" />
           </div>
+          <select value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+            {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
             <option value="">All Status</option>
             {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+          <select value={filters.from_location_id} onChange={(e) => setFilters({ ...filters, from_location_id: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
             <option value="">From</option>
-            {[...new Map(transfers.map((t) => [t.from_location_id, t.from_location])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            {(locations || []).filter((l) => num(l.is_active) === 1).map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
           </select>
-          <select value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+          <select value={filters.to_location_id} onChange={(e) => setFilters({ ...filters, to_location_id: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
             <option value="">To</option>
-            {[...new Map(transfers.map((t) => [t.to_location_id, t.to_location])).entries()].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            {(locations || []).filter((l) => num(l.is_active) === 1).map((l) => <option key={l.id} value={l.id}>{l.location_name}</option>)}
           </select>
+          <div className="w-[220px]">
+            <MaterialCombobox
+              value={filters.raw_material_id}
+              onSelect={(v) => setFilters({ ...filters, raw_material_id: v })}
+              materials={materials}
+              excludeIds={new Set()}
+              isDark={isDark}
+              inputClass={inputClass}
+              placeholder="All Materials"
+            />
+          </div>
+          <input type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} title="From date" />
+          <input type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} title="To date" />
           <button onClick={reset} className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
             <RotateCcw size={14} /> Reset
           </button>
-          {canCreate && (
-            <button onClick={openCreate} className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#6354D8] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none">
-              <Plus size={16} /> New Transfer
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {canExport && (
+              <button onClick={exportToExcel} disabled={exporting} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6] hover:border-[#7367F0]/60" : "border-[#DBDADE] bg-white text-[#5D596C] hover:border-[#7367F0]/60 hover:text-[#7367F0]"}`}>
+                <Download size={16} /> {exporting ? "Exporting..." : "Export"}
+              </button>
+            )}
+            {canCreate && (
+              <button onClick={openCreate} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#6354D8] active:scale-[0.99] motion-reduce:transform-none motion-reduce:transition-none">
+                <Plus size={16} /> New Transfer
+              </button>
+            )}
+          </div>
         </div>
       </SectionCard>
 
@@ -185,6 +273,7 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                 <th className="px-3 py-3">Transfer No</th>
+                <th className="px-3 py-3">Type</th>
                 <th className="px-3 py-3">Outlet PO</th>
                 <th className="px-3 py-3">From</th>
                 <th className="px-3 py-3">To</th>
@@ -197,16 +286,17 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
               </tr>
             </thead>
             <tbody>
-              {loading ? <LoadingRows rows={5} cols={10} isDark={isDark} /> : (
+              {loading ? <LoadingRows rows={5} cols={11} isDark={isDark} /> : (
                 <>
-                  {filtered.map((t) => (
+                  {transfers.map((t) => (
                     <tr key={t.id} className={`border-b transition ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/30" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
                       <td className="px-3 py-2.5 font-medium">{t.transfer_no}</td>
+                      <td className="px-3 py-2.5">{typeBadge(t.transfer_type)}</td>
                       <td className="px-3 py-2.5">{t.requisition_no || "-"}</td>
                       <td className="px-3 py-2.5">{t.from_location}</td>
                       <td className="px-3 py-2.5">{t.to_location}</td>
                       <td className="px-3 py-2.5">{fmtDate(t.dispatch_date)}</td>
-                      <td className="px-3 py-2.5 text-right">{t.items || 0}</td>
+                      <td className="px-3 py-2.5 text-right">{t.item_count ?? t.items ?? 0}</td>
                       <td className="px-3 py-2.5 text-right">{fmtCurrency(t.total_value)}</td>
                       <td className="px-3 py-2.5 text-center"><StatusBadge status={t.status} /></td>
                       <td className="px-3 py-2.5">{fmtDate(t.received_at)}</td>
@@ -215,7 +305,7 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
                       </td>
                     </tr>
                   ))}
-                  {!filtered.length && <EmptyRow colSpan={10} isDark={isDark} />}
+                  {!transfers.length && <EmptyRow colSpan={11} isDark={isDark} message="No transfers found for the selected filters" />}
                 </>
               )}
             </tbody>
@@ -238,8 +328,8 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
             </div>
             <div className="space-y-5 p-4">
               <div className="grid grid-cols-2 gap-4 text-[14px]">
-                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>From:</span> {detail.from_location}</div>
-                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>To:</span> {detail.to_location}</div>
+                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>From:</span> {detail.from_location_name || detail.from_location || "-"}</div>
+                <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>To:</span> {detail.to_location_name || detail.to_location || "-"}</div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Vehicle:</span> {detail.vehicle_no || "-"}</div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Driver:</span> {detail.driver_name || "-"}</div>
                 <div><span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>Status:</span> <StatusBadge status={detail.status} /></div>
@@ -295,6 +385,11 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setDetail(null)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Close</button>
+                {detail.status === "Draft" && detail.requisition_id == null && detail.production_request_id == null && canEdit && (
+                  <button onClick={dispatchDirect} disabled={dispatching} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#6354D8] active:scale-[0.99] disabled:opacity-50 motion-reduce:transform-none">
+                    <ArrowRightLeft size={16} /> {dispatching ? "Dispatching..." : "Dispatch"}
+                  </button>
+                )}
                 {canReceive && (
                   <button onClick={submitReceipt} disabled={saving} className="h-10 rounded-lg bg-[#28C76F] px-4 text-[14px] font-semibold text-white hover:bg-[#20B158] disabled:opacity-50">
                     <CheckCircle size={16} className="inline mr-1" /> {saving ? "Recording…" : "Confirm Receipt"}
@@ -351,14 +446,14 @@ export default function WarehouseTransfers({ locationId, locations, materials = 
                     const uoms = uomOptions[String(it.raw_material_id)] || [];
                     return (
                       <div key={idx} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_110px_130px_1fr_36px]">
-                        <select
+                        <MaterialCombobox
                           value={it.raw_material_id}
-                          onChange={(e) => { setCreateItem(idx, { raw_material_id: e.target.value, unit_id: "" }); if (e.target.value) loadUoms(e.target.value); }}
-                          className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`}
-                        >
-                          <option value="">Raw Material *</option>
-                          {activeMaterials.filter((m) => !usedIds.includes(String(m.id))).map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
-                        </select>
+                          onSelect={(v) => { setCreateItem(idx, { raw_material_id: v, unit_id: "" }); if (v) loadUoms(v); }}
+                          materials={activeMaterials}
+                          excludeIds={new Set(usedIds)}
+                          isDark={isDark}
+                          inputClass={inputClass}
+                        />
                         <input type="number" min="0" step="any" value={it.quantity} onChange={(e) => setCreateItem(idx, { quantity: e.target.value })} placeholder="Qty *" className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`} />
                         <select value={it.unit_id} onChange={(e) => setCreateItem(idx, { unit_id: e.target.value })} disabled={!it.raw_material_id} className={`h-10 w-full rounded-md border px-2 text-base md:text-[13px] outline-none disabled:opacity-50 ${inputClass}`}>
                           <option value="">UOM *</option>
