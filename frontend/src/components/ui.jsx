@@ -3,8 +3,9 @@
  * Usage: import { StatusBadge, PageHeader, SectionCard, EmptyState, LoadingRows, TableWrapper, FilterBar } from '../components/ui'
  */
 
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Loader2, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 /* ──────────────────────────────────────────────────────────── *
  * Theme helpers (read from localStorage — same as all pages)
@@ -294,6 +295,161 @@ export const Pagination = ({ page = 1, pages = 1, total = 0, limit = 25, onPageC
  * Usage:
  *   <MobileActionMenu actions={[{ label: "Edit", icon: Edit2, onClick: fn }, ...]} isDark={isDark} />
  * ──────────────────────────────────────────────────────────── */
+/* ──────────────────────────────────────────────────────────── *
+ * Modal — shared premium dialog primitive
+ * Usage:
+ *   <Modal
+ *     open={open}
+ *     onClose={() => setOpen(false)}
+ *     title="Create Entry"
+ *     subtitle="Optional description"
+ *     maxWidth="lg"
+ *     footer={<button type="submit">Save</button>}
+ *   >
+ *     …form fields…
+ *   </Modal>
+ *
+ * Notes:
+ * - Renders nothing when open=false.
+ * - Esc + overlay click close by default (closeOnEsc / closeOnOverlay props).
+ * - Locks body scroll while open; restores previous overflow on close.
+ * - Restores focus to the previously focused element on close.
+ * - A full focus trap is intentionally not implemented yet — future enhancement.
+ * ──────────────────────────────────────────────────────────── */
+const MODAL_MAX_WIDTHS = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-xl",
+  "2xl": "max-w-2xl",
+  "3xl": "max-w-3xl",
+  "4xl": "max-w-4xl",
+  "5xl": "max-w-5xl",
+  "6xl": "max-w-6xl",
+};
+
+export const Modal = ({
+  open,
+  onClose,
+  title,
+  subtitle,
+  footer,
+  maxWidth = "md",
+  closeOnOverlay = true,
+  closeOnEsc = true,
+  showCloseButton = true,
+  className = "",
+  bodyClassName = "",
+  children,
+}) => {
+  const isDark = getThemeMode() === "dark";
+  const reduceMotion = useReducedMotion();
+  const modalRef = useRef(null);
+  const prevActiveRef = useRef(null);
+  const uid = useId();
+  const titleId = `bbc-modal-title-${uid}`;
+  const descId = `bbc-modal-desc-${uid}`;
+
+  // Escape key — listener active only while open
+  useEffect(() => {
+    if (!open || !closeOnEsc) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, closeOnEsc, onClose]);
+
+  // Body scroll lock — restore previous overflow exactly
+  useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // Focus capture on open + restore on close
+  useEffect(() => {
+    if (!open) return undefined;
+    prevActiveRef.current = document.activeElement;
+    const el = modalRef.current;
+    if (el) el.focus();
+    return () => {
+      const prevEl = prevActiveRef.current;
+      if (prevEl && typeof prevEl.focus === "function" && document.contains(prevEl)) {
+        prevEl.focus();
+      }
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  const borderCls = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
+  const mutedCls = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
+
+  return (
+    <AnimatePresence>
+      <div
+        className="fixed inset-0 z-[80] flex items-center justify-center bg-[#2F2B3D]/50 p-4 backdrop-blur-[1px]"
+        onClick={closeOnOverlay ? (e) => { if (e.target === e.currentTarget) onClose?.(); } : undefined}
+      >
+        <motion.div
+          ref={modalRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? titleId : undefined}
+          aria-describedby={subtitle ? descId : undefined}
+          tabIndex={-1}
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.985, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.985, y: -4 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
+          className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border shadow-2xl ${MODAL_MAX_WIDTHS[maxWidth] || MODAL_MAX_WIDTHS.md} ${getCardClass(isDark)} ${className}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className={`flex shrink-0 items-start justify-between gap-4 border-b px-6 pb-4 pt-5 ${borderCls}`}>
+            <div className="min-w-0 flex-1">
+              {title && (
+                <h2 id={titleId} className={`text-[16px] font-semibold leading-snug ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>
+                  {title}
+                </h2>
+              )}
+              {subtitle && (
+                <p id={descId} className={`mt-0.5 text-[13px] ${mutedCls}`}>
+                  {subtitle}
+                </p>
+              )}
+            </div>
+            {showCloseButton && (
+              <button
+                type="button"
+                onClick={() => onClose?.()}
+                aria-label="Close dialog"
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7367F0] ${isDark ? "text-[#A5A8B6] hover:bg-[#3B405A] hover:text-[#D0D2D6]" : "text-[#6F6B7D] hover:bg-[#F3F2F7] hover:text-[#2F2B3D]"}`}
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className={`min-h-0 flex-1 overflow-y-auto px-6 py-4 ${bodyClassName}`}>
+            {children}
+          </div>
+
+          {/* Footer */}
+          {footer && (
+            <div className={`shrink-0 border-t px-6 py-4 ${borderCls}`}>
+              {footer}
+            </div>
+          )}
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
 export const MobileActionMenu = ({ actions = [], isDark = false }) => {
   const [open, setOpen] = useState(false);
   const cardCls = isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white";
