@@ -19,6 +19,7 @@ import {
   Ban,
 } from "lucide-react";
 import api, { masterAPI, getStoredPermissions } from "../../services/api";
+import { Modal } from "../../components/ui";
 import useAuthStore from "../../store/authStore";
 import toast from "react-hot-toast";
 
@@ -1016,66 +1017,70 @@ const SupplierPayments = () => {
         </div>
       )}
 
-      {verifyId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 shadow-lg">
-            <h3 className="text-[18px] font-semibold text-[#2F2B3D]">Verify Supplier Payment</h3>
-            <p className="mt-2 text-[14px] text-[#6F6B7D]">
-              Verify this payment? A verified payment becomes locked and can no longer be edited.
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setVerifyId(null)}
-                className="rounded-md bg-[#F3F2F7] px-5 py-2.5 text-[14px] font-semibold text-[#6F6B7D]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={actionLoading === `verify-${verifyId}`}
-                onClick={() => { runWorkflowAction(verifyId, "verify"); setVerifyId(null); }}
-                className="rounded-md bg-[#28C76F] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
-              >
-                Verify
-              </button>
-            </div>
+      <Modal
+        open={!!verifyId}
+        onClose={() => setVerifyId(null)}
+        title="Verify Supplier Payment"
+        maxWidth="md"
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setVerifyId(null)}
+              className={`rounded-md px-5 py-2.5 text-[14px] font-semibold ${isDark ? "bg-[#3B405A] text-[#D0D2D6]" : "bg-[#F3F2F7] text-[#6F6B7D]"}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={actionLoading === `verify-${verifyId}`}
+              onClick={() => { runWorkflowAction(verifyId, "verify"); setVerifyId(null); }}
+              className="rounded-md bg-[#28C76F] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
+            >
+              Verify
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <p className={`text-[14px] ${mutedClass}`}>
+          Verify this payment? A verified payment becomes locked and can no longer be edited.
+        </p>
+      </Modal>
 
-      {rejectId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-md bg-white p-6 shadow-lg">
-            <h3 className="text-[18px] font-semibold text-[#2F2B3D]">Reject Supplier Payment</h3>
-            <p className="mt-1 text-[13px] text-[#A8AAAE]">A reason is required for rejection.</p>
-            <textarea
-              value={rejectReason}
-              onChange={(event) => setRejectReason(event.target.value)}
-              placeholder="Enter rejection reason"
-              rows={3}
-              className="mt-4 w-full rounded-md border border-[#EBE9F1] p-3 text-[14px] outline-none"
-            />
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => { setRejectId(null); setRejectReason(""); }}
-                className="rounded-md bg-[#F3F2F7] px-5 py-2.5 text-[14px] font-semibold text-[#6F6B7D]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!rejectReason.trim() || actionLoading === `reject-${rejectId}`}
-                onClick={() => { runWorkflowAction(rejectId, "reject", { rejection_reason: rejectReason }); setRejectId(null); setRejectReason(""); }}
-                className="rounded-md bg-[#EA5455] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
-              >
-                Reject
-              </button>
-            </div>
+      <Modal
+        open={!!rejectId}
+        onClose={() => { setRejectId(null); setRejectReason(""); }}
+        title="Reject Supplier Payment"
+        subtitle="A reason is required for rejection."
+        maxWidth="md"
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => { setRejectId(null); setRejectReason(""); }}
+              className={`rounded-md px-5 py-2.5 text-[14px] font-semibold ${isDark ? "bg-[#3B405A] text-[#D0D2D6]" : "bg-[#F3F2F7] text-[#6F6B7D]"}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!rejectReason.trim() || actionLoading === `reject-${rejectId}`}
+              onClick={() => { runWorkflowAction(rejectId, "reject", { rejection_reason: rejectReason }); setRejectId(null); setRejectReason(""); }}
+              className="rounded-md bg-[#EA5455] px-5 py-2.5 text-[14px] font-semibold text-white disabled:opacity-70"
+            >
+              Reject
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <textarea
+          value={rejectReason}
+          onChange={(event) => setRejectReason(event.target.value)}
+          placeholder="Enter rejection reason"
+          rows={3}
+          className={`w-full rounded-md border p-3 text-[14px] outline-none ${inputClass}`}
+        />
+      </Modal>
 
       <div className={`min-w-0 max-w-full rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}>
         <div className="border-b border-[#EBE9F1] p-6">

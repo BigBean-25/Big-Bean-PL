@@ -25,6 +25,7 @@ import {
   FilterBar,
   LoadingRows,
   LoadingSpinner,
+  Modal,
   PageHeader,
   SectionCard,
   StatusBadge,
@@ -751,48 +752,52 @@ const BankDeposits = () => {
         </SectionCard>
       )}
 
-      {rejectId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className={`w-full max-w-md rounded-md border p-5 shadow-lg ${cardClass}`}>
-            <h3 className={`text-lg font-semibold ${mainText}`}>Reject Bank Deposit</h3>
-            <p className={`mt-1 text-[13px] ${mutedText}`}>A reason is required for rejection.</p>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              className={`mt-3 min-h-[90px] w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
-              placeholder="Enter rejection reason"
-            />
-            <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => { setRejectId(null); setRejectReason(""); }} className={`rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}>Cancel</button>
-              <button
-                disabled={!rejectReason.trim()}
-                onClick={() => { runAction(rejectId, "reject", { rejection_reason: rejectReason }); setRejectId(null); setRejectReason(""); }}
-                className="rounded-md bg-[#EA5455] px-4 py-2 text-[14px] font-semibold text-white disabled:opacity-50"
-              >
-                Reject
-              </button>
-            </div>
+      <Modal
+        open={!!rejectId}
+        onClose={() => { setRejectId(null); setRejectReason(""); }}
+        title="Reject Bank Deposit"
+        subtitle="A reason is required for rejection."
+        maxWidth="md"
+        footer={
+          <div className="flex justify-end gap-3">
+            <button onClick={() => { setRejectId(null); setRejectReason(""); }} className={`rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}>Cancel</button>
+            <button
+              disabled={!rejectReason.trim()}
+              onClick={() => { runAction(rejectId, "reject", { rejection_reason: rejectReason }); setRejectId(null); setRejectReason(""); }}
+              className="rounded-md bg-[#EA5455] px-4 py-2 text-[14px] font-semibold text-white disabled:opacity-50"
+            >
+              Reject
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <textarea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          className={`min-h-[90px] w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
+          placeholder="Enter rejection reason"
+        />
+      </Modal>
 
-      {verifyId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className={`w-full max-w-md rounded-md border p-5 shadow-lg ${cardClass}`}>
-            <h3 className={`text-lg font-semibold ${mainText}`}>Verify Bank Deposit?</h3>
-            <p className={`mt-1 text-[13px] ${mutedText}`}>Confirm that the bank amount, reference number and proof are correct.</p>
-            <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setVerifyId(null)} className={`rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}>Cancel</button>
-              <button
-                onClick={() => { runAction(verifyId, "verify"); setVerifyId(null); }}
-                className="rounded-md bg-[#28C76F] px-4 py-2 text-[14px] font-semibold text-white"
-              >
-                Verify
-              </button>
-            </div>
+      <Modal
+        open={!!verifyId}
+        onClose={() => setVerifyId(null)}
+        title="Verify Bank Deposit?"
+        maxWidth="md"
+        footer={
+          <div className="flex justify-end gap-3">
+            <button onClick={() => setVerifyId(null)} className={`rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}>Cancel</button>
+            <button
+              onClick={() => { runAction(verifyId, "verify"); setVerifyId(null); }}
+              className="rounded-md bg-[#28C76F] px-4 py-2 text-[14px] font-semibold text-white"
+            >
+              Verify
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <p className={`text-[13px] ${mutedText}`}>Confirm that the bank amount, reference number and proof are correct.</p>
+      </Modal>
 
       <FilterBar isDark={isDark} title="Filters">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">

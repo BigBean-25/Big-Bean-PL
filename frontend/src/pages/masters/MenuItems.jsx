@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { masterAPI } from "../../services/api";
+import { Modal } from "../../components/ui";
 import toast from "react-hot-toast";
 
 const getPrimaryColor = () => {
@@ -1430,89 +1431,77 @@ const MenuItems = () => {
         )}
       </div>
 
-      {showBulkUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className={`w-full max-w-lg rounded-md border shadow-xl ${cardClass}`}>
-            <div className="flex items-center justify-between gap-4 border-b border-[#EBE9F1] p-5">
-              <h3 className={`text-[18px] font-semibold ${mainTextClass}`}>
-                Bulk Upload Menu Items
-              </h3>
-              <button
-                type="button"
-                onClick={closeBulkUpload}
-                className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3F2F7] text-[#6F6B7D]"
-                aria-label="Close bulk upload"
-              >
-                <X size={18} />
-              </button>
-            </div>
+      <Modal
+        open={showBulkUpload}
+        onClose={closeBulkUpload}
+        title="Bulk Upload Menu Items"
+        maxWidth="lg"
+        footer={
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={closeBulkUpload}
+              className={`rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkUpload}
+              disabled={bulkUploading || !bulkFile}
+              className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] disabled:cursor-not-allowed disabled:opacity-70"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {bulkUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              {bulkUploading ? "Uploading…" : "Upload"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className={`text-[14px] ${mutedClass}`}>
+            Existing item codes are updated; new codes are created. Category must already exist in Masters.
+          </p>
 
-            <div className="space-y-4 p-5">
-              <p className={`text-[14px] ${mutedClass}`}>
-                Existing item codes are updated; new codes are created. Category must already exist in Masters.
+          <button
+            type="button"
+            onClick={handleDownloadTemplate}
+            className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}
+          >
+            <Download size={16} />
+            Download Template
+          </button>
+
+          <div>
+            <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
+              Choose File
+            </label>
+            <input
+              type="file"
+              accept=".xls,.xlsx"
+              onChange={(event) => setBulkFile(event.target.files?.[0] || null)}
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
+            />
+          </div>
+
+          {bulkResult && (
+            <div className={`rounded-md border p-4 text-[14px] ${cardClass}`}>
+              <p className={mainTextClass}>
+                <strong>{bulkResult.created}</strong> created, <strong>{bulkResult.updated}</strong> updated
+                {bulkResult.failed > 0 && <>, <strong className="text-[#EA5455]">{bulkResult.failed}</strong> failed</>}
+                {" "}of {bulkResult.total} rows.
               </p>
-
-              <button
-                type="button"
-                onClick={handleDownloadTemplate}
-                className={`flex items-center gap-2 rounded-md border px-4 py-2 text-[14px] font-medium ${cardClass}`}
-              >
-                <Download size={16} />
-                Download Template
-              </button>
-
-              <div>
-                <label className={`mb-2 block text-[14px] font-medium ${mainTextClass}`}>
-                  Choose File
-                </label>
-                <input
-                  type="file"
-                  accept=".xls,.xlsx"
-                  onChange={(event) => setBulkFile(event.target.files?.[0] || null)}
-                  className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${inputClass}`}
-                />
-              </div>
-
-              {bulkResult && (
-                <div className={`rounded-md border p-4 text-[14px] ${cardClass}`}>
-                  <p className={mainTextClass}>
-                    <strong>{bulkResult.created}</strong> created, <strong>{bulkResult.updated}</strong> updated
-                    {bulkResult.failed > 0 && <>, <strong className="text-[#EA5455]">{bulkResult.failed}</strong> failed</>}
-                    {" "}of {bulkResult.total} rows.
-                  </p>
-                  {bulkResult.errors?.length > 0 && (
-                    <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-[13px] text-[#EA5455]">
-                      {bulkResult.errors.map((err, idx) => (
-                        <li key={idx}>Row {err.row}: {err.message}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+              {bulkResult.errors?.length > 0 && (
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-[13px] text-[#EA5455]">
+                  {bulkResult.errors.map((err, idx) => (
+                    <li key={idx}>Row {err.row}: {err.message}</li>
+                  ))}
+                </ul>
               )}
             </div>
-
-            <div className="flex justify-end gap-3 border-t border-[#EBE9F1] p-5">
-              <button
-                type="button"
-                onClick={closeBulkUpload}
-                className={`rounded-md border px-4 py-2.5 text-[14px] font-medium ${cardClass}`}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkUpload}
-                disabled={bulkUploading || !bulkFile}
-                className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)] disabled:cursor-not-allowed disabled:opacity-70"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {bulkUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                {bulkUploading ? "Uploading…" : "Upload"}
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 };
