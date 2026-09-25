@@ -45,6 +45,7 @@ export const ROLE_PERMISSION_MODULES = [
   { module_key: 'recipe_list', module_name: 'Recipe List' },
   { module_key: 'add_recipe', module_name: 'Add Recipe' },
   { module_key: 'reports', module_name: 'Reports' },
+  { module_key: 'controlled_exceptions', module_name: 'Exceptions & Reversals' },
   { module_key: 'monthly_pl', module_name: 'Monthly P&L' },
   { module_key: 'fixed_costs', module_name: 'Fixed Costs' },
   { module_key: 'sales_target', module_name: 'Sales Target' },
