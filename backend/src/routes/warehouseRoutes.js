@@ -16,7 +16,7 @@ import {
   getAllowedLocations, createLocation, getLocationById, postOpening, getCurrentStock,
   getStockLedger, getDashboardMetrics, createGRN, postGRN, getGRNs, getGRNById,
   getRequisitions, getRequisitionById, getValidUnitsForMaterial, createRequisition, submitRequisition,
-  approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer, createDirectTransfer,
+  approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer, createDirectTransfer, dispatchDirectTransfer,
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
 import { getProcurementSources } from '../services/warehouseProcurementDiagnosticsService.js';
@@ -447,6 +447,26 @@ router.post('/transfers', checkPermission('warehouse_transfers', 'can_create'), 
     }
     const data = await createDirectTransfer(req.body, req.user.id);
     res.status(201).json({ success: true, data });
+  }
+  catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
+});
+
+// Req #17: dispatch a Draft direct (Outlet -> Outlet) transfer - posts
+// TRANSFER_OUT at the source and moves it In Transit. Both ends are
+// scope-checked; the service re-validates direct identity/Draft/locations
+// under the transfer + location row locks.
+router.post('/transfers/:id/dispatch', checkPermission('warehouse_transfers', 'can_edit'), async (req, res) => {
+  try {
+    const transfer = await getTransferById(req.params.id);
+    if (!transfer) return res.status(404).json({ success: false, message: 'Transfer not found' });
+    if (!(await isLocationAccessible(req.user, transfer.from_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the source outlet' });
+    }
+    if (!(await isLocationAccessible(req.user, transfer.to_location_id))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to the destination outlet' });
+    }
+    const data = await dispatchDirectTransfer(req.params.id, req.user.id);
+    res.json({ success: true, data });
   }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });

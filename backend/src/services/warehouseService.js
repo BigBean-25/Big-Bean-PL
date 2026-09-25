@@ -1059,18 +1059,67 @@ export const dispatchRequisition = async (id, data, userId) => {
 };
 
 export const getTransfers = async (filters = {}) => {
-  const { from_location_id, to_location_id, status, requisition_id, allowedLocationIds } = filters;
-  let sql = `SELECT st.*, fl.location_name as from_location, tl.location_name as to_location, sr.requisition_no
+  const { location_id, from_location_id, to_location_id, status, requisition_id, allowedLocationIds, search, type, date_from, date_to, raw_material_id } = filters;
+  let sql = `SELECT st.*, fl.location_name as from_location, tl.location_name as to_location, sr.requisition_no,
+      CASE
+        WHEN st.requisition_id IS NULL AND st.production_request_id IS NULL THEN 'Outlet Transfer'
+        WHEN st.requisition_id IS NOT NULL THEN 'Requisition'
+        WHEN st.production_request_id IS NOT NULL THEN 'Production'
+        ELSE 'Other'
+      END as transfer_type,
+      COALESCE(agg.item_count, 0) as item_count,
+      COALESCE(agg.planned_qty, 0) as planned_qty,
+      COALESCE(agg.dispatched_qty, 0) as dispatched_qty,
+      COALESCE(agg.received_qty, 0) as received_qty,
+      COALESCE(agg.damaged_qty, 0) as damaged_qty,
+      COALESCE(agg.short_qty, 0) as short_qty,
+      GREATEST(COALESCE(agg.dispatched_qty, 0) - COALESCE(agg.received_qty, 0) - COALESCE(agg.damaged_qty, 0) - COALESCE(agg.short_qty, 0), 0) as unaccounted_qty,
+      COALESCE(agg.total_value, 0) as total_value,
+      u1.full_name as dispatched_by_name, u2.full_name as received_by_name
     FROM stock_transfers st
     LEFT JOIN locations fl ON fl.id = st.from_location_id
     LEFT JOIN locations tl ON tl.id = st.to_location_id
     LEFT JOIN stock_requisitions sr ON sr.id = st.requisition_id
+    LEFT JOIN users u1 ON u1.id = st.dispatched_by
+    LEFT JOIN users u2 ON u2.id = st.received_by
+    LEFT JOIN (
+      SELECT
+        transfer_id,
+        COUNT(*) AS item_count,
+        SUM(approved_qty) AS planned_qty,
+        SUM(dispatched_qty) AS dispatched_qty,
+        SUM(received_qty) AS received_qty,
+        SUM(damaged_qty) AS damaged_qty,
+        SUM(short_qty) AS short_qty,
+        SUM(dispatched_qty * COALESCE(unit_cost, 0)) AS total_value
+      FROM stock_transfer_items
+      GROUP BY transfer_id
+    ) agg ON agg.transfer_id = st.id
     WHERE 1=1`;
   const params = [];
+  if (location_id) { sql += ' AND (st.from_location_id = ? OR st.to_location_id = ?)'; params.push(location_id, location_id); }
   if (from_location_id) { sql += ' AND st.from_location_id = ?'; params.push(from_location_id); }
   if (to_location_id) { sql += ' AND st.to_location_id = ?'; params.push(to_location_id); }
   if (status) { sql += ' AND st.status = ?'; params.push(status); }
   if (requisition_id) { sql += ' AND st.requisition_id = ?'; params.push(requisition_id); }
+  if (search) {
+    sql += ' AND (st.transfer_no LIKE ? OR sr.requisition_no LIKE ? OR fl.location_name LIKE ? OR tl.location_name LIKE ?)';
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
+  }
+  // Req #18 transfer-type filter: whitelisted values only, mapped to fixed
+  // predicates - never concatenated from the raw user value.
+  if (type === 'outlet') { sql += ' AND st.requisition_id IS NULL AND st.production_request_id IS NULL'; }
+  else if (type === 'requisition') { sql += ' AND st.requisition_id IS NOT NULL'; }
+  else if (type === 'production') { sql += ' AND st.production_request_id IS NOT NULL'; }
+  // History/report date: dispatched transfers filter by dispatch date; Drafts
+  // (dispatch_date NULL by #16 design) filter by creation date so they stay visible.
+  if (date_from) { sql += ' AND DATE(COALESCE(st.dispatch_date, st.created_at)) >= ?'; params.push(date_from); }
+  if (date_to) { sql += ' AND DATE(COALESCE(st.dispatch_date, st.created_at)) <= ?'; params.push(date_to); }
+  if (raw_material_id) {
+    sql += ' AND EXISTS (SELECT 1 FROM stock_transfer_items sti_filter WHERE sti_filter.transfer_id = st.id AND sti_filter.raw_material_id = ?)';
+    params.push(raw_material_id);
+  }
   // See getRequisitions() above - confines a location-scoped caller to
   // transfers touching a location they're allowed to see.
   if (allowedLocationIds) {
@@ -1109,51 +1158,58 @@ export const getTransferById = async (id) => {
   return { ...t, items };
 };
 
-// baseQty here is always just the INCREMENT for this specific receiveTransfer
-// call (transit damage/short discovered on top of whatever was already
-// recorded), not the cumulative total - stock_transfer_items.received_qty
-// accumulates across multiple partial-receipt calls for the same transfer.
-// A "does a ledger row already exist for this reference_item_id" guard is
-// correct for a single-shot action (like GRN posting, gated by its own
-// record-level status) but wrong here: it silently drops every increment
-// after the first one, since a row from an earlier partial receipt already
-// satisfies the check. Insert unconditionally instead - each call's
-// increment is a distinct, real stock movement and belongs in the ledger.
-const postLedgerVariance = async (connection, txDate, locationId, materialId, unitId, unitCost, baseQty, value, transactionType, referenceId, referenceItemId, batchNo, expiryDate, userId) => {
-  if (baseQty > 0) {
-    await connection.execute(
-      `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
-       VALUES (?, ?, ?, ?, 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
-      [locationId, materialId, txDate, transactionType, referenceId, referenceItemId, baseQty, unitId, unitCost, value, batchNo || null, expiryDate || null, userId]
-    );
-  }
+// Req #17: receipt-side variance posting. Production's uq_stock_ledger is
+// (transaction_type, reference_type, reference_id, reference_item_key,
+// batch_key) on generated columns - one ledger row per transaction type +
+// transfer + item + batch, BY DESIGN. A second partial receipt of the same
+// item+batch therefore must accumulate into that row via additive upsert;
+// a plain second INSERT is an ER_DUP_ENTRY that rolls the whole receipt back.
+// baseQty/value are THIS call's deltas, never cumulative totals.
+const postReceiptVariance = async (connection, txDate, locationId, materialId, unitId, unitCost, baseQty, value, transactionType, referenceId, referenceItemId, batchNo, expiryDate, userId) => {
+  if (baseQty <= 0) return;
+  await connection.execute(
+    `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
+     VALUES (?, ?, ?, ?, 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE qty_in = qty_in + VALUES(qty_in), value_in = value_in + VALUES(value_in)`,
+    [locationId, materialId, txDate, transactionType, referenceId, referenceItemId, baseQty, unitId, unitCost, value, batchNo || null, expiryDate || null, userId]
+  );
 };
 
 export const receiveTransfer = async (id, data, userId) => {
   const { items } = data;
-  const transfer = await getTransferById(id);
-  if (!transfer) throw new Error('Transfer not found');
-  // Only a dispatched transfer may be received. Draft (direct outlet->outlet
-  // creates, #16), Dispatched, Cancelled and Received must all stay out of
-  // receipt processing - previously only 'Received' was excluded, which would
-  // have let a Draft be "received" and post TRANSFER_IN stock with nothing
-  // ever having left the source.
-  if (transfer.status !== 'In Transit' && transfer.status !== 'Partially Received') {
-    throw new Error('Only an in-transit or partially received transfer can be received');
-  }
+  if (!items?.length) throw new Error('No receipt items provided');
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
+    // The transfer-row lock serializes every receipt against the same
+    // transfer; items are re-read under lock so cumulative validation sees
+    // the latest committed quantities, not a pre-transaction snapshot.
+    const [tRows] = await connection.execute('SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE', [id]);
+    const transfer = tRows[0];
+    if (!transfer) { await connection.rollback(); throw new Error('Transfer not found'); }
+    // Only a dispatched transfer may be received - Draft (direct #16 creates),
+    // Dispatched, Cancelled and Received all stay out of receipt processing.
+    if (transfer.status !== 'In Transit' && transfer.status !== 'Partially Received') {
+      await connection.rollback(); throw new Error('Only an in-transit or partially received transfer can be received');
+    }
+    const [itemRows] = await connection.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ? FOR UPDATE', [id]);
+
+    const seenIds = new Set();
+    let anyPositive = false;
     const txDate = new Date().toISOString().split('T')[0];
 
     for (const it of items) {
-      const ti = transfer.items.find((x) => Number(x.id) === Number(it.id));
+      const itemId = Number(it.id);
+      if (!itemId || seenIds.has(itemId)) { await connection.rollback(); throw new Error('Duplicate or invalid transfer item in receipt'); }
+      seenIds.add(itemId);
+      const ti = itemRows.find((x) => Number(x.id) === itemId);
       if (!ti) { await connection.rollback(); throw new Error('Invalid transfer item'); }
 
       const additionalReceived = num(it.received_qty);
       const additionalDamaged = num(it.damaged_qty);
       const additionalShort = num(it.short_qty);
       if (additionalReceived < 0 || additionalDamaged < 0 || additionalShort < 0) { await connection.rollback(); throw new Error('Negative receipt quantities not allowed'); }
+      if (additionalReceived + additionalDamaged + additionalShort > 0) anyPositive = true;
 
       const newReceived = num(ti.received_qty) + additionalReceived;
       const newDamaged = num(ti.damaged_qty) + additionalDamaged;
@@ -1171,33 +1227,33 @@ export const receiveTransfer = async (id, data, userId) => {
 
       await connection.execute(
         `UPDATE stock_transfer_items SET received_qty = ?, short_qty = ?, damaged_qty = ?, remarks = ? WHERE id = ?`,
-        [newReceived, newShort, newDamaged, it.remarks || ti.remarks, it.id]
+        [newReceived, newShort, newDamaged, it.remarks || ti.remarks, ti.id]
       );
 
-      // Same fix as postLedgerVariance above: baseReceived is only this
-      // call's increment, not the transfer item's cumulative received_qty,
-      // so an existence check here silently dropped every partial receipt
-      // after the first one from the stock ledger while received_qty kept
-      // climbing correctly - a real, permanent stock undercount at the
-      // destination location.
+      // TRANSFER_IN upserts the same way: one ledger row per transfer-item+
+      // batch that accumulates across partial receipts (see postReceiptVariance).
       if (baseReceived > 0) {
         await connection.execute(
           `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
-           VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
+           VALUES (?, ?, ?, 'TRANSFER_IN', 'TRANSFER', ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE qty_in = qty_in + VALUES(qty_in), value_in = value_in + VALUES(value_in)`,
           [transfer.to_location_id, ti.raw_material_id, txDate, id, ti.id, baseReceived, baseUnit.id, ti.unit_cost, valueIn, ti.batch_no || null, ti.expiry_date || null, userId]
         );
       }
 
-      if (baseDamaged > 0) await postLedgerVariance(connection, txDate, transfer.to_location_id, ti.raw_material_id, baseUnit.id, ti.unit_cost, baseDamaged, damageValue, 'TRANSIT_DAMAGE', id, ti.id, ti.batch_no, ti.expiry_date, userId);
-      if (baseShort > 0) await postLedgerVariance(connection, txDate, transfer.to_location_id, ti.raw_material_id, baseUnit.id, ti.unit_cost, baseShort, shortValue, 'TRANSIT_SHORT', id, ti.id, ti.batch_no, ti.expiry_date, userId);
+      if (baseDamaged > 0) await postReceiptVariance(connection, txDate, transfer.to_location_id, ti.raw_material_id, baseUnit.id, ti.unit_cost, baseDamaged, damageValue, 'TRANSIT_DAMAGE', id, ti.id, ti.batch_no, ti.expiry_date, userId);
+      if (baseShort > 0) await postReceiptVariance(connection, txDate, transfer.to_location_id, ti.raw_material_id, baseUnit.id, ti.unit_cost, baseShort, shortValue, 'TRANSIT_SHORT', id, ti.id, ti.batch_no, ti.expiry_date, userId);
     }
 
+    if (!anyPositive) { await connection.rollback(); throw new Error('Receipt must record at least one received, damaged or short quantity'); }
+
+    // Re-read the locked rows for the status recompute - they now carry every
+    // update made above.
     const [updatedRows] = await connection.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', [id]);
-    const updatedItems = updatedRows;
-    const totalDispatched = updatedItems.reduce((s, i) => s + num(i.dispatched_qty), 0);
-    const totalReceived = updatedItems.reduce((s, i) => s + num(i.received_qty), 0);
-    const totalShort = updatedItems.reduce((s, i) => s + num(i.short_qty), 0);
-    const totalDamaged = updatedItems.reduce((s, i) => s + num(i.damaged_qty), 0);
+    const totalDispatched = updatedRows.reduce((s, i) => s + num(i.dispatched_qty), 0);
+    const totalReceived = updatedRows.reduce((s, i) => s + num(i.received_qty), 0);
+    const totalShort = updatedRows.reduce((s, i) => s + num(i.short_qty), 0);
+    const totalDamaged = updatedRows.reduce((s, i) => s + num(i.damaged_qty), 0);
     const status = (totalReceived + totalShort + totalDamaged) >= totalDispatched ? 'Received' : 'Partially Received';
 
     await connection.execute(
@@ -1309,6 +1365,124 @@ export const createDirectTransfer = async (data, userId) => {
     }
     await connection.commit();
     return getTransferById(transferId);
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+};
+
+// Req #17: post a Draft direct (Outlet -> Outlet) transfer. This is the ONLY
+// moment source stock moves for a direct transfer: TRANSFER_OUT ledger rows at
+// the source, one per FEFO allocation. Requisition transfers dispatch through
+// dispatchRequisition and production dispatches through postProductionDispatch -
+// both are deliberately rejected here so their reservation/fulfilment
+// accounting is never bypassed.
+//
+// Locking: the transfer row is taken FOR UPDATE (same-document replay safety),
+// then BOTH location rows are locked in deterministic id order - that pair lock
+// is the stable serialization point: two direct dispatches out of the same
+// source outlet cannot run availability concurrently. Stock is only read AFTER
+// these locks are held.
+export const dispatchDirectTransfer = async (id, userId) => {
+  const connection = await getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [tRows] = await connection.execute('SELECT * FROM stock_transfers WHERE id = ? FOR UPDATE', [id]);
+    const transfer = tRows[0];
+    if (!transfer) { await connection.rollback(); throw new Error('Transfer not found'); }
+    if (transfer.requisition_id !== null || transfer.production_request_id !== null) {
+      await connection.rollback(); throw new Error('Only direct outlet transfers can be dispatched here');
+    }
+    if (transfer.status !== 'Draft') { await connection.rollback(); throw new Error('Only a Draft transfer can be dispatched'); }
+
+    // Deterministic-order lock on both endpoint locations (id order avoids
+    // deadlock between A->B and B->A dispatches).
+    const [locRows] = await connection.execute(
+      'SELECT id, location_type, is_active, is_inventory_location FROM locations WHERE id IN (?, ?) ORDER BY id FOR UPDATE',
+      [transfer.from_location_id, transfer.to_location_id]
+    );
+    const locById = Object.fromEntries(locRows.map((l) => [Number(l.id), l]));
+    if (Number(transfer.from_location_id) === Number(transfer.to_location_id)) { await connection.rollback(); throw new Error('Source and destination cannot be the same outlet'); }
+    for (const [label, locId] of [['Source', transfer.from_location_id], ['Destination', transfer.to_location_id]]) {
+      const loc = locById[Number(locId)];
+      if (!loc) { await connection.rollback(); throw new Error(`${label} outlet location not found`); }
+      if (loc.location_type !== 'Outlet') { await connection.rollback(); throw new Error(`${label} must be an Outlet location`); }
+      if (num(loc.is_active) !== 1) { await connection.rollback(); throw new Error(`${label} outlet is not active`); }
+      if (num(loc.is_inventory_location) !== 1) { await connection.rollback(); throw new Error(`${label} outlet is not an inventory location`); }
+    }
+
+    const [itemRows] = await connection.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', [id]);
+    if (!itemRows.length) { await connection.rollback(); throw new Error('Transfer has no items'); }
+
+    // Read AFTER the locks: availability must reflect the latest committed
+    // ledger, not a snapshot taken before serialization.
+    const stock = await getCurrentStock(transfer.from_location_id);
+    const dispatchDate = new Date().toISOString().split('T')[0];
+
+    for (const it of itemRows) {
+      const approved = num(it.approved_qty);
+      if (!(approved > 0)) { await connection.rollback(); throw new Error(`Invalid planned quantity for item ${it.id}`); }
+      const baseUnit = await getMaterialBaseUnit(it.raw_material_id);
+      const baseQty = await convertToBase(approved, it.unit_id, baseUnit.id);
+      const matStock = stock.find((s) => Number(s.raw_material_id) === Number(it.raw_material_id));
+      const available = num(matStock?.current_qty);
+      if (baseQty > available) { await connection.rollback(); throw new Error('Insufficient source stock for dispatch'); }
+      const unitCost = matStock ? (num(matStock.total_value) / num(matStock.current_qty)) : 0;
+
+      const matRows = await query('SELECT is_batch_tracked FROM raw_materials WHERE id = ? LIMIT 1', [it.raw_material_id]);
+      const isBatchTracked = num(matRows[0]?.is_batch_tracked) === 1;
+      // Outlet -> Outlet is a stock move, not a warehouse "sale" -
+      // transfer_price/sale_value stay NULL on every row.
+      if (isBatchTracked) {
+        const allocations = await allocateFEFO(transfer.from_location_id, it.raw_material_id, baseQty);
+        for (let ai = 0; ai < allocations.length; ai++) {
+          const alloc = allocations[ai];
+          const valueOut = num(alloc.allocated_qty) * unitCost;
+          let itemId;
+          if (ai === 0) {
+            // Row #1: the original Draft line becomes the first allocation row.
+            // unit_id and BOTH quantity columns move to base units together so
+            // a row never expresses a qty in a unit its unit_id doesn't name.
+            await connection.execute(
+              `UPDATE stock_transfer_items SET unit_id = ?, approved_qty = ?, dispatched_qty = ?, unit_cost = ?, batch_no = ?, expiry_date = ? WHERE id = ?`,
+              [baseUnit.id, baseQty, alloc.allocated_qty, unitCost, alloc.batch_no || null, alloc.expiry_date || null, it.id]
+            );
+            itemId = it.id;
+          } else {
+            const [ins] = await connection.execute(
+              `INSERT INTO stock_transfer_items (transfer_id, raw_material_id, approved_qty, dispatched_qty, received_qty, short_qty, damaged_qty, unit_id, unit_cost, transfer_price, sale_value, batch_no, expiry_date, remarks)
+               VALUES (?, ?, 0, ?, 0, 0, 0, ?, ?, NULL, NULL, ?, ?, ?)`,
+              [id, it.raw_material_id, alloc.allocated_qty, baseUnit.id, unitCost, alloc.batch_no || null, alloc.expiry_date || null, it.remarks || null]
+            );
+            itemId = ins.insertId;
+          }
+          await connection.execute(
+            `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
+             VALUES (?, ?, ?, 'TRANSFER_OUT', 'TRANSFER', ?, ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)`,
+            [transfer.from_location_id, it.raw_material_id, dispatchDate, id, itemId, alloc.allocated_qty, baseUnit.id, unitCost, valueOut, alloc.batch_no || null, alloc.expiry_date || null, userId]
+          );
+        }
+      } else {
+        // Non-batch: keep the Draft line's original unit and dispatched_qty in
+        // that unit (same convention as dispatchRequisition); the ledger row
+        // carries the converted base quantity.
+        const valueOut = baseQty * unitCost;
+        await connection.execute(
+          `UPDATE stock_transfer_items SET dispatched_qty = ?, unit_cost = ? WHERE id = ?`,
+          [approved, unitCost, it.id]
+        );
+        await connection.execute(
+          `INSERT INTO stock_ledger (location_id, raw_material_id, transaction_date, transaction_type, reference_type, reference_id, reference_item_id, qty_in, qty_out, unit_id, unit_cost, value_in, value_out, batch_no, expiry_date, created_by)
+           VALUES (?, ?, ?, 'TRANSFER_OUT', 'TRANSFER', ?, ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)`,
+          [transfer.from_location_id, it.raw_material_id, dispatchDate, id, it.id, baseQty, baseUnit.id, unitCost, valueOut, it.batch_no || null, it.expiry_date || null, userId]
+        );
+      }
+    }
+
+    await connection.execute(
+      `UPDATE stock_transfers SET dispatch_date = CURDATE(), dispatched_by = ?, status = 'In Transit' WHERE id = ?`,
+      [userId, id]
+    );
+    await connection.commit();
+    return getTransferById(id);
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 };
 
