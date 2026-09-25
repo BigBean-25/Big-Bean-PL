@@ -22,6 +22,7 @@ import {
 import { userAPI, roleAPI, masterAPI } from "../../services/api";
 import { displayLabel } from "../../utils/displayLabels";
 import useAuthStore from "../../store/authStore";
+import { Modal } from "../../components/ui";
 import toast from "react-hot-toast";
 
 const DEFAULT_OUTLETS = [
@@ -323,6 +324,7 @@ const UserManagement = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [historyUser, setHistoryUser] = useState(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
 
   const [formData, setFormData] = useState(emptyForm);
 
@@ -491,9 +493,17 @@ const UserManagement = () => {
     setShowForm(false);
   };
 
-  const handleDelete = async (id, user) => {
+  const handleDelete = (id, user) => {
     if (Number(id) === Number(currentUser?.id)) return;
-    if (!window.confirm("Permanently delete this user?\nThis action cannot be undone.")) return;
+
+    const target = user || users.find((u) => Number(u.id) === Number(id));
+    if (!target) return;
+
+    setPendingConfirmation({ type: "delete", user: target });
+  };
+
+  const performDelete = async (user) => {
+    const id = user.id;
 
     setDeletingId(id);
 
@@ -515,24 +525,23 @@ const UserManagement = () => {
       await fetchUsers();
     } catch (error) {
       if (error.response?.status === 409 && error.response?.data?.code === "USER_HAS_HISTORY") {
-        setHistoryUser(user || users.find((u) => Number(u.id) === Number(id)));
+        setHistoryUser(user);
       } else {
         toast.error(error.response?.data?.message || "Delete failed");
       }
     } finally {
       setDeletingId(null);
+      setPendingConfirmation(null);
     }
   };
 
-  const handleToggleStatus = async (user, next) => {
+  const handleToggleStatus = (user, next) => {
     if (Number(user.id) === Number(currentUser?.id)) return;
     const nextActive = next === 1 || next === true;
-    const action = nextActive ? "Activate" : "Deactivate";
-    const message = nextActive
-      ? "Activate this user?\nThey will be able to log in again."
-      : "Deactivate this user?\nThey will no longer be able to log in, but their historical data will remain.";
-    if (!window.confirm(message)) return;
+    setPendingConfirmation({ type: "status", user, nextActive });
+  };
 
+  const performToggleStatus = async (user, nextActive) => {
     setTogglingId(user.id);
     try {
       await userAPI.toggleUserStatus(user.id, { is_active: nextActive ? 1 : 0 });
@@ -549,6 +558,7 @@ const UserManagement = () => {
       toast.error(error.response?.data?.message || "Update failed");
     } finally {
       setTogglingId(null);
+      setPendingConfirmation(null);
     }
   };
 
@@ -1097,31 +1107,20 @@ const UserManagement = () => {
         />
       </div>
 
-      {showForm && (
-        <div
-          className={`rounded-md border p-6 shadow-[0_2px_12px_rgba(47,43,61,0.08)] ${cardClass}`}
-        >
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <div>
-              <h3 className={`text-[22px] font-semibold ${mainTextClass}`}>
-                {editingUser ? "Edit User" : "New User"}
-              </h3>
-              <p className={`mt-1 text-[14px] ${mutedClass}`}>
-                Create user, assign role and map outlets.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={closeForm}
-              className={`flex h-10 w-10 items-center justify-center rounded-md transition ${iconBtnClass}`}
-              aria-label="Close form"
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-7">
+      <Modal
+        open={showForm}
+        onClose={closeForm}
+        title={editingUser ? "Edit User" : "Create New User"}
+        subtitle={
+          editingUser
+            ? "Update account details, role and outlet access."
+            : "Set account details, role and outlet access."
+        }
+        maxWidth="4xl"
+        closeOnEsc={!saving}
+        closeOnOverlay={!saving}
+      >
+        <form onSubmit={handleSubmit} className="space-y-7">
             <div>
               <h4 className={`text-[15px] font-semibold ${mainTextClass}`}>
                 Account Information
@@ -1320,14 +1319,14 @@ const UserManagement = () => {
               <button
                 type="button"
                 onClick={closeForm}
-                className={`rounded-md border px-5 py-3 text-[15px] font-medium ${cardClass}`}
+                disabled={saving}
+                className={`rounded-md border px-5 py-3 text-[15px] font-medium disabled:opacity-60 ${cardClass}`}
               >
                 Cancel
               </button>
             </div>
           </form>
-        </div>
-      )}
+      </Modal>
 
       {selectedUser && (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
@@ -2094,46 +2093,124 @@ const UserManagement = () => {
         )}
       </div>
 
-      {historyUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Cannot Delete User</h2>
-              <button
-                type="button"
-                onClick={() => setHistoryUser(null)}
-                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              This user has historical records and cannot be permanently deleted. You can deactivate this account instead.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setHistoryUser(null)}
-                className="h-11 flex-1 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const user = historyUser;
-                  setHistoryUser(null);
-                  handleToggleStatus(user, 0);
-                }}
-                className="h-11 flex-1 rounded-xl bg-[#00A6B7] text-sm font-bold text-white hover:bg-[#008c9a]"
-              >
-                Deactivate User
-              </button>
-            </div>
+      <Modal
+        open={!!historyUser}
+        onClose={() => setHistoryUser(null)}
+        title="Cannot Delete User"
+        subtitle={
+          historyUser?.full_name
+            ? `Linked records found for ${historyUser.full_name}.`
+            : "Linked records found for this account."
+        }
+        maxWidth="md"
+        footer={
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setHistoryUser(null)}
+              className={`h-11 flex-1 rounded-lg border text-sm font-semibold transition ${cardClass} ${hoverBgClass}`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const user = historyUser;
+                setHistoryUser(null);
+                handleToggleStatus(user, 0);
+              }}
+              className={`h-11 flex-1 rounded-lg text-sm font-semibold text-white transition ${
+                isDark ? "bg-[#00A6B7] hover:bg-[#00b9cc]" : "bg-[#00A6B7] hover:bg-[#008c9a]"
+              }`}
+            >
+              Deactivate User
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <p className={`text-[14px] leading-relaxed ${subtleTextClass}`}>
+          This user has historical records and cannot be permanently deleted.
+          You can deactivate this account instead — they will no longer be able
+          to log in, but their historical data will remain.
+        </p>
+      </Modal>
+
+      <Modal
+        open={!!pendingConfirmation}
+        onClose={() => {
+          if (!deletingId && !togglingId) setPendingConfirmation(null);
+        }}
+        title={
+          pendingConfirmation?.type === "delete"
+            ? "Delete User?"
+            : pendingConfirmation?.nextActive
+              ? "Activate User?"
+              : "Deactivate User?"
+        }
+        maxWidth="sm"
+        closeOnEsc={!deletingId && !togglingId}
+        closeOnOverlay={!deletingId && !togglingId}
+        footer={
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPendingConfirmation(null)}
+              disabled={!!deletingId || !!togglingId}
+              className={`h-11 flex-1 rounded-lg border text-sm font-semibold transition disabled:opacity-60 ${cardClass} ${hoverBgClass}`}
+            >
+              Cancel
+            </button>
+            {pendingConfirmation?.type === "delete" ? (
+              <button
+                type="button"
+                onClick={() => performDelete(pendingConfirmation.user)}
+                disabled={!!deletingId}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[#EA5455] text-sm font-semibold text-white transition hover:bg-[#d63f40] disabled:opacity-70"
+              >
+                {deletingId === pendingConfirmation?.user?.id ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                Delete User
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  performToggleStatus(
+                    pendingConfirmation?.user,
+                    pendingConfirmation?.nextActive
+                  )
+                }
+                disabled={!!togglingId}
+                className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-semibold text-white transition disabled:opacity-70 ${
+                  pendingConfirmation?.nextActive
+                    ? "bg-[#28C76F] hover:bg-[#20a85e]"
+                    : "bg-[#EA5455] hover:bg-[#d63f40]"
+                }`}
+              >
+                {togglingId === pendingConfirmation?.user?.id ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : pendingConfirmation?.nextActive ? (
+                  <CheckCircle size={16} />
+                ) : (
+                  <X size={16} />
+                )}
+                {pendingConfirmation?.nextActive ? "Activate" : "Deactivate"}
+              </button>
+            )}
+          </div>
+        }
+      >
+        <p className={`text-[14px] leading-relaxed ${subtleTextClass}`}>
+          {pendingConfirmation?.type === "delete"
+            ? `Permanently delete ${pendingConfirmation?.user?.full_name || "this user"}? This action cannot be undone.`
+            : pendingConfirmation?.nextActive
+              ? `Activate ${pendingConfirmation?.user?.full_name || "this user"}? They will be able to log in again.`
+              : `Deactivate ${pendingConfirmation?.user?.full_name || "this user"}? They will no longer be able to log in, but their historical data will remain.`}
+        </p>
+      </Modal>
     </div>
   );
 };
