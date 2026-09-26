@@ -449,6 +449,19 @@ export default function CentralKitchen() {
 
   const renderDispatchDetail = () => {
     if (!viewingDispatch) return null;
+    // Req #23: challan helpers. planned_qty uses 0.0000 as "unset", so the
+    // Bakehouse qty falls back to the outlet's requested_qty explicitly
+    // (never ?? - 0 is a stored value, not NULL). requested_qty is printed
+    // verbatim as the original outlet audit quantity.
+    const challanItems = viewingDispatch.items || [];
+    const fmtQty = (v) => (v === null || v === undefined ? "-" : Number(v).toFixed(2));
+    const bakeQty = (it) => (Number(it.planned_qty) > 0 ? it.planned_qty : it.requested_qty);
+    const hasUnpricedItems = challanItems.some((it) => it.sale_value === null || it.sale_value === undefined);
+    const challanTotalValue = challanItems.reduce((s, it) => s + (Number(it.sale_value) || 0), 0);
+    // The official challan only exists once goods have actually left the
+    // Bakehouse - a Draft dispatch must never print a document implying
+    // dispatch happened. Posting flips the transfer to In Transit.
+    const canPrintChallan = ["In Transit", "Partially Received", "Received"].includes(viewingDispatch.status);
     return (
       <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setViewingDispatch(null)}>
@@ -456,7 +469,9 @@ export default function CentralKitchen() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className={`text-lg font-semibold ${isDark ? "text-white" : "text-[#2F2B3D]"}`}>Dispatch Detail</h3>
             <div className="flex items-center gap-3">
-              <button onClick={() => setPrintDispatchOpen(true)} className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]" : "border-[#EBE9F1] hover:bg-[#F3F2F7]"}`}><Printer size={14} /> Delivery Challan</button>
+              {canPrintChallan && (
+                <button onClick={() => setPrintDispatchOpen(true)} className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]" : "border-[#EBE9F1] hover:bg-[#F3F2F7]"}`}><Printer size={14} /> Delivery Challan</button>
+              )}
               <button onClick={() => setViewingDispatch(null)} className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}><X size={20} /></button>
             </div>
           </div>
@@ -476,13 +491,15 @@ export default function CentralKitchen() {
               <table className="w-full border-collapse text-[13px]">
                 <thead className={`sticky top-0 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                   <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                    <th className="px-3 py-2">Product</th><th className="px-3 py-2">Batch</th><th className="px-3 py-2">Expiry</th><th className="px-3 py-2">Dispatched</th><th className="px-3 py-2">Received</th><th className="px-3 py-2">Short</th><th className="px-3 py-2">Damaged</th><th className="px-3 py-2">Pending</th>
+                    <th className="px-3 py-2">Product</th><th className="px-3 py-2">Requested</th><th className="px-3 py-2">Bakehouse</th><th className="px-3 py-2">Batch</th><th className="px-3 py-2">Expiry</th><th className="px-3 py-2">Dispatched</th><th className="px-3 py-2">Received</th><th className="px-3 py-2">Short</th><th className="px-3 py-2">Damaged</th><th className="px-3 py-2">Pending</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(viewingDispatch.items || []).map((it) => (
                     <tr key={it.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                       <td className="px-3 py-2">{it.material_name}</td>
+                      <td className="px-3 py-2">{fmtQty(it.requested_qty)}</td>
+                      <td className="px-3 py-2">{fmtQty(bakeQty(it))}</td>
                       <td className="px-3 py-2">{it.batch_no || "-"}</td>
                       <td className="px-3 py-2">{it.expiry_date || "-"}</td>
                       <td className="px-3 py-2">{Number(it.dispatched_qty).toFixed(2)} {it.unit_name}</td>
@@ -519,7 +536,9 @@ export default function CentralKitchen() {
                       <tbody>
                         <tr><td className="pb-1 font-semibold">Challan No.:</td><td className="pb-1 text-right">{viewingDispatch.transfer_no}</td></tr>
                         <tr><td className="pb-1 font-semibold">Dated:</td><td className="pb-1 text-right">{viewingDispatch.dispatch_date}</td></tr>
-                        <tr><td className="font-semibold">Vehicle No.:</td><td className="text-right">{viewingDispatch.vehicle_no || "-"}</td></tr>
+                        <tr><td className="pb-1 font-semibold">Request No.:</td><td className="pb-1 text-right">{viewingDispatch.production_request_no || "-"}</td></tr>
+                        <tr><td className="pb-1 font-semibold">Required Date:</td><td className="pb-1 text-right">{viewingDispatch.required_date ? String(viewingDispatch.required_date).slice(0, 10) : "-"}</td></tr>
+                        <tr><td className="pb-1 font-semibold">Vehicle No.:</td><td className="pb-1 text-right">{viewingDispatch.vehicle_no || "-"}</td></tr>
                         <tr><td className="font-semibold">Driver:</td><td className="text-right">{viewingDispatch.driver_name || "-"}</td></tr>
                       </tbody>
                     </table>
@@ -543,32 +562,39 @@ export default function CentralKitchen() {
                   <th className="border border-black p-1">SI No.</th>
                   <th className="border border-black p-1 text-left">Description of Goods</th>
                   <th className="border border-black p-1">HSN</th>
-                  <th className="border border-black p-1">Quantity</th>
+                  <th className="border border-black p-1">Requested Qty</th>
+                  <th className="border border-black p-1">Bakehouse Qty</th>
+                  <th className="border border-black p-1">Dispatched Qty</th>
+                  <th className="border border-black p-1">Unit</th>
                   <th className="border border-black p-1">Rate</th>
                   <th className="border border-black p-1">Value</th>
                 </tr>
               </thead>
               <tbody>
-                {(viewingDispatch.items || []).map((it, idx) => (
+                {challanItems.map((it, idx) => (
                   <tr key={it.id}>
                     <td className="border border-black p-1 text-center">{idx + 1}</td>
                     <td className="border border-black p-1">{it.material_name}</td>
                     <td className="border border-black p-1 text-center">{it.hsn_code || "-"}</td>
-                    <td className="border border-black p-1 text-right">{Number(it.dispatched_qty).toFixed(2)} {it.unit_name}</td>
-                    <td className="border border-black p-1 text-right">{it.transfer_price !== null && it.transfer_price !== undefined ? Number(it.transfer_price).toFixed(2) : "-"}</td>
-                    <td className="border border-black p-1 text-right">{it.sale_value !== null && it.sale_value !== undefined ? Number(it.sale_value).toFixed(2) : "-"}</td>
+                    <td className="border border-black p-1 text-right whitespace-nowrap">{fmtQty(it.requested_qty)}</td>
+                    <td className="border border-black p-1 text-right whitespace-nowrap">{fmtQty(bakeQty(it))}</td>
+                    <td className="border border-black p-1 text-right whitespace-nowrap">{Number(it.dispatched_qty).toFixed(2)}</td>
+                    <td className="border border-black p-1 text-center">{it.unit_name}</td>
+                    <td className="border border-black p-1 text-right whitespace-nowrap">{it.transfer_price !== null && it.transfer_price !== undefined ? Number(it.transfer_price).toFixed(2) : "-"}</td>
+                    <td className="border border-black p-1 text-right whitespace-nowrap">{it.sale_value !== null && it.sale_value !== undefined ? Number(it.sale_value).toFixed(2) : "-"}</td>
                   </tr>
                 ))}
                 <tr>
-                  <td colSpan={5} className="border border-black p-1 text-right font-bold">Total Value</td>
-                  <td className="border border-black p-1 text-right font-bold">
-                    {(viewingDispatch.items || []).reduce((s, it) => s + (Number(it.sale_value) || 0), 0).toFixed(2)}
-                  </td>
+                  <td colSpan={8} className="border border-black p-1 text-right font-bold">Total Value</td>
+                  <td className="border border-black p-1 text-right font-bold">{challanTotalValue.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
 
-            <p className="mt-2"><span className="font-semibold">Value (in words):</span> {amountInWords((viewingDispatch.items || []).reduce((s, it) => s + (Number(it.sale_value) || 0), 0))}</p>
+            {hasUnpricedItems && (
+              <p className="mt-1 text-[10px] italic text-gray-600">Value total includes priced items only; one or more items do not have a transfer price.</p>
+            )}
+            <p className="mt-2"><span className="font-semibold">Value (in words):</span> {amountInWords(challanTotalValue)}</p>
             {viewingDispatch.remarks && <p className="mt-2"><span className="font-semibold">Remarks:</span> {viewingDispatch.remarks}</p>}
 
             <div className="mt-8 flex items-end justify-between">
