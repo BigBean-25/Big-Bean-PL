@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { warehouseAPI, masterAPI } from "../../services/api";
+import { warehouseAPI, masterAPI, getSelectedOutletId } from "../../services/api";
+import { useSelectedOutlet } from "../../hooks/useSelectedOutlet";
 import { getThemeMode, getInputClass, PageHeader, LoadingSpinner } from "../../components/ui";
 import { MapPin } from "lucide-react";
 import toast from "react-hot-toast";
@@ -18,6 +19,8 @@ import WarehousePhase2c from "../warehouse/WarehousePhase2c";
 // backend's own-location scoping (Phase 7C2A1). create still sends the
 // resolved outlet location_id.
 export default function OutletWastage() {
+  const { selectedOutletId } = useSelectedOutlet();
+  const outletLocked = Boolean(selectedOutletId && selectedOutletId !== "all");
   const isDark = getThemeMode() === "dark";
   const inputClass = getInputClass(isDark);
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,9 @@ export default function OutletWastage() {
           (x) => x.location_type === "Outlet" && x.is_active === 1 && x.is_inventory_location === 1
         );
         setLocations(outletLocs);
-        setLocationId(String(outletLocs[0]?.id || ""));
+        const gid = getSelectedOutletId();
+        const initial = gid !== "all" ? outletLocs.filter((x) => String(x.outlet_id) === gid) : outletLocs;
+        setLocationId(String(initial[0]?.id || ""));
         setMaterials(m?.data?.data || m?.data || []);
         setUnits(u?.data?.data || u?.data || []);
       } catch {
@@ -49,6 +54,16 @@ export default function OutletWastage() {
     };
     load();
   }, []);
+
+  const visibleLocations = outletLocked
+    ? locations.filter((x) => String(x.outlet_id) === String(selectedOutletId))
+    : locations;
+
+  useEffect(() => {
+    if (!outletLocked || !locations.length) return;
+    const mapped = locations.filter((x) => String(x.outlet_id) === String(selectedOutletId));
+    if (!mapped.some((x) => String(x.id) === String(locationId))) setLocationId(String(mapped[0]?.id || ""));
+  }, [selectedOutletId, locations]);
 
   if (loading) {
     return (
@@ -65,11 +80,11 @@ export default function OutletWastage() {
         subtitle="Record expired, damaged or counter/preparation wastage for your outlet. Submitted records are reviewed and posted by the accounts/warehouse team."
         isDark={isDark}
         actions={
-          locations.length > 1 ? (
+          visibleLocations.length > 1 ? (
             <div className="relative min-w-[240px]">
               <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7367F0]" />
-              <select value={locationId} onChange={(e) => setLocationId(e.target.value)} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none ${inputClass}`}>
-                {locations.map((loc) => (
+              <select value={locationId} disabled={outletLocked && visibleLocations.length <= 1} onChange={(e) => setLocationId(e.target.value)} className={`h-10 w-full rounded-lg border pl-9 pr-3 text-[14px] outline-none disabled:cursor-not-allowed disabled:opacity-60 ${inputClass}`}>
+                {visibleLocations.map((loc) => (
                   <option key={loc.id} value={loc.id}>{loc.location_name}</option>
                 ))}
               </select>
@@ -89,7 +104,9 @@ export default function OutletWastage() {
         />
       ) : (
         <div className={`rounded-xl border p-6 text-[14px] shadow-sm ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#6F6B7D]"}`}>
-          No outlet inventory location is mapped to your account. Contact your administrator.
+          {outletLocked
+            ? "No inventory location is configured for this outlet."
+            : "No outlet inventory location is mapped to your account. Contact your administrator."}
         </div>
       )}
     </div>
