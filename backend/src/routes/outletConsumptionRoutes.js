@@ -81,7 +81,17 @@ router.get('/', checkPermission(MODULE, 'can_view'), async (req, res) => {
 // recipes. Creates nothing, moves no stock.
 router.get('/prefill', checkPermission(MODULE, 'can_view'), async (req, res) => {
   try {
-    const items = await getTheoreticalPrefill({ outletId: req.query.outlet_id, month: req.query.month, year: req.query.year });
+    const outletId = Number(req.query.outlet_id);
+    if (!Number.isInteger(outletId) || outletId <= 0) {
+      return res.status(400).json({ success: false, message: 'A valid numeric outlet_id is required' });
+    }
+    if (!canAccessAllOutlets(req.user.role_name)) {
+      const assignedOutletIds = (req.user.outlet_ids || []).map((id) => Number(id)).filter(Boolean);
+      if (!assignedOutletIds.includes(outletId)) {
+        return res.status(403).json({ success: false, message: 'You do not have access to the requested outlet' });
+      }
+    }
+    const items = await getTheoreticalPrefill({ outletId, month: req.query.month, year: req.query.year });
     res.json({ success: true, data: items });
   } catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Loader2, Plus, X, Eye, FileText, Search, RotateCcw, AlertTriangle } from 'lucide-react';
-import { outletConsumptionAPI, warehouseAPI, masterAPI, getStoredPermissions } from '../../services/api';
+import { outletConsumptionAPI, warehouseAPI, masterAPI, getStoredPermissions, getSelectedOutletId } from '../../services/api';
 import useAuthStore from '../../store/authStore';
+import { useSelectedOutlet } from '../../hooks/useSelectedOutlet';
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge } from '../../components/ui';
 import toast from 'react-hot-toast';
 
@@ -18,6 +19,8 @@ const blankItem = () => ({ raw_material_id: '', unit_id: '', qty: '', theoretica
 
 export default function OutletConsumption() {
   const { user } = useAuthStore();
+  const { selectedOutletId } = useSelectedOutlet();
+  const outletLocked = Boolean(selectedOutletId && selectedOutletId !== 'all');
   const isDark = getThemeMode() === "dark";
   const primaryColor = getPrimaryColor();
   const inputCls = getInputCls(isDark);
@@ -35,7 +38,10 @@ export default function OutletConsumption() {
   const [locations, setLocations] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [units, setUnits] = useState([]);
-  const [outletId, setOutletId] = useState('');
+  const [outletId, setOutletId] = useState(() => {
+    const gid = getSelectedOutletId();
+    return gid !== 'all' ? String(gid) : '';
+  });
   const [locationId, setLocationId] = useState('');
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -63,12 +69,18 @@ export default function OutletConsumption() {
         setLocations(l.data?.data || l.data || []);
         setMaterials(m.data?.data || m.data || []);
         setUnits(u.data?.data || u.data || []);
-        if (user?.outlet_ids?.length && !isAdminRole) setOutletId(String(user.outlet_ids[0]));
+        if (!outletLocked && user?.outlet_ids?.length && !isAdminRole) setOutletId(String(user.outlet_ids[0]));
       } catch { toast.error('Failed to load masters'); }
     })();
   }, []);
 
-  const outletLocations = locations.filter((l) => String(l.outlet_id) === String(outletId) && l.is_active === 1);
+  const outletLocations = locations.filter((l) =>
+    String(l.outlet_id) === String(outletId) && l.is_active === 1 &&
+    (!outletLocked || (l.location_type === 'Outlet' && l.is_inventory_location === 1))
+  );
+  useEffect(() => {
+    if (outletLocked) setOutletId(String(selectedOutletId));
+  }, [selectedOutletId]);
   useEffect(() => {
     if (outletLocations.length === 1) setLocationId(String(outletLocations[0].id));
     else if (!outletLocations.some((l) => String(l.id) === String(locationId))) setLocationId('');
@@ -106,6 +118,7 @@ export default function OutletConsumption() {
 
   const applyPrefill = async () => {
     if (form.source_type !== 'ITEM_SALES_THEORETICAL') { toast.error('Select ITEM_SALES_THEORETICAL source first'); return; }
+    if (!outletId) { toast.error('Select an outlet first'); return; }
     setPrefillBusy(true);
     try {
       const res = await outletConsumptionAPI.prefill({ outlet_id: outletId, month: form.source_period_month, year: form.source_period_year });
@@ -123,6 +136,7 @@ export default function OutletConsumption() {
   const save = async () => {
     if (saving) return;
     if (!form.consumption_no || !form.consumption_date) { toast.error('Consumption number and date are required'); return; }
+    if (!outletId || !locationId) { toast.error('Outlet and its inventory location are required'); return; }
     if (!form.items.length || form.items.some((it) => !it.raw_material_id || !it.unit_id || num(it.qty) <= 0)) {
       toast.error('Every item needs a material, unit and positive quantity'); return;
     }
@@ -185,7 +199,7 @@ export default function OutletConsumption() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div>
             <label className={`mb-1 block text-[12px] font-medium ${mainCls}`}>Outlet</label>
-            <select value={outletId} onChange={(e) => setOutletId(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+            <select value={outletId} disabled={outletLocked} onChange={(e) => setOutletId(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none disabled:cursor-not-allowed disabled:opacity-60 ${inputCls}`}>
               <option value="">Select outlet</option>
               {outlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
             </select>
@@ -218,7 +232,7 @@ export default function OutletConsumption() {
       </div>
 
       {!locationId ? (
-        <EmptyState icon={FileText} title="Select an outlet location" subtitle="Consumption documents are recorded per outlet inventory location." isDark={isDark} />
+        <EmptyState icon={FileText} title={outletLocked && outletId ? 'No inventory location is configured for this outlet.' : 'Select an outlet location'} subtitle="Consumption documents are recorded per outlet inventory location." isDark={isDark} />
       ) : (
         <SectionCard isDark={isDark}>
           <TableWrapper isDark={isDark}>
