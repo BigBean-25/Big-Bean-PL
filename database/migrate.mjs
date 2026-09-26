@@ -89,6 +89,8 @@ const MIGRATIONS = [
   { name: 'add_grn_purchase_order_item_link.sql', file: 'database/add_grn_purchase_order_item_link.sql', why: 'Phase 7E1A: grn_items.purchase_order_item_id source attribution (RESTRICT FK); backfill only for uniquely-attributable rows - duplicate-material POs stay NULL; metadata only, no financial values change' },
   { name: 'allow_null_transfer_dispatch_date.sql', file: 'database/allow_null_transfer_dispatch_date.sql', why: 'Req #16: stock_transfers.dispatch_date nullable - direct Draft transfers have not been dispatched; no data change, guarded MODIFY only' },
   { name: 'reconcile_stock_ledger_unique_key.sql', file: 'database/reconcile_stock_ledger_unique_key.sql', why: 'Req #17: converge stock_ledger unique key to production shape - generated reference_item_key/batch_key columns + 5-col uq so receipt upserts accumulate per transfer-item+batch; no data change' },
+  { name: 'add_marketing_expense_head.sql', file: 'database/add_marketing_expense_head.sql', why: 'Req #25: add canonical Marketing daily cash expense head if missing - master-data only, idempotent INSERT-if-absent, leaves conflicting pre-existing row untouched' },
+  { name: 'add_marketing_expense_subcategories.sql', file: 'database/add_marketing_expense_subcategories.sql', why: 'Req #26: expense_subcategories table (FK->expense_heads RESTRICT) + nullable daily_cash_expenses.expense_subcategory_id link - additive, guarded, no backfill' },
 ];
 
 async function ensureTrackingTable(conn) {
