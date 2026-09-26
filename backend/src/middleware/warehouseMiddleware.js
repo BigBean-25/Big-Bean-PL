@@ -42,10 +42,20 @@ export const applyLocationScope = async (req, res, next) => {
       allowedLocationIds = rows.map((r) => Number(r.id));
     }
 
-    // Validate requested primary location is a Central Warehouse for warehouse module
+    // Validate requested primary location for the warehouse module.
+    // - Missing/inactive location: rejected outright (unchanged).
+    // - Writes (POST/PUT/PATCH/DELETE): still require a Central Warehouse -
+    //   outlet locations must never receive warehouse-module mutations.
+    // - GETs may name an Outlet location (Global Outlet Selector pins the
+    //   outlet's inventory location) - but only via the allowedLocationIds
+    //   check below, so a scoped role can still only read its own outlets.
     if (requestedLocationId && requestedLocationId !== 'all') {
       const locRows = await query("SELECT id, location_type FROM locations WHERE id = ? AND is_active = 1", [Number(requestedLocationId)]);
-      if (locRows.length === 0 || locRows[0].location_type !== 'Central Warehouse') {
+      if (locRows.length === 0) {
+        return res.status(403).json({ success: false, message: 'Central Warehouse required for warehouse operations' });
+      }
+      const isCentralWarehouse = locRows[0].location_type === 'Central Warehouse';
+      if (req.method !== 'GET' && !isCentralWarehouse) {
         return res.status(403).json({ success: false, message: 'Central Warehouse required for warehouse operations' });
       }
 
@@ -57,7 +67,11 @@ export const applyLocationScope = async (req, res, next) => {
       // etc.) still require the outlet-ownership checks below, since those
       // routes gate on can_create/can_edit which Outlet Admin isn't granted
       // on warehouse modules in the first place.
-      if (req.method === 'GET' && !all) {
+      // Outlet-type GETs deliberately skip this carve-out: it substitutes the
+      // requested id without consulting allowedLocationIds, which would let a
+      // scoped role read ANY active outlet's location. Those fall through to
+      // the allowedLocationIds.includes() check below instead.
+      if (req.method === 'GET' && !all && isCentralWarehouse) {
         // ownLocationIds preserves the caller's own allowed set before this
         // carve-out substitutes the warehouse id - list endpoints whose rows
         // span multiple locations (e.g. Outlet POs) must restrict on the own

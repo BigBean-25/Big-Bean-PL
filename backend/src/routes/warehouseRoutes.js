@@ -819,6 +819,13 @@ router.get('/purchase-returns/grns/:id/items', checkPermission('warehouse_purcha
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
+// Static path must precede /purchase-returns/:id - Express would otherwise
+// match id="credits-summary" and 404 before reaching this handler.
+router.get('/purchase-returns/credits-summary', checkPermission('warehouse_purchase_returns', 'can_view'), async (req, res) => {
+  try { const data = await getCreditsSummary(); res.json({ success: true, data }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
 router.get('/purchase-returns/:id', checkPermission('warehouse_purchase_returns', 'can_view'), applyLocationScope, async (req, res) => {
   try {
     const data = await getReturnById(Number(req.params.id));
@@ -888,11 +895,6 @@ router.post('/purchase-returns/:id/post', checkPermission('warehouse_purchase_re
 router.post('/purchase-returns/:id/lock', checkPermission('warehouse_purchase_returns', 'can_lock'), async (req, res) => {
   try { const data = await lockReturn(Number(req.params.id), req.user.id); res.json({ success: true, data }); }
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
-});
-
-router.get('/purchase-returns/credits-summary', checkPermission('warehouse_purchase_returns', 'can_view'), async (req, res) => {
-  try { const data = await getCreditsSummary(); res.json({ success: true, data }); }
-  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
 router.put('/purchase-returns/credits/:id/status', checkPermission('warehouse_purchase_returns', 'can_edit'), async (req, res) => {
