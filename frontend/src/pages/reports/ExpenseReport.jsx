@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Download, Search, Loader2, Receipt, TrendingDown, FileText } from 'lucide-react';
 import { reportAPI, masterAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+import { useReportOutletSync } from '../../hooks/useSelectedOutlet';
 import { format } from 'date-fns';
 import { exportReportPDF } from '../../utils/pdfReport';
 
@@ -39,6 +40,7 @@ const ExpenseReport = () => {
   const trHover = isDark ? "hover:bg-[#3B405A]" : "hover:bg-[#F8F7FA]";
   const borderCls = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
 
+  const { outletLocked } = useReportOutletSync({ setFilters, allModeValue: "", clearResult: () => setReportData([]) });
   useEffect(() => { fetchOutlets(); }, []);
 
   const fetchOutlets = async () => {
@@ -119,7 +121,7 @@ const ExpenseReport = () => {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className={`mb-1.5 block text-[13px] font-medium ${labelCls}`}>Outlet *</label>
-              <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
+              <select value={filters.outlet_id} disabled={outletLocked} style={outletLocked ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
                 className={`h-[42px] w-full rounded-md border px-3 text-[14px] outline-none transition focus:border-[#7367F0] focus:shadow-[0_0_0_3px_rgba(115,103,240,0.16)] ${inputCls}`}>
                 <option value="">Select Outlet</option>
                 {outlets.map(o => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
