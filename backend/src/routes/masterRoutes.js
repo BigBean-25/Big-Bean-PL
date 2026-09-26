@@ -11,6 +11,7 @@ import {
   menuItemController,
   unitController,
   expenseHeadController,
+  expenseSubcategoryController,
   paymentModeController,
   onlinePlatformController,
   dineInPortalController,
@@ -46,6 +47,7 @@ router.post('/menu-items/bulk-upload', protect, upload.single('file'), checkPerm
 createRoutes('menu-items', menuItemController, 'menu_items');
 createRoutes('units', unitController, 'masters');
 createRoutes('expense-heads', expenseHeadController, 'masters');
+createRoutes('expense-subcategories', expenseSubcategoryController, 'masters');
 createRoutes('payment-modes', paymentModeController, 'masters');
 createRoutes('online-platforms', onlinePlatformController, 'masters');
 createRoutes('dine-in-portals', dineInPortalController, 'masters');

@@ -215,7 +215,7 @@ export const getDailyCashbookReport = async (req, res) => {
 
 export const getExpenseReport = async (req, res) => {
   try {
-    const { outlet_id, from_date, to_date, expense_head_id } = req.query;
+    const { outlet_id, from_date, to_date, expense_head_id, expense_subcategory_id } = req.query;
 
     let whereClause = 'dce.status = "Approved"';
     const params = [];
@@ -240,30 +240,49 @@ export const getExpenseReport = async (req, res) => {
       params.push(expense_head_id);
     }
 
+    // Req #26: optional subcategory filter composes with head/outlet/date
+    if (expense_subcategory_id) {
+      const parsedSubcategoryId = Number(expense_subcategory_id);
+      if (!Number.isInteger(parsedSubcategoryId) || parsedSubcategoryId <= 0) {
+        return res.status(400).json({ success: false, message: 'expense_subcategory_id must be a positive integer' });
+      }
+      whereClause += ' AND dce.expense_subcategory_id = ?';
+      params.push(parsedSubcategoryId);
+    }
+
     const expenses = await query(
       `SELECT 
         dce.*,
         o.outlet_name,
         eh.expense_name,
+        es.subcategory_name,
         pm.mode_name
        FROM daily_cash_expenses dce
        LEFT JOIN outlets o ON dce.outlet_id = o.id
        LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
+       LEFT JOIN expense_subcategories es ON es.id = dce.expense_subcategory_id
        LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
        WHERE ${whereClause}
        ORDER BY dce.date DESC, o.outlet_name`,
       params
     );
 
+    // Req #26: summary splits by head + subcategory so Marketing rows are
+    // distinguishable; NULL subcategories form their own group. Totals are
+    // unchanged - each expense still contributes exactly once.
     const summary = await query(
       `SELECT 
         eh.expense_name,
+        es.subcategory_name,
+        dce.expense_head_id,
+        dce.expense_subcategory_id,
         COALESCE(SUM(dce.amount), 0) as total_amount,
         COUNT(*) as count
        FROM daily_cash_expenses dce
        LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
+       LEFT JOIN expense_subcategories es ON es.id = dce.expense_subcategory_id
        WHERE ${whereClause}
-       GROUP BY eh.expense_name
+       GROUP BY eh.expense_name, es.subcategory_name, dce.expense_head_id, dce.expense_subcategory_id
        ORDER BY total_amount DESC`,
       params
     );

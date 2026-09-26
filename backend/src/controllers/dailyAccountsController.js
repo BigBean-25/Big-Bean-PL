@@ -38,6 +38,37 @@ const normalizeUploadPath = (filePath) => {
 
 const normalizeExpenseDate = (row) => row ? { ...row, date: toISOLocal(row.date) } : null;
 
+// Req #26: shared expense-read projection. dce.* already carries
+// expense_subcategory_id; the LEFT JOIN adds its display name. Legacy rows
+// (subcategory NULL) read unchanged.
+const EXPENSE_SELECT = `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name, es.subcategory_name,
+       u1.full_name as entered_by_name, u2.full_name as verified_by_name
+       FROM daily_cash_expenses dce
+       LEFT JOIN outlets o ON dce.outlet_id = o.id
+       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
+       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
+       LEFT JOIN expense_subcategories es ON es.id = dce.expense_subcategory_id
+       LEFT JOIN users u1 ON dce.entered_by = u1.id
+       LEFT JOIN users u2 ON dce.verified_by = u2.id`;
+
+// Req #26: Marketing expenses require an active subcategory belonging to the
+// Marketing head; every other head must store NULL (a forged/stale client
+// value is silently cleared). Marketing is identified by normalized name so
+// this never depends on a hardcoded expense_heads.id.
+const isMarketingExpenseHead = (head) => String(head?.expense_name || '').trim().toLowerCase() === 'marketing';
+
+const resolveExpenseSubcategory = async (head, subcategoryId) => {
+  if (!isMarketingExpenseHead(head)) return null;
+  const bad = (message) => { const err = new Error(message); err.statusCode = 400; return err; };
+  const id = Number(subcategoryId);
+  if (!Number.isInteger(id) || id <= 0) throw bad('A Marketing subcategory is required for Marketing expenses');
+  const [sub] = await query('SELECT id, expense_head_id, is_active FROM expense_subcategories WHERE id = ?', [id]);
+  if (!sub || Number(sub.expense_head_id) !== Number(head.id) || Number(sub.is_active) !== 1) {
+    throw bad('Invalid or inactive Marketing subcategory');
+  }
+  return id;
+};
+
 export const getDailyCashbooks = async (req, res) => {
   try {
     const { outlet_id, start_date, end_date, status, page = 1, limit = 50 } = req.query;
@@ -653,15 +684,7 @@ export const getDailyCashExpenses = async (req, res) => {
     }
 
     const expenses = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, 
-              u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE ${whereClause}
        ORDER BY dce.date DESC, dce.id DESC
        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`,
@@ -709,7 +732,7 @@ export const createDailyCashExpense = async (req, res) => {
 
     await assertDateEditable(outlet_id, date, 'A cash expense');
 
-    const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+    const [head] = await query('SELECT id, expense_name, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
     if (!head) {
       return res.status(400).json({ success: false, message: 'Expense head not found or inactive' });
     }
@@ -718,6 +741,8 @@ export const createDailyCashExpense = async (req, res) => {
     if (!mode) {
       return res.status(400).json({ success: false, message: 'Payment mode not found or inactive' });
     }
+
+    const expenseSubcategoryId = await resolveExpenseSubcategory(head, req.body.expense_subcategory_id);
 
     // Raw-material-flagged heads (e.g. "Raw Material") require picking a real
     // raw material + quantity so approval can create a proper purchase record
@@ -745,20 +770,13 @@ export const createDailyCashExpense = async (req, res) => {
 
     const result = await query(
       `INSERT INTO daily_cash_expenses
-       (date, outlet_id, expense_head_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [date, outlet_id, expense_head_id, finalRawMaterialId, finalMaterialQty, parsedAmount, payment_mode_id, paid_to || null, description || null, proofAttachment, req.user.id, 'Draft']
+       (date, outlet_id, expense_head_id, expense_subcategory_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [date, outlet_id, expense_head_id, expenseSubcategoryId, finalRawMaterialId, finalMaterialQty, parsedAmount, payment_mode_id, paid_to || null, description || null, proofAttachment, req.user.id, 'Draft']
     );
 
     const [created] = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id = ?`,
       [result.insertId]
     );
@@ -834,10 +852,12 @@ export const createDailyCashExpensesBatch = async (req, res) => {
         return res.status(400).json({ success: false, message: `${rowLabel}: amount must be greater than 0` });
       }
 
-      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+      const [head] = await query('SELECT id, expense_name, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
       if (!head) {
         return res.status(400).json({ success: false, message: `${rowLabel}: expense head not found or inactive` });
       }
+
+      const expenseSubcategoryId = await resolveExpenseSubcategory(head, item.expense_subcategory_id);
 
       const [mode] = await query('SELECT id FROM payment_modes WHERE id = ? AND is_active = 1', [payment_mode_id]);
       if (!mode) {
@@ -866,6 +886,7 @@ export const createDailyCashExpensesBatch = async (req, res) => {
         expense_head_id, amount: parsedAmount, payment_mode_id,
         paid_to: paid_to || null, description: description || null,
         raw_material_id: finalRawMaterialId, material_qty: finalMaterialQty,
+        expense_subcategory_id: expenseSubcategoryId,
       });
     }
 
@@ -876,9 +897,9 @@ export const createDailyCashExpensesBatch = async (req, res) => {
       for (const item of validatedItems) {
         const [result] = await conn.execute(
           `INSERT INTO daily_cash_expenses
-           (date, outlet_id, expense_head_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-          [date, outlet_id, item.expense_head_id, item.raw_material_id, item.material_qty, item.amount, item.payment_mode_id, item.paid_to, item.description, null, req.user.id, 'Draft']
+           (date, outlet_id, expense_head_id, expense_subcategory_id, raw_material_id, material_qty, amount, payment_mode_id, paid_to, description, proof_attachment, entered_by, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [date, outlet_id, item.expense_head_id, item.expense_subcategory_id, item.raw_material_id, item.material_qty, item.amount, item.payment_mode_id, item.paid_to, item.description, null, req.user.id, 'Draft']
         );
         insertedIds.push(result.insertId);
       }
@@ -891,14 +912,7 @@ export const createDailyCashExpensesBatch = async (req, res) => {
     }
 
     const createdRows = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id IN (${insertedIds.map(() => '?').join(',')})
        ORDER BY dce.id ASC`,
       insertedIds
@@ -938,14 +952,7 @@ export const createDailyCashExpensesBatch = async (req, res) => {
 export const getDailyCashExpenseById = async (req, res) => {
   try {
     const [expense] = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id = ?`,
       [req.record.id]
     );
@@ -986,13 +993,22 @@ export const updateDailyCashExpense = async (req, res) => {
     const effectiveHeadId = expense_head_id || existing.expense_head_id;
     let effectiveHead = null;
     if (expense_head_id) {
-      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
+      const [head] = await query('SELECT id, expense_name, is_raw_material_category FROM expense_heads WHERE id = ? AND is_active = 1', [expense_head_id]);
       if (!head) return res.status(400).json({ success: false, message: 'Expense head not found or inactive' });
       effectiveHead = head;
     } else {
-      const [head] = await query('SELECT id, is_raw_material_category FROM expense_heads WHERE id = ?', [effectiveHeadId]);
+      const [head] = await query('SELECT id, expense_name, is_raw_material_category FROM expense_heads WHERE id = ?', [effectiveHeadId]);
       effectiveHead = head || null;
     }
+
+    // Req #26: subcategory follows the EFFECTIVE head - switching to Marketing
+    // makes it required, switching away clears it to NULL. An un-sent field
+    // keeps the stored value (partial-update semantics), which still has to
+    // pass active/matching-head validation.
+    const requestedSubcategory = Object.prototype.hasOwnProperty.call(req.body, 'expense_subcategory_id')
+      ? req.body.expense_subcategory_id
+      : existing.expense_subcategory_id;
+    const effectiveSubcategoryId = await resolveExpenseSubcategory(effectiveHead, requestedSubcategory);
 
     if (payment_mode_id) {
       const [mode] = await query('SELECT id FROM payment_modes WHERE id = ? AND is_active = 1', [payment_mode_id]);
@@ -1026,6 +1042,7 @@ export const updateDailyCashExpense = async (req, res) => {
     const updateData = {
       date: date || existing.date,
       expense_head_id: effectiveHeadId,
+      expense_subcategory_id: effectiveSubcategoryId,
       raw_material_id: finalRawMaterialId,
       material_qty: finalMaterialQty,
       amount: parsedAmount,
@@ -1049,14 +1066,7 @@ export const updateDailyCashExpense = async (req, res) => {
     );
 
     const [updated] = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id = ?`,
       [existing.id]
     );
@@ -1243,14 +1253,7 @@ export const approveDailyCashExpense = async (req, res) => {
     }
 
     const [updated] = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id = ?`,
       [existing.id]
     );
@@ -1312,14 +1315,7 @@ export const rejectDailyCashExpense = async (req, res) => {
     );
 
     const [updated] = await query(
-      `SELECT dce.*, o.outlet_name, eh.expense_name, pm.mode_name,
-              u1.full_name as entered_by_name, u2.full_name as verified_by_name
-       FROM daily_cash_expenses dce
-       LEFT JOIN outlets o ON dce.outlet_id = o.id
-       LEFT JOIN expense_heads eh ON dce.expense_head_id = eh.id
-       LEFT JOIN payment_modes pm ON dce.payment_mode_id = pm.id
-       LEFT JOIN users u1 ON dce.entered_by = u1.id
-       LEFT JOIN users u2 ON dce.verified_by = u2.id
+      `${EXPENSE_SELECT}
        WHERE dce.id = ?`,
       [existing.id]
     );

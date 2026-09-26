@@ -604,6 +604,123 @@ export const unitController = {
   },
 };
 export const expenseHeadController = createMasterController('expense_heads', 'Expense Head');
+
+// Req #26: expense subcategories exist only under the Marketing head, so the
+// generic master factory can't be used for writes - create/update verify the
+// referenced head resolves to 'Marketing' by normalized name (never by id) and
+// delete refuses referenced rows, steering admins to deactivate instead.
+const isMarketingHeadName = (name) => String(name || '').trim().toLowerCase() === 'marketing';
+
+const expenseSubcategoryBase = createMasterController('expense_subcategories', 'Expense Subcategory');
+export const expenseSubcategoryController = {
+  getAll: async (req, res) => {
+    try {
+      const { page = 1, limit = 100, search = '', is_active, expense_head_id } = req.query;
+      const offset = (page - 1) * limit;
+      let whereClause = '1=1';
+      const params = [];
+      if (search) { whereClause += ' AND es.subcategory_name LIKE ?'; params.push(`%${search}%`); }
+      if (is_active !== undefined) { whereClause += ' AND es.is_active = ?'; params.push(is_active); }
+      if (expense_head_id !== undefined) { whereClause += ' AND es.expense_head_id = ?'; params.push(expense_head_id); }
+      const items = await query(
+        `SELECT es.*, eh.expense_name AS expense_head_name
+         FROM expense_subcategories es LEFT JOIN expense_heads eh ON eh.id = es.expense_head_id
+         WHERE ${whereClause} ORDER BY es.id DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`,
+        params
+      );
+      const countResult = await query(
+        `SELECT COUNT(*) as total FROM expense_subcategories es WHERE ${whereClause}`, params
+      );
+      res.status(200).json({ success: true, data: items, pagination: { total: countResult[0].total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(countResult[0].total / limit) } });
+    } catch (error) {
+      console.error('Get Expense Subcategory error:', error);
+      res.status(500).json({ success: false, message: 'Error fetching Expense Subcategory' });
+    }
+  },
+  getById: expenseSubcategoryBase.getById,
+  create: async (req, res) => {
+    try {
+      const subcategoryName = String(req.body.subcategory_name || '').trim();
+      if (!subcategoryName) return res.status(400).json({ success: false, message: 'Subcategory name is required' });
+      if (subcategoryName.length > 100) return res.status(400).json({ success: false, message: 'Subcategory name must be 100 characters or less' });
+
+      // The parent head may be supplied or defaulted to Marketing - either way
+      // it must resolve to the Marketing head by normalized name.
+      let head = null;
+      if (req.body.expense_head_id) {
+        const rows = await query('SELECT id, expense_name FROM expense_heads WHERE id = ?', [req.body.expense_head_id]);
+        head = rows[0] || null;
+        if (!head) return res.status(400).json({ success: false, message: 'Expense head not found' });
+      } else {
+        const rows = await query("SELECT id, expense_name FROM expense_heads WHERE LOWER(TRIM(expense_name)) = 'marketing' AND is_active = 1", []);
+        head = rows[0] || null;
+        if (!head) return res.status(400).json({ success: false, message: 'Marketing expense head is not configured yet' });
+      }
+      if (!isMarketingHeadName(head.expense_name)) {
+        return res.status(400).json({ success: false, message: 'Subcategories can only be created under the Marketing expense head' });
+      }
+
+      const isActive = req.body.is_active === undefined || req.body.is_active === null ? 1 : (Number(req.body.is_active) ? 1 : 0);
+      const result = await query(
+        'INSERT INTO expense_subcategories (expense_head_id, subcategory_name, is_active, created_at) VALUES (?, ?, ?, NOW())',
+        [head.id, subcategoryName, isActive]
+      );
+      await logAudit(req.user.id, 'CREATE', 'expense_subcategories', result.insertId, null, { expense_head_id: head.id, subcategory_name: subcategoryName, is_active: isActive }, 'Created Expense Subcategory');
+      res.status(201).json({ success: true, message: 'Expense Subcategory created successfully', data: { id: result.insertId, expense_head_id: head.id, subcategory_name: subcategoryName, is_active: isActive } });
+    } catch (error) {
+      console.error('Create Expense Subcategory error:', error);
+      res.status(error.code === 'ER_DUP_ENTRY' ? 400 : 500).json({ success: false, message: error.code === 'ER_DUP_ENTRY' ? 'Expense Subcategory already exists under this head' : 'Error creating Expense Subcategory' });
+    }
+  },
+  update: async (req, res) => {
+    try {
+      const existing = await query('SELECT * FROM expense_subcategories WHERE id = ?', [req.params.id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, message: 'Expense Subcategory not found' });
+
+      // Only name + is_active are mutable; reparenting is never allowed - if a
+      // head id is sent it must still resolve to Marketing to stay valid.
+      const fields = {};
+      if (req.body.subcategory_name !== undefined) {
+        const name = String(req.body.subcategory_name || '').trim();
+        if (!name) return res.status(400).json({ success: false, message: 'Subcategory name is required' });
+        if (name.length > 100) return res.status(400).json({ success: false, message: 'Subcategory name must be 100 characters or less' });
+        fields.subcategory_name = name;
+      }
+      if (req.body.is_active !== undefined) fields.is_active = Number(req.body.is_active) ? 1 : 0;
+      if (req.body.expense_head_id !== undefined) {
+        const rows = await query('SELECT id, expense_name FROM expense_heads WHERE id = ?', [req.body.expense_head_id]);
+        if (!rows.length || !isMarketingHeadName(rows[0].expense_name) || Number(rows[0].id) !== Number(existing[0].expense_head_id)) {
+          return res.status(400).json({ success: false, message: 'Expense Subcategory must remain under the Marketing expense head' });
+        }
+      }
+      if (Object.keys(fields).length === 0) return res.status(400).json({ success: false, message: 'Nothing to update' });
+
+      const setClause = Object.keys(fields).map((f) => `${f} = ?`).join(', ');
+      await query(`UPDATE expense_subcategories SET ${setClause}, updated_at = NOW() WHERE id = ?`, [...Object.values(fields), req.params.id]);
+      await logAudit(req.user.id, 'UPDATE', 'expense_subcategories', req.params.id, existing[0], req.body, 'Updated Expense Subcategory');
+      res.status(200).json({ success: true, message: 'Expense Subcategory updated successfully' });
+    } catch (error) {
+      console.error('Update Expense Subcategory error:', error);
+      res.status(error.code === 'ER_DUP_ENTRY' ? 400 : 500).json({ success: false, message: error.code === 'ER_DUP_ENTRY' ? 'Expense Subcategory already exists under this head' : 'Error updating Expense Subcategory' });
+    }
+  },
+  delete: async (req, res) => {
+    try {
+      const existing = await query('SELECT * FROM expense_subcategories WHERE id = ?', [req.params.id]);
+      if (existing.length === 0) return res.status(404).json({ success: false, message: 'Expense Subcategory not found' });
+      const inUse = await query('SELECT id FROM daily_cash_expenses WHERE expense_subcategory_id = ? LIMIT 1', [req.params.id]);
+      if (inUse.length > 0) {
+        return res.status(400).json({ success: false, message: 'Cannot delete - this subcategory is used by expenses. Deactivate it instead.' });
+      }
+      await query('DELETE FROM expense_subcategories WHERE id = ?', [req.params.id]);
+      await logAudit(req.user.id, 'DELETE', 'expense_subcategories', req.params.id, existing[0], null, 'Deleted Expense Subcategory');
+      res.status(200).json({ success: true, message: 'Expense Subcategory deleted successfully' });
+    } catch (error) {
+      console.error('Delete Expense Subcategory error:', error);
+      res.status(error.code === 'ER_ROW_IS_REFERENCED_2' || error.code === 'ER_ROW_IS_REFERENCED' ? 400 : 500).json({ success: false, message: error.code?.startsWith('ER_ROW_IS_REFERENCED') ? 'Cannot delete - this subcategory is used by expenses. Deactivate it instead.' : 'Error deleting Expense Subcategory' });
+    }
+  },
+};
 export const paymentModeController = createMasterController('payment_modes', 'Payment Mode');
 export const onlinePlatformController = createMasterController('online_platforms', 'Online Platform');
 export const dineInPortalController = createMasterController('dine_in_portals', 'Dine-in Portal');
