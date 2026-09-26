@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { productionAPI, warehouseAPI, masterAPI, recipeAPI } from "../../services/api";
-import { PageHeader, SectionCard, TableWrapper, EmptyState, LoadingSpinner, getThemeMode } from "../../components/ui";
+import { PageHeader, SectionCard, TableWrapper, EmptyState, LoadingSpinner, StatusBadge, getThemeMode } from "../../components/ui";
 import { getInputClass } from "../../components/ui";
-import { LayoutDashboard, ClipboardList, ChefHat, Package, RefreshCw, Trash2, BarChart3, Truck, Search, Download, Plus, X, Eye, Send, Printer } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { LayoutDashboard, ClipboardList, ChefHat, Package, RefreshCw, Trash2, BarChart3, Truck, Search, Download, Plus, X, Eye, Send, Printer, Clock, CalendarCheck, Flame, CheckCircle2, AlertTriangle, IndianRupee, TrendingUp, PackageCheck, Coins } from "lucide-react";
 import { amountInWords } from "../warehouse/invoiceWords";
 import { getStoredPermissions } from "../../services/api";
 import toast from "react-hot-toast";
@@ -23,17 +24,61 @@ const tabs = [
   { key: "dispatches", label: "Outlet Dispatches", icon: Truck, moduleKey: "production_dispatch" },
 ];
 
-const Kpi = ({ label, value, isDark }) => (
-  <div className={`rounded-xl border p-4 shadow-sm ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-    <div className={`text-[12px] uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{label}</div>
-    <div className={`mt-1 text-[22px] font-bold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{value}</div>
-  </div>
-);
+// Tinted icon-badge pairs, keyed by semantic tone - light first, dark second.
+// Colors mirror the STATUS_STYLES palette in components/ui.jsx.
+const KPI_TONES = {
+  violet: ["bg-[#EFECFF] text-[#7367F0]", "bg-[#7367F0]/15 text-[#A79DFF]"],
+  blue:   ["bg-[#E6FAFD] text-[#00CFE8]", "bg-[#00CFE8]/15 text-[#5FDFF0]"],
+  amber:  ["bg-[#FFF4E5] text-[#FF9F43]", "bg-[#FF9F43]/15 text-[#FFB976]"],
+  green:  ["bg-[#E9F9EF] text-[#28C76F]", "bg-[#28C76F]/15 text-[#5EDDA0]"],
+  rose:   ["bg-[#FCEAEA] text-[#EA5455]", "bg-[#EA5455]/15 text-[#FF8A8B]"],
+  indigo: ["bg-[#E8E7FD] text-[#5B5FEF]", "bg-[#5B5FEF]/15 text-[#9B9DFF]"],
+  pink:   ["bg-[#FDE7F3] text-[#E83E8C]", "bg-[#E83E8C]/15 text-[#F38AC0]"],
+};
+
+const Kpi = ({ label, value, hint, icon: Icon, tone = "violet", index = 0, isDark }) => {
+  const reduceMotion = useReducedMotion();
+  const [badgeLight, badgeDark] = KPI_TONES[tone] || KPI_TONES.violet;
+  return (
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, delay: reduceMotion ? 0 : index * 0.045, ease: [0.22, 1, 0.36, 1] }}
+      className={`group rounded-2xl border p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}
+    >
+      <div className="flex items-center gap-3">
+        {Icon && (
+          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${isDark ? badgeDark : badgeLight}`}>
+            <Icon size={18} />
+          </span>
+        )}
+        <div className={`text-[11px] font-semibold uppercase tracking-wider ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>{label}</div>
+      </div>
+      <div className={`mt-3 text-[22px] font-bold leading-none ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{value}</div>
+      {hint && <div className={`mt-1.5 text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{hint}</div>}
+    </motion.div>
+  );
+};
+
+const FadeIn = ({ delay = 0, className = "", children }) => {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.26, delay: reduceMotion ? 0 : delay, ease: [0.22, 1, 0.36, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+};
 
 const CENTRAL_KITCHEN_LOCATION_KEY = "bbc_central_kitchen_location_id";
 
 export default function CentralKitchen() {
   const isDark = getThemeMode() === "dark";
+  const reduceMotion = useReducedMotion();
   const { tab } = useParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(tab || "dashboard");
@@ -62,6 +107,7 @@ export default function CentralKitchen() {
   const [outlets, setOutlets] = useState([]);
   const [recipes, setRecipes] = useState([]);
   const [finishedStock, setFinishedStock] = useState([]);
+  const [stockSearch, setStockSearch] = useState("");
   const [profit, setProfit] = useState(null);
   const [profitLoading, setProfitLoading] = useState(false);
   const [profitFrom, setProfitFrom] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); });
@@ -182,55 +228,94 @@ export default function CentralKitchen() {
 
   const selectTab = (nextTab) => { navigate(`/central-kitchen/${nextTab}`); };
 
-  const renderDashboard = () => (
-    <div className="space-y-4">
+  const renderDashboard = () => {
+    const stockQuery = stockSearch.trim().toLowerCase();
+    const stockRows = finishedStock.filter((s) =>
+      !stockQuery ||
+      (s.material_name || "").toLowerCase().includes(stockQuery) ||
+      (s.material_code || "").toLowerCase().includes(stockQuery)
+    );
+    return (
+    <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Pending Requests" value={dashboard.pending_requests} isDark={isDark} />
-        <Kpi label="Planned Today" value={dashboard.planned_today} isDark={isDark} />
-        <Kpi label="In Production" value={dashboard.in_production} isDark={isDark} />
-        <Kpi label="Completed Today" value={dashboard.completed_today} isDark={isDark} />
-        <Kpi label="Raw Shortages" value={dashboard.raw_material_shortages} isDark={isDark} />
-        <Kpi label="Finished Stock Value" value={`₹${Number(dashboard.finished_stock_value || 0).toFixed(2)}`} isDark={isDark} />
-        <Kpi label="Today's Wastage Value" value={`₹${Number(varianceKPIs.today_wastage_value || 0).toFixed(2)}`} isDark={isDark} />
-        <Kpi label="Average Yield %" value={`${Number(varianceKPIs.average_yield || 0).toFixed(1)}%`} isDark={isDark} />
+        <Kpi index={0} icon={ClipboardList} tone="violet" label="Pending Requests" value={dashboard.pending_requests} hint="Awaiting review" isDark={isDark} />
+        <Kpi index={1} icon={CalendarCheck} tone="blue" label="Planned Today" value={dashboard.planned_today} hint="Scheduled production" isDark={isDark} />
+        <Kpi index={2} icon={Flame} tone="amber" label="In Production" value={dashboard.in_production} hint="Active batches" isDark={isDark} />
+        <Kpi index={3} icon={CheckCircle2} tone="green" label="Completed Today" value={dashboard.completed_today} hint="Finished batches" isDark={isDark} />
+        <Kpi index={4} icon={AlertTriangle} tone="rose" label="Raw Shortages" value={dashboard.raw_material_shortages} hint="Materials below requirement" isDark={isDark} />
+        <Kpi index={5} icon={IndianRupee} tone="indigo" label="Finished Stock Value" value={`₹${Number(dashboard.finished_stock_value || 0).toFixed(2)}`} hint="On-hand goods" isDark={isDark} />
+        <Kpi index={6} icon={Trash2} tone="pink" label="Today's Wastage Value" value={`₹${Number(varianceKPIs.today_wastage_value || 0).toFixed(2)}`} hint="Posted today" isDark={isDark} />
+        <Kpi index={7} icon={TrendingUp} tone="green" label="Average Yield %" value={`${Number(varianceKPIs.average_yield || 0).toFixed(1)}%`} hint="Across batches" isDark={isDark} />
       </div>
 
+      <FadeIn delay={0.08}>
       <SectionCard title="Current Stock" subtitle="Finished bakery items on hand at this Bakehouse" isDark={isDark}>
         {finishedStock.length === 0 ? (
           <EmptyState isDark={isDark} title="No finished stock" subtitle="Post a production batch to see finished goods here." />
         ) : (
-          <TableWrapper isDark={isDark}>
+          <>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+                <Search size={15} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`} />
+                <input
+                  type="text"
+                  placeholder="Search item name or code"
+                  value={stockSearch}
+                  onChange={(e) => setStockSearch(e.target.value)}
+                  className={`h-10 w-full rounded-xl border py-2 pl-9 pr-3 text-[13px] outline-none transition-colors duration-200 ${inputClass}`}
+                />
+              </div>
+            </div>
+          <TableWrapper isDark={isDark} className="rounded-xl">
             <table className="w-full border-collapse text-[13px]">
               <thead className={`sticky top-0 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
-                <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                  <th className="px-3 py-2">Item</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Value</th><th className="px-3 py-2">Status</th>
+                <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wider ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                  <th className="px-4 py-3">Item</th><th className="px-4 py-3 text-right">Qty</th><th className="px-4 py-3 text-right">Value</th><th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {finishedStock.map((s) => (
-                  <tr key={s.raw_material_id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
-                    <td className="px-3 py-2">{s.material_name}</td>
-                    <td className="px-3 py-2 text-right">{Number(s.current_qty || 0).toFixed(2)} {s.unit_name}</td>
-                    <td className="px-3 py-2 text-right">₹{Number(s.total_value || 0).toFixed(2)}</td>
-                    <td className="px-3 py-2">{s.status}</td>
+                {stockRows.map((s) => (
+                  <tr key={s.raw_material_id} className={`border-b transition-colors duration-150 ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/40" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold ${isDark ? "bg-[#7367F0]/15 text-[#A79DFF]" : "bg-[#EFECFF] text-[#7367F0]"}`}>
+                          {String(s.material_name || "?").charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <div className={`font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{s.material_name}</div>
+                          <div className={`text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{s.material_code || `FG-${s.raw_material_id}`}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className={`px-4 py-3 text-right font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{Number(s.current_qty || 0).toFixed(2)} <span className={isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}>{s.unit_name}</span></td>
+                    <td className={`px-4 py-3 text-right ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>₹{Number(s.total_value || 0).toFixed(2)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
                   </tr>
                 ))}
+                {stockRows.length === 0 && (
+                  <tr><td colSpan={4} className={`px-4 py-8 text-center text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>No items match "{stockSearch}"</td></tr>
+                )}
               </tbody>
             </table>
           </TableWrapper>
+          </>
         )}
       </SectionCard>
+      </FadeIn>
 
+      <FadeIn delay={0.14}>
       <SectionCard title="Intend — Requests from Outlets" subtitle="Outlets asking this Bakehouse for bakery items" isDark={isDark}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Kpi label="Pending Requests" value={dashboard.pending_requests || 0} isDark={isDark} />
-          <Kpi label="Approved, Awaiting Dispatch" value={dispatchKPIs.pending_fulfilment || 0} isDark={isDark} />
-          <Kpi label="In Transit to Outlets" value={dispatchKPIs.in_transit || 0} isDark={isDark} />
-          <Kpi label="Completed Today" value={dispatchKPIs.completed_today || 0} isDark={isDark} />
+          <Kpi index={0} icon={Clock} tone="violet" label="Pending Requests" value={dashboard.pending_requests || 0} isDark={isDark} />
+          <Kpi index={1} icon={PackageCheck} tone="blue" label="Approved, Awaiting Dispatch" value={dispatchKPIs.pending_fulfilment || 0} isDark={isDark} />
+          <Kpi index={2} icon={Truck} tone="amber" label="In Transit to Outlets" value={dispatchKPIs.in_transit || 0} isDark={isDark} />
+          <Kpi index={3} icon={CheckCircle2} tone="green" label="Completed Today" value={dispatchKPIs.completed_today || 0} isDark={isDark} />
         </div>
-        <button onClick={() => selectTab("requests")} className="mt-3 text-[13px] font-medium text-[#7367F0] hover:underline">View all requests →</button>
+        <button onClick={() => selectTab("requests")} className="mt-3 text-[13px] font-medium text-[#7367F0] transition-colors duration-200 hover:text-[#6354D8] hover:underline">View all requests →</button>
       </SectionCard>
+      </FadeIn>
 
+      <FadeIn delay={0.2}>
       <SectionCard title="Sales &amp; Profit" subtitle="Value of finished goods dispatched to outlets vs. their production cost" isDark={isDark}>
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs font-medium">
@@ -249,30 +334,30 @@ export default function CentralKitchen() {
         ) : (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Kpi label="Sales Value (Dispatched to Outlets)" value={`₹${Number(profit?.total_dispatch_sale_value || 0).toFixed(2)}`} isDark={isDark} />
-              <Kpi label="Production Cost of Dispatched Goods" value={`₹${Number(profit?.total_dispatch_cost || 0).toFixed(2)}`} isDark={isDark} />
-              <Kpi label="Profit" value={`₹${Number(profit?.gross_profit || 0).toFixed(2)}`} isDark={isDark} />
-              <Kpi label="Unpriced Dispatch Qty" value={Number(profit?.unpriced_dispatch_qty || 0).toFixed(2)} isDark={isDark} />
+              <Kpi index={0} icon={IndianRupee} tone="indigo" label="Sales Value (Dispatched to Outlets)" value={`₹${Number(profit?.total_dispatch_sale_value || 0).toFixed(2)}`} isDark={isDark} />
+              <Kpi index={1} icon={Coins} tone="amber" label="Production Cost of Dispatched Goods" value={`₹${Number(profit?.total_dispatch_cost || 0).toFixed(2)}`} isDark={isDark} />
+              <Kpi index={2} icon={TrendingUp} tone="green" label="Profit" value={`₹${Number(profit?.gross_profit || 0).toFixed(2)}`} isDark={isDark} />
+              <Kpi index={3} icon={AlertTriangle} tone="rose" label="Unpriced Dispatch Qty" value={Number(profit?.unpriced_dispatch_qty || 0).toFixed(2)} isDark={isDark} />
             </div>
             {profit?.unpriced_dispatch_qty > 0 && (
               <p className={`mt-2 text-[12px] ${isDark ? "text-[#FF9F43]" : "text-[#B87E1E]"}`}>Some dispatched items have no Warehouse Transfer Price set on their Raw Material master, so they're excluded from the sales value above. Set a Transfer Price on those finished-good items in Masters → Raw Materials.</p>
             )}
             {Array.isArray(profit?.by_material) && profit.by_material.length > 0 && (
-              <TableWrapper isDark={isDark} className="mt-4">
+              <TableWrapper isDark={isDark} className="mt-4 rounded-xl">
                 <table className="w-full border-collapse text-[13px]">
                   <thead className={`sticky top-0 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
-                    <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                      <th className="px-3 py-2">Item</th><th className="px-3 py-2 text-right">Qty Dispatched</th><th className="px-3 py-2 text-right">Cost</th><th className="px-3 py-2 text-right">Sale Value</th><th className="px-3 py-2 text-right">Profit</th>
+                    <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wider ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                      <th className="px-4 py-3">Item</th><th className="px-4 py-3 text-right">Qty Dispatched</th><th className="px-4 py-3 text-right">Cost</th><th className="px-4 py-3 text-right">Sale Value</th><th className="px-4 py-3 text-right">Profit</th>
                     </tr>
                   </thead>
                   <tbody>
                     {profit.by_material.map((m, idx) => (
-                      <tr key={idx} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
-                        <td className="px-3 py-2 font-medium">{m.material_name}</td>
-                        <td className="px-3 py-2 text-right">{Number(m.qty || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right">₹{Number(m.cost_value || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right">₹{Number(m.sale_value || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right">₹{Number(m.profit || 0).toFixed(2)}</td>
+                      <tr key={idx} className={`border-b transition-colors duration-150 ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/40" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
+                        <td className="px-4 py-3 font-medium">{m.material_name}</td>
+                        <td className="px-4 py-3 text-right">{Number(m.qty || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right">₹{Number(m.cost_value || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right">₹{Number(m.sale_value || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right">₹{Number(m.profit || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -282,28 +367,30 @@ export default function CentralKitchen() {
           </>
         )}
       </SectionCard>
+      </FadeIn>
 
       {permissions.can_view && (
+        <FadeIn delay={0.26}>
         <SectionCard title="Ledger" subtitle="Stock movement in and out of this Bakehouse for the selected date range" isDark={isDark}>
           {ledger.length === 0 ? (
             <EmptyState isDark={isDark} title="No stock movement" subtitle="No stock ledger entries in this date range." />
           ) : (
-            <TableWrapper isDark={isDark}>
+            <TableWrapper isDark={isDark} className="rounded-xl">
               <table className="w-full border-collapse text-[13px]">
                 <thead className={`sticky top-0 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
-                  <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                    <th className="px-3 py-2">Date</th><th className="px-3 py-2">Item</th><th className="px-3 py-2">Type</th><th className="px-3 py-2 text-right">In</th><th className="px-3 py-2 text-right">Out</th><th className="px-3 py-2 text-right">Value</th>
+                  <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wider ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                    <th className="px-4 py-3">Date</th><th className="px-4 py-3">Item</th><th className="px-4 py-3">Type</th><th className="px-4 py-3 text-right">In</th><th className="px-4 py-3 text-right">Out</th><th className="px-4 py-3 text-right">Value</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ledger.slice(0, 50).map((l, idx) => (
-                    <tr key={idx} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
-                      <td className="px-3 py-2">{l.transaction_date ? String(l.transaction_date).slice(0, 10) : "-"}</td>
-                      <td className="px-3 py-2">{l.material_name}</td>
-                      <td className="px-3 py-2">{l.transaction_type}</td>
-                      <td className="px-3 py-2 text-right">{Number(l.qty_in || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right">{Number(l.qty_out || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right">₹{Number((l.value_in || 0) - (l.value_out || 0)).toFixed(2)}</td>
+                    <tr key={idx} className={`border-b transition-colors duration-150 ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/40" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
+                      <td className="px-4 py-3">{l.transaction_date ? String(l.transaction_date).slice(0, 10) : "-"}</td>
+                      <td className="px-4 py-3">{l.material_name}</td>
+                      <td className="px-4 py-3">{l.transaction_type}</td>
+                      <td className="px-4 py-3 text-right">{Number(l.qty_in || 0).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right">{Number(l.qty_out || 0).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right">₹{Number((l.value_in || 0) - (l.value_out || 0)).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -311,9 +398,11 @@ export default function CentralKitchen() {
             </TableWrapper>
           )}
         </SectionCard>
+        </FadeIn>
       )}
     </div>
-  );
+    );
+  };
 
   const handleDispatchExport = async () => {
     try {
@@ -717,9 +806,9 @@ export default function CentralKitchen() {
           subtitle="Manage outlet fulfilment, dispatch, transit and receipt of Bakehouse finished goods."
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={handleDispatchExport} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}><Download size={16} /> Export</button>
+              <button onClick={handleDispatchExport} className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3.5 text-[14px] font-medium shadow-sm transition-all duration-200 ${isDark ? "border-[#3B405A] bg-[#2F3349] hover:bg-[#3B405A]/60" : "border-[#EBE9F1] bg-white hover:border-[#DBDADE] hover:bg-[#F8F7FA]"}`}><Download size={16} /> Export</button>
               {canCreateDispatch && (
-                <button onClick={openNewDispatch} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[14px] font-medium text-white hover:bg-[#6354D8]"><Plus size={16} /> New Dispatch</button>
+                <button onClick={openNewDispatch} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#7367F0] px-3.5 text-[14px] font-medium text-white shadow-sm transition-all duration-200 hover:bg-[#6354D8] hover:shadow-md"><Plus size={16} /> New Dispatch</button>
               )}
             </div>
           }
@@ -727,11 +816,11 @@ export default function CentralKitchen() {
         />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <Kpi label="Ready for Dispatch" value={dispatchKPIs.ready_for_dispatch || 0} isDark={isDark} />
-          <Kpi label="In Transit" value={dispatchKPIs.in_transit || 0} isDark={isDark} />
-          <Kpi label="Partially Received" value={dispatchKPIs.partially_received || 0} isDark={isDark} />
-          <Kpi label="Completed Today" value={dispatchKPIs.completed_today || 0} isDark={isDark} />
-          <Kpi label="Pending Fulfilment" value={dispatchKPIs.pending_fulfilment || 0} isDark={isDark} />
+          <Kpi index={0} icon={Package} tone="blue" label="Ready for Dispatch" value={dispatchKPIs.ready_for_dispatch || 0} isDark={isDark} />
+          <Kpi index={1} icon={Truck} tone="amber" label="In Transit" value={dispatchKPIs.in_transit || 0} isDark={isDark} />
+          <Kpi index={2} icon={AlertTriangle} tone="rose" label="Partially Received" value={dispatchKPIs.partially_received || 0} isDark={isDark} />
+          <Kpi index={3} icon={CheckCircle2} tone="green" label="Completed Today" value={dispatchKPIs.completed_today || 0} isDark={isDark} />
+          <Kpi index={4} icon={Clock} tone="violet" label="Pending Fulfilment" value={dispatchKPIs.pending_fulfilment || 0} isDark={isDark} />
         </div>
 
         <SectionCard isDark={isDark}>
@@ -753,13 +842,13 @@ export default function CentralKitchen() {
             </select>
             <input type="date" value={dispatchFilters.fromDate} onChange={(e) => setDispatchFilters((f) => ({ ...f, fromDate: e.target.value }))} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
             <input type="date" value={dispatchFilters.toDate} onChange={(e) => setDispatchFilters((f) => ({ ...f, toDate: e.target.value }))} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`} />
-            <button onClick={() => setDispatchFilters({ search: "", status: "", outlet: "", fromDate: "", toDate: "" })} className={`inline-flex h-10 items-center gap-1 rounded-lg border px-3 text-[14px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>Reset</button>
+            <button onClick={() => setDispatchFilters({ search: "", status: "", outlet: "", fromDate: "", toDate: "" })} className={`inline-flex h-10 items-center gap-1 rounded-xl border px-3 text-[14px] font-medium transition-all duration-200 ${isDark ? "border-[#3B405A] bg-[#2F3349] hover:bg-[#3B405A]/60" : "border-[#EBE9F1] bg-white hover:border-[#DBDADE] hover:bg-[#F8F7FA]"}`}>Reset</button>
           </div>
 
           {list.length === 0 ? (
             <EmptyState isDark={isDark} title="No Production Dispatches" subtitle="Finished goods dispatches to outlets will appear here." />
           ) : (
-            <TableWrapper isDark={isDark}>
+            <TableWrapper isDark={isDark} className="rounded-xl">
               <table className="w-full border-collapse text-[13px]">
                 <thead className={`sticky top-0 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
                   <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
@@ -783,7 +872,7 @@ export default function CentralKitchen() {
                     const totalReceived = d.items ? d.items.reduce((s, it) => s + Number(it.received_qty || 0), 0) : 0;
                     const totalValue = d.items ? d.items.reduce((s, it) => s + (Number(it.dispatched_qty || 0) * Number(it.unit_cost || 0)), 0) : 0;
                     return (
-                      <tr key={d.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <tr key={d.id} className={`border-b transition-colors duration-150 ${isDark ? "border-[#3B405A] hover:bg-[#3B405A]/40" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
                         <td className="px-3 py-3 font-medium">{d.transfer_no}</td>
                         <td className="px-3 py-3">{d.dispatch_date}</td>
                         <td className="px-3 py-3">{d.to_location || d.outlet_name}</td>
@@ -827,17 +916,22 @@ export default function CentralKitchen() {
   }
 
   return (
-    <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden p-1">
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="w-full min-w-0 max-w-full space-y-5 overflow-x-hidden p-1"
+    >
       <PageHeader
         title="Central Kitchen & Bakehouse"
         subtitle="Production planning, batch tracking and finished goods control"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <select value={kitchenId} onChange={(e) => { const v = e.target.value; setKitchenId(v); if (typeof window !== "undefined" && v) localStorage.setItem(CENTRAL_KITCHEN_LOCATION_KEY, v); }} className={`h-10 rounded-lg border px-3 text-[14px] outline-none ${inputClass}`}>
+            <select value={kitchenId} onChange={(e) => { const v = e.target.value; setKitchenId(v); if (typeof window !== "undefined" && v) localStorage.setItem(CENTRAL_KITCHEN_LOCATION_KEY, v); }} className={`h-10 rounded-xl border px-3 text-[14px] font-medium shadow-sm outline-none transition-colors duration-200 ${inputClass}`}>
               <option value="">Select Bakehouse</option>
               {kitchens.map((k) => <option key={k.id} value={k.id}>{k.location_name}</option>)}
             </select>
-            <button onClick={fetchAll} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}><RefreshCw size={16} /> Refresh</button>
+            <button onClick={fetchAll} className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3.5 text-[14px] font-medium shadow-sm transition-all duration-200 ${isDark ? "border-[#3B405A] bg-[#2F3349] hover:bg-[#3B405A]/60" : "border-[#EBE9F1] bg-white hover:border-[#DBDADE] hover:bg-[#F8F7FA]"}`}><RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh</button>
           </div>
         }
         isDark={isDark}
@@ -847,24 +941,15 @@ export default function CentralKitchen() {
 
       {kitchenId && (
         <>
-          <div className={`sticky top-0 z-20 -mx-1 px-1 pb-1 pt-1 ${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
-            <nav className={`inline-flex flex-wrap gap-1 rounded-xl border p-1 shadow-sm ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-              {visibleTabs.map((t) => {
-                const Icon = t.icon;
-                const active = activeTab === t.key;
-                return (
-                    <button key={t.key} onClick={() => selectTab(t.key)} className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-medium transition ${active ? "bg-[#7367F0] text-white" : isDark ? "text-[#A5A8B6] hover:bg-[#3B405A]" : "text-[#6F6B7D] hover:bg-[#F3F2F7]"}`}>
-                    <Icon size={16} /> {t.label}
-                </button>
-                  );
-              })}
-            </nav>
-          </div>
-
           {loading ? (
             <div className="flex h-48 items-center justify-center"><LoadingSpinner size={28} isDark={isDark} /></div>
           ) : (
-            <>
+            <motion.div
+              key={activeTab}
+              initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            >
               {activeTab === "dashboard" && renderDashboard()}
               {activeTab === "requests" && (
                 <RequestsTab requests={requests} kitchenId={kitchenId} outlets={outlets} materials={materials} units={units} isDark={isDark}
@@ -884,10 +969,10 @@ export default function CentralKitchen() {
               )}
               {activeTab === "variance" && <VarianceTab variance={variance} kitchenId={kitchenId} isDark={isDark} />}
               {activeTab === "dispatches" && renderDispatches()}
-            </>
+            </motion.div>
           )}
         </>
       )}
-    </div>
+    </motion.div>
   );
 }
