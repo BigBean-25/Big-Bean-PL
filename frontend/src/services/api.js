@@ -359,6 +359,14 @@ export const masterAPI = {
 
   getUnits: (params) => api.get("/masters/units", { params }),
   getExpenseHeads: (params) => api.get("/masters/expense-heads", { params }),
+  getExpenseSubcategories: (params) =>
+    api.get("/masters/expense-subcategories", { params }),
+  createExpenseSubcategory: (data) =>
+    api.post("/masters/expense-subcategories", data),
+  updateExpenseSubcategory: (id, data) =>
+    api.put(`/masters/expense-subcategories/${id}`, data),
+  deleteExpenseSubcategory: (id) =>
+    api.delete(`/masters/expense-subcategories/${id}`),
   getPaymentModes: (params) => api.get("/masters/payment-modes", { params }),
   getOnlinePlatforms: (params) => api.get("/masters/online-platforms", { params }),
   getDineInPortals: (params) => api.get("/masters/dine-in-portals", { params }),

@@ -11,13 +11,23 @@ const fmtINR = (n = 0) => "₹" + Number(n || 0).toLocaleString("en-IN", { minim
 
 const ExpenseReport = () => {
   const [outlets, setOutlets] = useState([]);
+  const [expenseHeads, setExpenseHeads] = useState([]);
+  const [expenseSubcategories, setExpenseSubcategories] = useState([]);
   const [reportData, setReportData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     outlet_id: '',
+    expense_head_id: '',
+    expense_subcategory_id: '',
     from_date: format(new Date(), 'yyyy-MM-dd'),
     to_date: format(new Date(), 'yyyy-MM-dd')
   });
+
+  // Req #26: Marketing identified by normalized head name, never by id. The
+  // subcategory filter only appears when Marketing is the selected head.
+  const isMarketingSelected = String(
+    expenseHeads.find((h) => String(h.id) === String(filters.expense_head_id))?.expense_name || ''
+  ).trim().toLowerCase() === 'marketing';
 
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
@@ -33,8 +43,14 @@ const ExpenseReport = () => {
 
   const fetchOutlets = async () => {
     try {
-      const r = await masterAPI.getOutlets();
-      setOutlets(r.data?.data || r.data || []);
+      const [outletsRes, headsRes, subsRes] = await Promise.all([
+        masterAPI.getOutlets(),
+        masterAPI.getExpenseHeads({ is_active: 1 }),
+        masterAPI.getExpenseSubcategories(),
+      ]);
+      setOutlets(outletsRes.data?.data || outletsRes.data || []);
+      setExpenseHeads(headsRes.data?.data || headsRes.data || []);
+      setExpenseSubcategories(subsRes.data?.data || subsRes.data || []);
     } catch { /* silent */ }
   };
 
@@ -56,6 +72,7 @@ const ExpenseReport = () => {
   const handleExport = async () => {
     const rows = reportData.map((item) => [
       item.expense_name,
+      item.subcategory_name || '-',
       item.count,
       fmtINR(item.total_amount || 0),
       totalExpenses > 0 ? `${((parseFloat(item.total_amount || 0) / totalExpenses) * 100).toFixed(1)}%` : "0%",
@@ -70,7 +87,7 @@ const ExpenseReport = () => {
       title: "Expense Report",
       outletName,
       dateRangeLabel,
-      columns: ["Expense Head", "No. of Entries", "Total Amount", "% of Total"],
+      columns: ["Expense Head", "Subcategory", "No. of Entries", "Total Amount", "% of Total"],
       rows,
       summaryLines: [`Total Expenses: ${fmtINR(totalExpenses)}`],
       fileName: `expense-report-${filters.from_date}-to-${filters.to_date}.pdf`,
@@ -99,7 +116,7 @@ const ExpenseReport = () => {
           <span className={`text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Filters</span>
         </div>
         <div className="p-4 sm:p-5">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className={`mb-1.5 block text-[13px] font-medium ${labelCls}`}>Outlet *</label>
               <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })}
@@ -108,6 +125,26 @@ const ExpenseReport = () => {
                 {outlets.map(o => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
               </select>
             </div>
+            <div>
+              <label className={`mb-1.5 block text-[13px] font-medium ${labelCls}`}>Expense Head</label>
+              <select value={filters.expense_head_id} onChange={(e) => setFilters({ ...filters, expense_head_id: e.target.value, expense_subcategory_id: '' })}
+                className={`h-[42px] w-full rounded-md border px-3 text-[14px] outline-none transition focus:border-[#7367F0] focus:shadow-[0_0_0_3px_rgba(115,103,240,0.16)] ${inputCls}`}>
+                <option value="">All Heads</option>
+                {expenseHeads.map(h => <option key={h.id} value={h.id}>{h.expense_name}</option>)}
+              </select>
+            </div>
+            {isMarketingSelected && (
+              <div>
+                <label className={`mb-1.5 block text-[13px] font-medium ${labelCls}`}>Marketing Subcategory</label>
+                <select value={filters.expense_subcategory_id} onChange={(e) => setFilters({ ...filters, expense_subcategory_id: e.target.value })}
+                  className={`h-[42px] w-full rounded-md border px-3 text-[14px] outline-none transition focus:border-[#7367F0] focus:shadow-[0_0_0_3px_rgba(115,103,240,0.16)] ${inputCls}`}>
+                  <option value="">All Subcategories</option>
+                  {expenseSubcategories
+                    .filter((s) => String(s.expense_head_id) === String(filters.expense_head_id) && Number(s.is_active) === 1)
+                    .map((s) => <option key={s.id} value={s.id}>{s.subcategory_name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className={`mb-1.5 block text-[13px] font-medium ${labelCls}`}>From Date *</label>
               <input type="date" value={filters.from_date} onChange={(e) => setFilters({ ...filters, from_date: e.target.value })}
@@ -164,7 +201,7 @@ const ExpenseReport = () => {
             <table className="min-w-full">
               <thead>
                 <tr>
-                  {["Expense Head", "No. of Entries", "Total Amount", "% of Total"].map((h) => (
+                  {["Expense Head", "Subcategory", "No. of Entries", "Total Amount", "% of Total"].map((h) => (
                     <th key={h} className={`whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider ${thCls}`}>{h}</th>
                   ))}
                 </tr>
@@ -173,6 +210,7 @@ const ExpenseReport = () => {
                 {reportData.map((item, idx) => (
                   <tr key={idx} className={`transition ${trHover}`}>
                     <td className={`px-4 py-3 text-[14px] font-medium ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{item.expense_name}</td>
+                    <td className={`px-4 py-3 text-[14px] ${mutedCls}`}>{item.subcategory_name || "-"}</td>
                     <td className={`px-4 py-3 text-[14px] ${mutedCls}`}>{item.count}</td>
                     <td className={`px-4 py-3 text-[14px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{fmtINR(item.total_amount)}</td>
                     <td className="px-4 py-3 text-[14px]">
@@ -183,7 +221,7 @@ const ExpenseReport = () => {
                   </tr>
                 ))}
                 <tr className={`${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
-                  <td colSpan="2" className={`px-4 py-3 text-right text-[14px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Total Expenses</td>
+                  <td colSpan="3" className={`px-4 py-3 text-right text-[14px] font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>Total Expenses</td>
                   <td colSpan="2" className="px-4 py-3 text-[14px] font-bold text-[#EA5455]">{fmtINR(totalExpenses)}</td>
                 </tr>
               </tbody>

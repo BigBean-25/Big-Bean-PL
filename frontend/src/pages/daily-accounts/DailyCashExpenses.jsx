@@ -112,6 +112,7 @@ const statusStyle = (status) => {
 
 const emptyItem = () => ({
   expense_head_id: "",
+  expense_subcategory_id: "",
   amount: "",
   payment_mode_id: "",
   paid_to: "",
@@ -132,6 +133,7 @@ const DailyCashExpenses = () => {
   const [expenses, setExpenses] = useState([]);
   const [outlets, setOutlets] = useState([]);
   const [expenseHeads, setExpenseHeads] = useState([]);
+  const [expenseSubcategories, setExpenseSubcategories] = useState([]);
   const [paymentModes, setPaymentModes] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
   const [units, setUnits] = useState([]);
@@ -165,6 +167,23 @@ const DailyCashExpenses = () => {
   );
 
   const isHeadRawMaterial = (headId) => Boolean(expenseHeads.find((h) => Number(h.id) === Number(headId))?.is_raw_material_category);
+
+  // Req #26: Marketing is identified by normalized head name, never by id.
+  const isHeadMarketing = (headId) =>
+    String(expenseHeads.find((h) => Number(h.id) === Number(headId))?.expense_name || "").trim().toLowerCase() === "marketing";
+
+  // Active subcategories under the given head, plus the currently-selected
+  // (possibly inactive) one so an edit can still display its stored name.
+  const subcategoryOptions = (headId, currentId) => {
+    const opts = expenseSubcategories.filter(
+      (s) => Number(s.expense_head_id) === Number(headId) && Number(s.is_active) === 1
+    );
+    if (currentId && !opts.some((s) => Number(s.id) === Number(currentId))) {
+      const current = expenseSubcategories.find((s) => Number(s.id) === Number(currentId));
+      if (current) opts.push({ ...current, subcategory_name: `${current.subcategory_name} (Inactive)` });
+    }
+    return opts;
+  };
 
   const getRawMaterialUnitName = (rawMaterialId) => {
     const material = rawMaterials.find((m) => Number(m.id) === Number(rawMaterialId));
@@ -223,12 +242,15 @@ const DailyCashExpenses = () => {
 
   const fetchMasters = async () => {
     try {
-      const [outletsRes, headsRes, modesRes, materialsRes, unitsRes] = await Promise.all([
+      const [outletsRes, headsRes, modesRes, materialsRes, unitsRes, subcategoriesRes] = await Promise.all([
         masterAPI.getOutlets(),
         masterAPI.getExpenseHeads({ is_active: 1 }),
         masterAPI.getPaymentModes({ is_active: 1 }),
         masterAPI.getRawMaterials({ limit: 1000 }),
         masterAPI.getUnits(),
+        // All subcategories (incl. inactive) so historical expenses can still
+        // display their stored subcategory name.
+        masterAPI.getExpenseSubcategories(),
       ]);
       const o = Array.isArray(outletsRes?.data?.data) ? outletsRes.data.data : (outletsRes?.data || []);
       setOutlets(o);
@@ -243,6 +265,7 @@ const DailyCashExpenses = () => {
       }
 
       setExpenseHeads(Array.isArray(headsRes?.data?.data) ? headsRes.data.data : (headsRes?.data || []));
+      setExpenseSubcategories(Array.isArray(subcategoriesRes?.data?.data) ? subcategoriesRes.data.data : (subcategoriesRes?.data || []));
       setPaymentModes(Array.isArray(modesRes?.data?.data) ? modesRes.data.data : (modesRes?.data || []));
       setRawMaterials(Array.isArray(materialsRes?.data?.data) ? materialsRes.data.data : (materialsRes?.data || []));
       setUnits(Array.isArray(unitsRes?.data?.data) ? unitsRes.data.data : (unitsRes?.data || []));
@@ -271,6 +294,8 @@ const DailyCashExpenses = () => {
         // material/qty selections around to be submitted with an unrelated category.
         raw_material_id: nextHeadIsRawMaterial ? item.raw_material_id : "",
         material_qty: nextHeadIsRawMaterial ? item.material_qty : "",
+        // Same for a stale Marketing subcategory when the head changes.
+        expense_subcategory_id: "",
       } : item)),
     }));
   };
@@ -313,6 +338,9 @@ const DailyCashExpenses = () => {
         if (!item.raw_material_id) { toast.error(`${label}Please select a raw material`); return false; }
         if (!item.material_qty || num(item.material_qty) <= 0) { toast.error(`${label}Quantity must be greater than 0`); return false; }
       }
+      if (isHeadMarketing(item.expense_head_id) && !item.expense_subcategory_id) {
+        toast.error(`${label}Please select a Marketing subcategory`); return false;
+      }
     }
     return true;
   };
@@ -328,6 +356,7 @@ const DailyCashExpenses = () => {
         submitData.append("outlet_id", formData.outlet_id);
         submitData.append("date", formData.date);
         submitData.append("expense_head_id", item.expense_head_id);
+        submitData.append("expense_subcategory_id", item.expense_subcategory_id || "");
         submitData.append("amount", num(item.amount));
         submitData.append("payment_mode_id", item.payment_mode_id);
         submitData.append("paid_to", item.paid_to || "");
@@ -345,6 +374,7 @@ const DailyCashExpenses = () => {
         submitData.append("outlet_id", formData.outlet_id);
         submitData.append("date", formData.date);
         submitData.append("expense_head_id", item.expense_head_id);
+        submitData.append("expense_subcategory_id", item.expense_subcategory_id || "");
         submitData.append("amount", num(item.amount));
         submitData.append("payment_mode_id", item.payment_mode_id);
         submitData.append("paid_to", item.paid_to || "");
@@ -362,6 +392,7 @@ const DailyCashExpenses = () => {
           date: formData.date,
           items: formData.items.map((item) => ({
             expense_head_id: item.expense_head_id,
+            expense_subcategory_id: isHeadMarketing(item.expense_head_id) ? item.expense_subcategory_id : null,
             amount: num(item.amount),
             payment_mode_id: item.payment_mode_id,
             paid_to: item.paid_to || "",
@@ -391,6 +422,7 @@ const DailyCashExpenses = () => {
       proof_file: null,
       items: [{
         expense_head_id: String(expense.expense_head_id),
+        expense_subcategory_id: expense.expense_subcategory_id ? String(expense.expense_subcategory_id) : "",
         amount: String(expense.amount),
         payment_mode_id: String(expense.payment_mode_id),
         paid_to: expense.paid_to || "",
@@ -468,6 +500,7 @@ const DailyCashExpenses = () => {
       { label: "Date", type: "date", width: 14 },
       { label: "Outlet", type: "text", width: 25 },
       { label: "Expense Category", type: "text", width: 22 },
+      { label: "Subcategory", type: "text", width: 20 },
       { label: "Paid To", type: "text", width: 22 },
       { label: "Amount", type: "currency", width: 14 },
       { label: "Payment Mode", type: "text", width: 16 },
@@ -478,6 +511,7 @@ const DailyCashExpenses = () => {
       expense.date,
       expense.outlet_name || "",
       expense.expense_name || "",
+      expense.subcategory_name || "",
       expense.paid_to || "",
       expense.amount || 0,
       expense.mode_name || "",
@@ -499,7 +533,7 @@ const DailyCashExpenses = () => {
   const filteredExpenses = useMemo(() => {
     const search = searchTerm.toLowerCase();
     return expenses.filter((expense) => {
-      const text = `${expense.outlet_name || ""} ${expense.expense_name || ""} ${expense.paid_to || ""} ${expense.mode_name || ""} ${expense.description || ""} ${expense.status || ""}`.toLowerCase();
+      const text = `${expense.outlet_name || ""} ${expense.expense_name || ""} ${expense.subcategory_name || ""} ${expense.paid_to || ""} ${expense.mode_name || ""} ${expense.description || ""} ${expense.status || ""}`.toLowerCase();
       const searchMatch = text.includes(search);
       const outletMatch = selectedOutletId === "all" || String(expense.outlet_id) === String(selectedOutletId);
       const statusMatch = statusFilter === "all" || expense.status === statusFilter;
@@ -714,6 +748,17 @@ const DailyCashExpenses = () => {
                           ))}
                         </select>
                       </div>
+                      {isHeadMarketing(item.expense_head_id) && (
+                        <div>
+                          <label className={`mb-2 block text-[13px] font-medium ${mainTextClass}`}>Marketing Subcategory *</label>
+                          <select value={item.expense_subcategory_id} onChange={(e) => updateItemField(index, "expense_subcategory_id", e.target.value)} className={`h-11 w-full rounded-md border px-3 text-[14px] outline-none ${inputClass}`} required>
+                            <option value="">Select Marketing Subcategory</option>
+                            {subcategoryOptions(item.expense_head_id, item.expense_subcategory_id).map((s) => (
+                              <option key={s.id} value={s.id}>{s.subcategory_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                       {itemIsRawMaterial && (
                         <>
                           <div>
@@ -901,7 +946,7 @@ const DailyCashExpenses = () => {
                   <tr key={expense.id} className={`transition hover:bg-[#F8F7FA] ${isDark ? "border-b border-[#3B405A]" : "border-b border-[#EBE9F1]"}`}>
                     <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{formatDate(expense.date)}</td>
                     <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.outlet_name || "-"}</td>
-                    <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.expense_name || "-"}</td>
+                    <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.expense_name || "-"}{expense.subcategory_name ? ` — ${expense.subcategory_name}` : ""}</td>
                     <td className={`px-4 py-3 text-[13px] ${mainTextClass}`}>{expense.paid_to || "-"}</td>
                     <td className="px-4 py-3 text-[13px] text-[#6F6B7D]">
                       <span className="inline-flex items-center gap-1 rounded-full bg-[#F8F7FA] px-2 py-1 text-[12px] dark:bg-[#3B405A]">

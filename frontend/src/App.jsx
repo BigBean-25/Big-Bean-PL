@@ -32,6 +32,7 @@ import WastageByCategory from "./pages/outlet-dashboard/WastageByCategory";
 import OutletWastage from "./pages/outlet-dashboard/OutletWastage";
 import Suppliers from "./pages/masters/Suppliers";
 import OutletVendors from "./pages/masters/OutletVendors";
+import MarketingSubcategories from "./pages/masters/MarketingSubcategories";
 import VendorPurchases from "./pages/daily-accounts/VendorPurchases";
 import VendorLedgerPayments from "./pages/daily-accounts/VendorLedgerPayments";
 import RawMaterials from "./pages/masters/RawMaterials";
@@ -277,6 +278,7 @@ function App() {
             <Route path="categories" element={<Categories />} />
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="outlet-vendors" element={<OutletVendors />} />
+            <Route path="marketing-subcategories" element={<MarketingSubcategories />} />
             <Route path="raw-materials" element={<RawMaterials />} />
             <Route path="menu-items" element={<MenuItems />} />
             <Route path="locations" element={<LocationManagement />} />

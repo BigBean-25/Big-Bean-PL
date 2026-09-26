@@ -15,12 +15,14 @@ const ITEMS = [
   { title: "Menu Items", path: "/masters/menu-items", group: "catalog" },
   { title: "Suppliers", path: "/masters/suppliers", group: "vendors" },
   { title: "Third Party Vendors", path: "/masters/outlet-vendors", group: "vendors" },
+  { title: "Marketing Subcategories", path: "/masters/marketing-subcategories", group: "accounts" },
 ];
 
 const GROUPS = [
   { key: "organization", label: "Organization", icon: Building2, iconColor: "#7367F0", items: ITEMS.filter((i) => i.group === "organization") },
   { key: "catalog", label: "Catalog", icon: Package, iconColor: "#28C76F", items: ITEMS.filter((i) => i.group === "catalog") },
   { key: "vendors", label: "Vendors", icon: Truck, iconColor: "#FF9F43", items: ITEMS.filter((i) => i.group === "vendors") },
+  { key: "accounts", label: "Accounts", icon: FileText, iconColor: "#00CFE8", items: ITEMS.filter((i) => i.group === "accounts") },
 ];
 
 const ITEM_ICONS = {
@@ -31,6 +33,7 @@ const ITEM_ICONS = {
   "/masters/menu-items": Coffee,
   "/masters/suppliers": Truck,
   "/masters/outlet-vendors": Store,
+  "/masters/marketing-subcategories": FileText,
 };
 
 const ITEM_MODULES = {
@@ -41,6 +44,7 @@ const ITEM_MODULES = {
   "/masters/raw-materials": "raw_materials",
   "/masters/menu-items": "menu_items",
   "/masters/locations": "locations",
+  "/masters/marketing-subcategories": "masters",
 };
 
 const MastersHub = () => {
