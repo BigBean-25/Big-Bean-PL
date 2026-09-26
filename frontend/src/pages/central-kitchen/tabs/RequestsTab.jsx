@@ -24,6 +24,11 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
   const [showCreate, setShowCreate] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustItems, setAdjustItems] = useState({});
+  const [approvalTarget, setApprovalTarget] = useState(null);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalSaving, setApprovalSaving] = useState(false);
   const [form, setForm] = useState({
     request_no: "",
     request_date: new Date().toISOString().split("T")[0],
@@ -93,8 +98,81 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
   };
 
   const openView = async (r) => {
+    setAdjusting(false);
+    setAdjustItems({});
     try { const res = await productionAPI.getProductionRequest(r.id); setViewing(res?.data?.data || r); }
     catch { setViewing(r); }
+  };
+
+  // Req #21: Bakehouse-accepted qty lives in planned_qty (schema default 0 =
+  // unset), requested_qty is the immutable original. Backend enforces
+  // kitchen-side-only edit while Submitted/Reviewed; mirror it for the UI.
+  const bakeQty = (it) => (Number(it.planned_qty) > 0 ? it.planned_qty : it.requested_qty);
+  const canAdjustItems = (r) => canEdit && !isOwn(r) && ["Submitted", "Reviewed"].includes(r?.status);
+
+  const startAdjust = () => {
+    const init = {};
+    (viewing?.items || []).forEach((it) => {
+      init[it.id] = { qty: String(bakeQty(it) ?? ""), reason: it.reason_for_adjustment || "" };
+    });
+    setAdjustItems(init);
+    setAdjusting(true);
+  };
+
+  const saveAdjust = async () => {
+    if (saving) return;
+    const items = Object.entries(adjustItems).map(([id, v]) => ({ id: Number(id), planned_qty: Number(v.qty), reason_for_adjustment: String(v.reason || "").trim() }));
+    for (const it of items) {
+      if (!Number.isFinite(it.planned_qty) || it.planned_qty <= 0) { toast.error("Every Bakehouse quantity must be a positive number"); return; }
+      const src = (viewing?.items || []).find((x) => Number(x.id) === it.id);
+      if (src && it.planned_qty !== Number(src.requested_qty) && it.reason_for_adjustment === "") {
+        toast.error("Reason for adjustment is required when changing the requested quantity"); return;
+      }
+    }
+    setSaving(true);
+    try {
+      const res = await productionAPI.updateRequestItems(viewing.id, { items });
+      toast.success("Bakehouse quantities saved");
+      setAdjusting(false);
+      if (res?.data?.data) setViewing(res.data.data);
+      onRefresh?.();
+    } catch (e) { toast.error(e?.response?.data?.message || "Failed to save quantities"); }
+    finally { setSaving(false); }
+  };
+
+  // Req #22: approval is a decision on the quantities ALREADY saved by the
+  // Req #21 adjustment step, so the confirmation must preview fresh item-level
+  // data from the server - the list row doesn't carry planned_qty/reason.
+  const openApprove = async (r) => {
+    setApprovalLoading(true);
+    try {
+      const res = await productionAPI.getProductionRequest(r.id);
+      const data = res?.data?.data;
+      if (!data) throw new Error("Request details unavailable");
+      setApprovalTarget(data);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e.message || "Failed to load request details");
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
+  const confirmApprove = async () => {
+    if (approvalSaving || !approvalTarget) return;
+    setApprovalSaving(true);
+    try {
+      // No item overrides are sent - approval confirms the planned_qty values
+      // the Bakehouse already saved (or the outlet's requested_qty where unset).
+      await productionAPI.updateRequestStatus(approvalTarget.id, { status: "Approved" });
+      toast.success(`Request ${approvalTarget.request_no} approved`);
+      if (viewing?.id === approvalTarget.id) setViewing(null);
+      setApprovalTarget(null);
+      onRefresh?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Approval failed");
+    } finally {
+      setApprovalSaving(false);
+    }
   };
 
   return (
@@ -135,7 +213,7 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
                         {(r.status === "Submitted" || r.status === "Reviewed") && !isOwn(r) && (
                           <>
                             {canApprove && (
-                              <button onClick={() => transition(r.id, "Approved")} className="rounded p-1.5 text-emerald-500" title="Approve"><CheckCircle size={16} /></button>
+                              <button onClick={() => openApprove(r)} disabled={approvalLoading} className="rounded p-1.5 text-emerald-500 disabled:opacity-40" title="Approve"><CheckCircle size={16} /></button>
                             )}
                             {canReject && (
                               <button onClick={() => transition(r.id, "Rejected")} className="rounded p-1.5 text-rose-500" title="Reject"><XCircle size={16} /></button>
@@ -225,7 +303,7 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
               <table className="w-full border-collapse text-[13px]">
                 <thead>
                   <tr className={`border-b text-left ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
-                    <th className="px-2 py-2">Material</th><th className="px-2 py-2">Qty</th><th className="px-2 py-2">Unit</th>
+                    <th className="px-2 py-2">Material</th><th className="px-2 py-2">Requested Qty</th><th className="px-2 py-2">Bakehouse Qty</th><th className="px-2 py-2">Unit</th><th className="px-2 py-2">Adjustment Reason</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -233,11 +311,80 @@ export default function RequestsTab({ requests, kitchenId, outlets, materials, u
                     <tr key={it.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                       <td className="px-2 py-2">{it.material_name}</td>
                       <td className="px-2 py-2">{it.requested_qty}</td>
+                      <td className="px-2 py-2">
+                        {adjusting ? (
+                          <input type="number" min="0.0001" step="any" value={adjustItems[it.id]?.qty ?? ""} onChange={(e) => setAdjustItems((s) => ({ ...s, [it.id]: { ...s[it.id], qty: e.target.value } }))} className={`h-8 w-24 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
+                        ) : (
+                          bakeQty(it)
+                        )}
+                      </td>
                       <td className="px-2 py-2">{it.unit_name}</td>
+                      <td className="px-2 py-2">
+                        {adjusting ? (
+                          <input value={adjustItems[it.id]?.reason ?? ""} onChange={(e) => setAdjustItems((s) => ({ ...s, [it.id]: { ...s[it.id], reason: e.target.value } }))} placeholder="Reason" className={`h-8 w-full min-w-[120px] rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
+                        ) : (
+                          it.reason_for_adjustment || "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {canAdjustItems(viewing) && !adjusting && (
+                <div className="flex justify-end">
+                  <button onClick={startAdjust} className="rounded-md bg-[#7367F0] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#6354D8]">Adjust Quantities</button>
+                </div>
+              )}
+              {adjusting && (
+                <div className="flex items-center justify-end gap-2">
+                  <button onClick={() => { setAdjusting(false); setAdjustItems({}); }} className={`rounded-md border px-4 py-2 text-[13px] font-medium ${isDark ? "border-[#3B405A]" : "border-[#DBDADE]"}`}>Cancel</button>
+                  <button onClick={saveAdjust} disabled={saving} className="rounded-md bg-emerald-600 px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-60">{saving ? "Saving…" : "Save Bakehouse Qty"}</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approvalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !approvalSaving && setApprovalTarget(null)}>
+          <div className={`w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`} onClick={(e) => e.stopPropagation()}>
+            <div className={`flex items-center justify-between border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+              <h3 className="text-lg font-semibold">Approve / Accept Request</h3>
+              <button onClick={() => !approvalSaving && setApprovalTarget(null)}><X size={20} /></button>
+            </div>
+            <div className="space-y-3 p-4 text-[13px]">
+              <div className="grid grid-cols-2 gap-2">
+                <p><strong>Request No:</strong> {approvalTarget.request_no}</p>
+                <p><strong>Outlet:</strong> {approvalTarget.outlet_name}</p>
+                <p><strong>Required:</strong> {approvalTarget.required_date || "-"}</p>
+                <p><strong>Status:</strong> {approvalTarget.status}</p>
+              </div>
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr className={`border-b text-left ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                    <th className="px-2 py-2">Material</th><th className="px-2 py-2">Requested Qty</th><th className="px-2 py-2">Bakehouse Qty</th><th className="px-2 py-2">Unit</th><th className="px-2 py-2">Adjustment Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(approvalTarget.items || []).map((it) => (
+                    <tr key={it.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                      <td className="px-2 py-2">{it.material_name}</td>
+                      <td className="px-2 py-2">{it.requested_qty}</td>
+                      <td className="px-2 py-2 font-medium">{bakeQty(it)}</td>
+                      <td className="px-2 py-2">{it.unit_name}</td>
+                      <td className="px-2 py-2">{it.reason_for_adjustment || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className={`rounded-md border px-3 py-2 text-[13px] ${isDark ? "border-[#3B405A] bg-[#3B405A]/40" : "border-[#EBE9F1] bg-[#F8F7FA]"}`}>
+                Approve this request with the Bakehouse quantities shown? Approval confirms these quantities for downstream fulfilment and dispatch.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button onClick={() => setApprovalTarget(null)} disabled={approvalSaving} className={`rounded-md border px-4 py-2 text-[13px] font-medium disabled:opacity-50 ${isDark ? "border-[#3B405A]" : "border-[#DBDADE]"}`}>Cancel</button>
+                <button onClick={confirmApprove} disabled={approvalSaving} className="rounded-md bg-emerald-600 px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-60">{approvalSaving ? "Approving…" : "Approve Request"}</button>
+              </div>
             </div>
           </div>
         </div>

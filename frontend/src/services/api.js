@@ -714,6 +714,7 @@ export const productionAPI = {
   getProductionRequest: (id) => api.get(`/production/requests/${id}`),
   createProductionRequest: (data) => api.post("/production/requests", data),
   updateRequestStatus: (id, data) => api.patch(`/production/requests/${id}/status`, data),
+  updateRequestItems: (id, data) => api.patch(`/production/requests/${id}/items`, data),
   getProductionPlans: (id) => api.get("/production/plans", { params: { central_kitchen_id: id } }),
   getProductionPlan: (id) => api.get(`/production/plans/${id}`),
   createProductionPlan: (data) => api.post("/production/plans", data),
