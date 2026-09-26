@@ -33,6 +33,7 @@ import {
   ClipboardCheck,
   BookOpen,
   ArrowRightLeft,
+  ArrowRight,
   Scale,
   Truck,
   ChefHat,
@@ -41,6 +42,7 @@ import {
   PackageCheck,
   SlidersHorizontal,
   AlertTriangle,
+  Store,
 } from "lucide-react";
 import useAuthStore from "../store/authStore";
 import { authAPI, masterAPI, notificationAPI } from "../services/api";
@@ -329,6 +331,8 @@ const DashboardLayout = () => {
   );
 
   const sidebarNavRef = useRef(null);
+  const sidebarScrollRaf = useRef(0);
+  const sidebarRestoredRef = useRef(false);
   const notificationRef = useRef(null);
   const stableScrollRef = useRef({
     pageTop: 0,
@@ -363,18 +367,32 @@ const DashboardLayout = () => {
   const restoreStableScroll = () => {
     let snapshot = stableScrollRef.current;
 
-    try {
-      const saved = sessionStorage.getItem("bbc_layout_scroll_snapshot");
-      if (saved) {
-        snapshot = { ...snapshot, ...JSON.parse(saved) };
+    // sessionStorage is only consulted once per layout mount (i.e. on refresh).
+    // After that, stableScrollRef is authoritative - handleSidebarScroll keeps
+    // it continuously in sync, whereas storage can lag a frame behind.
+    if (!sidebarRestoredRef.current) {
+      sidebarRestoredRef.current = true;
+      try {
+        const saved = sessionStorage.getItem("bbc_layout_scroll_snapshot");
+        if (saved) {
+          snapshot = { ...snapshot, ...JSON.parse(saved) };
+        }
+        const storedSidebarTop = sessionStorage.getItem("bbc_sidebar_scroll_top");
+        if (storedSidebarTop !== null) {
+          snapshot = { ...snapshot, sidebarTop: Number(storedSidebarTop) || 0 };
+        }
+        stableScrollRef.current = snapshot;
+      } catch {
+        // ignore storage issues
       }
-    } catch {
-      // ignore storage issues
     }
 
     const applyScroll = () => {
       if (sidebarNavRef.current) {
-        sidebarNavRef.current.scrollTop = snapshot.sidebarTop || 0;
+        // Read the live ref, not the snapshot captured when this restore was
+        // scheduled - a manual scroll landing inside the rAF/80ms window must
+        // win over the stale deferred write (was snapping the sidebar back).
+        sidebarNavRef.current.scrollTop = stableScrollRef.current.sidebarTop || 0;
       }
     };
 
@@ -385,6 +403,49 @@ const DashboardLayout = () => {
         setTimeout(applyScroll, 80);
       });
     });
+  };
+
+  // Manual sidebar scrolling was previously never recorded - the snapshot only
+  // updated on sidebar button clicks, so a later pathname/expandedMenus restore
+  // snapped the nav back to a stale offset. Keep the ref + session key in sync
+  // on every scroll, rAF-throttled, with no state updates.
+  const handleSidebarScroll = () => {
+    const nav = sidebarNavRef.current;
+    if (!nav) return;
+    stableScrollRef.current = { ...stableScrollRef.current, sidebarTop: nav.scrollTop };
+    if (sidebarScrollRaf.current) return;
+    sidebarScrollRaf.current = requestAnimationFrame(() => {
+      sidebarScrollRaf.current = 0;
+      const latest = sidebarNavRef.current?.scrollTop || 0;
+      stableScrollRef.current = { ...stableScrollRef.current, sidebarTop: latest };
+      try {
+        sessionStorage.setItem("bbc_sidebar_scroll_top", String(latest));
+        sessionStorage.setItem("bbc_layout_scroll_snapshot", JSON.stringify(stableScrollRef.current));
+      } catch {
+        // ignore storage issues
+      }
+    });
+  };
+
+  // Never scroll on route change alone - only bring the newly active item into
+  // view, and only when it is actually outside the sidebar viewport. The last
+  // [data-nav-active] match wins so an expanded active submenu row is preferred
+  // over its parent group header.
+  const ensureActiveNavVisible = () => {
+    if (isHorizontal || !sidebarOpen) return;
+    const nav = sidebarNavRef.current;
+    if (!nav) return;
+    const matches = nav.querySelectorAll('[data-nav-active="true"]');
+    const activeEl = matches[matches.length - 1];
+    if (!activeEl) return;
+    const navRect = nav.getBoundingClientRect();
+    const elRect = activeEl.getBoundingClientRect();
+    if (elRect.top < navRect.top || elRect.bottom > navRect.bottom) {
+      activeEl.scrollIntoView({
+        behavior: prefersReducedSidebarMotion ? "auto" : "smooth",
+        block: "nearest",
+      });
+    }
   };
 
   const runWithoutScrollJump = (callback) => {
@@ -884,9 +945,11 @@ const DashboardLayout = () => {
       "Sales Uploads",
       "Recipes",
       "Reports & Analytics",
-      "Warehouse Overview / Procurement / Inventory / Reports & Settings",
       "Central Kitchen & Bakehouse",
       "Inventory & Production",
+      // Must match the warehouse item's `section` string exactly - it sits last
+      // by design, and a mismatch sorts it to index -1 (i.e. the top).
+      "Warehouse Overview / Procurement / Inventory / Stock Control / Reports & Settings",
     ];
     return items.slice().sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
   }, [permissions, roleName, t]);
@@ -913,6 +976,16 @@ const DashboardLayout = () => {
   useEffect(() => {
     restoreStableScroll();
   }, [expandedMenus]);
+
+  // The 320ms delay lets the auto-expanded submenu's height animation finish
+  // (SUBMENU_TRANSITION is 200ms) so the visibility check doesn't measure a
+  // moving target. ensureActiveNavVisible no-ops when the item is already
+  // inside the sidebar viewport.
+  useEffect(() => {
+    const id = setTimeout(ensureActiveNavVisible, 320);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   const hasAccess = (roles = []) => {
     if (roles.includes("all")) return true;
@@ -1641,22 +1714,33 @@ const DashboardLayout = () => {
 
     return (
       <div className="relative" ref={ref}>
-        <button
+        <motion.button
           type="button"
           disabled={locked}
           onClick={() => !locked && setOpen((prev) => !prev)}
+          whileHover={prefersReduced || locked ? undefined : { y: -1 }}
+          whileTap={prefersReduced || locked ? undefined : { scale: 0.98 }}
+          transition={{ duration: 0.18 }}
           aria-haspopup="listbox"
           aria-expanded={open}
           title={locked ? "Assigned outlet only" : "Select outlet"}
-          className={`flex h-10 w-full items-center justify-between gap-2 rounded-md border px-3 text-left outline-none ${
+          className={`flex h-11 w-full items-center justify-between gap-2 rounded-xl border px-2.5 text-left outline-none transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#7367F0]/40 ${
             variant === "mobile" ? "text-[14px]" : "text-[13px] md:text-[14px]"
           } ${locked ? "cursor-not-allowed opacity-70" : "cursor-pointer"} ${
             isDark
-              ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]"
-              : "border-[#DBDADE] bg-white text-[#2F2B3D]"
+              ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6] hover:border-[#4A4F68]"
+              : "border-[#EBE9F1] bg-white text-[#2F2B3D] hover:border-[#DBDADE] hover:shadow-[0_2px_8px_rgba(47,43,61,0.06)]"
           }`}
         >
-          <span className="truncate">{currentLabel}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isDark ? "bg-[#25293C]" : "bg-[#F3F2F7]"}`}
+              style={{ color: primaryColor }}
+            >
+              <Store size={15} />
+            </span>
+            <span className="truncate">{currentLabel}</span>
+          </span>
           <motion.span
             animate={{ rotate: open ? 180 : 0 }}
             transition={chevronTransition}
@@ -1664,7 +1748,7 @@ const DashboardLayout = () => {
           >
             <ChevronDown size={16} />
           </motion.span>
-        </button>
+        </motion.button>
 
         <AnimatePresence>
           {open && !locked && (
@@ -1775,13 +1859,13 @@ const DashboardLayout = () => {
         initial={false}
         animate={{ width: expandedView ? 300 : 82 }}
         transition={sidebarTransition}
-        className={`relative flex h-full shrink-0 flex-col border-r ${sideClass}`}
+        className={`relative flex h-full shrink-0 flex-col border-r shadow-[4px_0_24px_rgba(47,43,61,0.04)] ${sideClass}`}
       >
         {/* Brand / sidebar toggle */}
         <div
-          className={`relative flex h-[72px] shrink-0 items-center ${
+          className={`relative flex h-[72px] shrink-0 items-center border-b ${
             expandedView ? "justify-between px-6" : "justify-center px-3"
-          }`}
+          } ${effectiveSidebarDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}
         >
           <Link
             to="/"
@@ -1796,12 +1880,14 @@ const DashboardLayout = () => {
             <motion.div
               layout
               transition={highlightTransition}
-              className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl"
+              className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow-sm ${
+                effectiveSidebarDark ? "bg-[#2F3349]" : "bg-[#F3F2F7]"
+              }`}
             >
               <img
                 src={LOGO_SRC}
                 alt="Big Bean Café"
-                className="h-10 w-10 object-contain"
+                className="h-9 w-9 object-contain"
               />
             </motion.div>
 
@@ -1816,14 +1902,14 @@ const DashboardLayout = () => {
                   className="min-w-0"
                 >
                   <h1
-                    className={`truncate text-[22px] font-bold ${
+                    className={`truncate text-[20px] font-bold leading-tight tracking-[-0.01em] ${
                       effectiveSidebarDark ? "text-white" : textMain
                     }`}
                   >
                     Big Bean Cafe
                   </h1>
                   <p
-                    className={`text-[11px] font-semibold ${
+                    className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
                       effectiveSidebarDark ? "text-[#A5A8B6]" : textMuted
                     }`}
                   >
@@ -1878,10 +1964,15 @@ const DashboardLayout = () => {
         {/* Navigation */}
         <nav
           ref={sidebarNavRef}
+          onScroll={handleSidebarScroll}
           className={`flex-1 overflow-y-auto overflow-x-hidden pb-5 ${
             expandedView ? "px-4" : "px-3"
           }`}
-          style={{ scrollbarGutter: "stable" }}
+          style={{
+            scrollbarGutter: "stable",
+            scrollbarWidth: "thin",
+            scrollbarColor: effectiveSidebarDark ? "#3B405A transparent" : "#DBDADE transparent",
+          }}
         >
           <div className="space-y-1">
             {(() => {
@@ -1894,7 +1985,7 @@ const DashboardLayout = () => {
                 const sectionHeader = showSectionHeader ? (
                   <div
                     key={`section-${item.section}`}
-                    className={`mb-1.5 mt-4 px-4 text-[11px] font-semibold uppercase tracking-wider first:mt-0 ${
+                    className={`mb-2 mt-6 px-4 text-[10.5px] font-bold uppercase tracking-[0.09em] first:mt-1 ${
                       effectiveSidebarDark ? "text-[#6B7094]" : "text-[#A8AAAE]"
                     }`}
                   >
@@ -1919,9 +2010,10 @@ const DashboardLayout = () => {
                       whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.985 }}
                       transition={highlightTransition}
                       aria-expanded={Boolean(expanded)}
+                      data-nav-active={active || undefined}
                       aria-label={item.title}
                       title={!expandedView ? item.title : undefined}
-                      className={`group relative flex w-full items-center overflow-hidden rounded-md py-2.5 text-[15px] ${
+                      className={`group relative flex w-full items-center overflow-hidden rounded-lg py-2.5 text-[14.5px] transition-colors duration-150 ${
                         expandedView ? "justify-between px-4" : "justify-center px-0"
                       } ${active ? "font-semibold" : `${menuTextClass} ${menuHoverClass}`}`}
                       style={active ? { color: primaryColor } : undefined}
@@ -1933,15 +2025,18 @@ const DashboardLayout = () => {
                         // No layoutId here: the shared highlight must never be
                         // rendered by two rows at once.
                         <span
-                          className="absolute inset-0 rounded-md"
-                          style={{ backgroundColor: `${primaryColor}14` }}
+                          className="absolute inset-0 rounded-lg"
+                          style={{
+                            backgroundColor: `${primaryColor}12`,
+                            boxShadow: `inset 0 0 0 1px ${primaryColor}26`,
+                          }}
                         />
                       )}
 
                       {!active && hovered && !prefersReducedSidebarMotion && (
                         <motion.span
                           layoutId={`${highlightId}-hover`}
-                          className={`pointer-events-none absolute inset-0 rounded-md ${
+                          className={`pointer-events-none absolute inset-0 rounded-lg ${
                             effectiveSidebarDark ? "bg-[#3B405A]/70" : "bg-[#F3F2F7]"
                           }`}
                           transition={highlightTransition}
@@ -2011,7 +2106,11 @@ const DashboardLayout = () => {
                           transition={submenuTransition}
                           className="overflow-hidden"
                         >
-                          <div className="mt-1 space-y-1 pl-3">
+                          <div
+                            className={`ml-3 mt-1 space-y-1 border-l pl-3 ${
+                              effectiveSidebarDark ? "border-[#3B405A]" : "border-[#EBE9F1]"
+                            }`}
+                          >
                             {(() => {
                               let lastSubGroup = null;
                               return item.submenu.flatMap((sub) => {
@@ -2023,7 +2122,7 @@ const DashboardLayout = () => {
                               const groupHeader = showGroupHeader ? (
                                 <div
                                   key={`subgroup-${sub.group}`}
-                                  className={`px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider first:pt-0 ${
+                                  className={`px-3.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.09em] first:pt-0 ${
                                     effectiveSidebarDark ? "text-[#565B7D]" : "text-[#C4C2CC]"
                                   }`}
                                 >
@@ -2036,6 +2135,7 @@ const DashboardLayout = () => {
                                   key={sub.path}
                                   type="button"
                                   onClick={() => goTo(sub.path)}
+                                  data-nav-active={subActive || undefined}
                                   whileHover={
                                     prefersReducedSidebarMotion ? undefined : { x: 3 }
                                   }
@@ -2045,9 +2145,9 @@ const DashboardLayout = () => {
                                       : { scale: 0.985 }
                                   }
                                   transition={highlightTransition}
-                                  className={`relative flex w-full items-center gap-3 overflow-hidden rounded-md px-4 py-2.5 text-left text-[15px] ${
+                                  className={`relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3.5 py-2 text-left text-[14px] transition-colors duration-150 ${
                                     subActive
-                                      ? ""
+                                      ? "font-semibold"
                                       : `${subTextClass} ${menuHoverClass}`
                                   }`}
                                   style={subActive ? { color: primaryColor } : undefined}
@@ -2055,8 +2155,11 @@ const DashboardLayout = () => {
                                   {subActive && (
                                     <motion.span
                                       layoutId={subHighlightId}
-                                      className="absolute inset-0 rounded-md"
-                                      style={{ backgroundColor: `${primaryColor}18` }}
+                                      className="absolute inset-0 rounded-lg"
+                                      style={{
+                                        backgroundColor: `${primaryColor}18`,
+                                        boxShadow: `inset 2px 0 0 ${primaryColor}`,
+                                      }}
                                       transition={highlightTransition}
                                     />
                                   )}
@@ -2087,19 +2190,20 @@ const DashboardLayout = () => {
                   onClick={() => goTo(item.path)}
                   whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.985 }}
                   transition={highlightTransition}
+                  data-nav-active={active || undefined}
                   aria-label={item.title}
                   title={!expandedView ? item.title : undefined}
-                  className={`group relative flex w-full items-center overflow-hidden rounded-md py-2.5 text-left text-[15px] ${
+                  className={`group relative flex w-full items-center overflow-hidden rounded-lg py-2.5 text-left text-[14.5px] transition-colors duration-150 ${
                     expandedView ? "gap-3 px-4" : "justify-center px-0"
                   } ${active ? "text-white" : `${menuTextClass} ${menuHoverClass}`}`}
                 >
                   {active && (
                     <motion.span
                       layoutId={highlightId}
-                      className="absolute inset-0 rounded-md"
+                      className="absolute inset-0 rounded-lg"
                       style={{
                         backgroundColor: primaryColor,
-                        boxShadow: `0 3px 12px ${primaryColor}55`,
+                        boxShadow: `0 4px 14px ${primaryColor}45`,
                       }}
                       transition={highlightTransition}
                     />
@@ -2108,7 +2212,7 @@ const DashboardLayout = () => {
                   {!active && hovered && !prefersReducedSidebarMotion && (
                     <motion.span
                       layoutId={`${highlightId}-hover`}
-                      className={`pointer-events-none absolute inset-0 rounded-md ${
+                      className={`pointer-events-none absolute inset-0 rounded-lg ${
                         effectiveSidebarDark ? "bg-[#3B405A]/70" : "bg-[#F3F2F7]"
                       }`}
                       transition={highlightTransition}
@@ -2146,6 +2250,17 @@ const DashboardLayout = () => {
       </motion.aside>
     );
   };
+
+  // Shared header action-button styling + micro-interactions. All motion is
+  // gated on the reduced-motion preference already used by the sidebar work.
+  const headerIconBtnClass = `flex h-10 w-10 items-center justify-center rounded-xl transition-colors duration-200 ${
+    isDark
+      ? "text-[#A5A8B6] hover:bg-[#3B405A] hover:text-[#D0D2D6]"
+      : "text-[#6F6B7D] hover:bg-[#F3F2F7] hover:text-[#2F2B3D]"
+  }`;
+  const headerIconMotion = prefersReducedSidebarMotion
+    ? {}
+    : { whileHover: { scale: 1.05 }, whileTap: { scale: 0.97 }, transition: { duration: 0.18 } };
 
   return (
     <div
@@ -2200,13 +2315,18 @@ const DashboardLayout = () => {
           }`}
         >
           <header className={`fixed left-0 right-0 top-0 z-30 min-w-0 px-3 pt-3 md:px-6 md:pt-5 ${!isHorizontal ? (sidebarOpen ? "lg:left-[300px]" : "lg:left-[82px]") : ""} ${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
-            <div className="w-full min-w-0">
+            <motion.div
+              initial={prefersReducedSidebarMotion ? false : { opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.24, ease: "easeOut" }}
+              className="w-full min-w-0"
+            >
               <div
-                className={`flex min-h-[76px] items-center justify-between gap-3 rounded-md border px-3 py-3 shadow-[0_2px_12px_rgba(47,43,61,0.12)] md:px-6 ${cardClass} ${
+                className={`flex min-h-[76px] items-center justify-between gap-3 rounded-xl border px-3 py-3 shadow-[0_1px_2px_rgba(47,43,61,0.04),0_8px_24px_rgba(47,43,61,0.06)] md:px-5 ${cardClass} ${
                   isBordered ? "border-2" : ""
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-4">
+                <div className="flex min-w-0 items-center gap-3 md:gap-4">
                   <button
                     type="button"
                     onClick={() => setMobileOpen(true)}
@@ -2217,23 +2337,41 @@ const DashboardLayout = () => {
                     <Menu size={24} />
                   </button>
 
-                  <button
+                  <motion.button
                     type="button"
                     onClick={() => setSearchOpen(true)}
-                    className="hidden w-[180px] max-w-[240px] shrink-0 items-center gap-3 text-left sm:flex xl:w-[240px] md:gap-4"
+                    whileHover={prefersReducedSidebarMotion ? undefined : { y: -1 }}
+                    whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.98 }}
+                    transition={{ duration: 0.18 }}
+                    className={`hidden h-11 w-[190px] max-w-[260px] shrink-0 items-center gap-2.5 rounded-xl border px-3 text-left shadow-[0_1px_2px_rgba(47,43,61,0.04)] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7367F0]/40 sm:flex xl:w-[250px] ${
+                      isDark
+                        ? "border-[#3B405A] bg-[#2F3349] hover:border-[#4A4F68]"
+                        : "border-[#EBE9F1] bg-[#F8F7FA] hover:border-[#DBDADE] hover:bg-white"
+                    }`}
+                    aria-label={t.search}
+                    title={t.search}
                   >
-                    <Search size={25} className={textMain} />
-                    <span className={`hidden text-[16px] ${textMuted} md:inline`}>{t.search}</span>
-                  </button>
+                    <Search size={18} className={`shrink-0 ${textMuted}`} />
+                    <span className={`hidden min-w-0 flex-1 truncate text-[14px] ${textMuted} md:inline`}>
+                      {t.search.replace("⌘K", "").trim()}
+                    </span>
+                    <kbd
+                      className={`ml-auto hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none md:inline-block ${
+                        isDark ? "border-[#3B405A] bg-[#25293C] text-[#A5A8B6]" : "border-[#EBE9F1] bg-white text-[#A8AAAE]"
+                      }`}
+                    >
+                      ⌘K
+                    </kbd>
+                  </motion.button>
 
-                  <div className="hidden w-[200px] max-w-[220px] shrink-0 sm:block xl:w-[220px]">
+                  <div className="hidden w-[210px] max-w-[230px] shrink-0 sm:block xl:w-[230px]">
                     <OutletSelector variant="desktop" />
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-2 whitespace-nowrap md:gap-4">
+                <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap md:gap-2">
                   <div className="relative">
-                    <button
+                    <motion.button
                       type="button"
                       onClick={() => {
                         setLanguageOpen((prev) => !prev);
@@ -2241,12 +2379,13 @@ const DashboardLayout = () => {
                         setProfileOpen(false);
                         setNotificationOpen(false);
                       }}
-                      className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      {...headerIconMotion}
+                      className={headerIconBtnClass}
                       aria-label="Change language"
                       title="Change language"
                     >
-                      <Languages size={22} />
-                    </button>
+                      <Languages size={20} />
+                    </motion.button>
 
                     {languageOpen && (
                       <div
@@ -2279,7 +2418,7 @@ const DashboardLayout = () => {
                   </div>
 
                   <div className="relative">
-                    <button
+                    <motion.button
                       type="button"
                       onClick={() => {
                         setThemeOpen((prev) => !prev);
@@ -2287,12 +2426,13 @@ const DashboardLayout = () => {
                         setProfileOpen(false);
                         setNotificationOpen(false);
                       }}
-                      className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      {...headerIconMotion}
+                      className={headerIconBtnClass}
                       aria-label="Toggle dark mode"
                       title="Toggle dark mode"
                     >
-                      {isDark ? <Moon size={23} /> : <Sun size={23} />}
-                    </button>
+                      {isDark ? <Moon size={20} /> : <Sun size={20} />}
+                    </motion.button>
 
                     {themeOpen && (
                       <div
@@ -2332,21 +2472,22 @@ const DashboardLayout = () => {
                     )}
                   </div>
 
-                  <button
+                  <motion.button
                     type="button"
                     onClick={() => {
                       closeTopDropdowns();
                       setCustomizerOpen(true);
                     }}
-                    className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                    {...headerIconMotion}
+                    className={headerIconBtnClass}
                     aria-label="Open theme settings"
                     title="Open theme settings"
                   >
-                    <Settings size={23} />
-                  </button>
+                    <Settings size={20} />
+                  </motion.button>
 
                   <div className="relative" ref={notificationRef}>
-                    <button
+                    <motion.button
                       type="button"
                       onClick={() => {
                         const opening = !notificationOpen;
@@ -2356,24 +2497,31 @@ const DashboardLayout = () => {
                         setProfileOpen(false);
                         if (opening) fetchNotifications();
                       }}
-                      className="relative flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-[#F3F2F7]"
+                      {...headerIconMotion}
+                      className={`relative ${headerIconBtnClass}`}
                       aria-label="View notifications"
                       title="View notifications"
                     >
-                      <Bell size={23} />
+                      <Bell size={20} />
 
                       {unreadCount > 0 && (
-                        <span className="absolute right-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF4C51] px-1 text-[11px] font-bold text-white">
+                        <motion.span
+                          animate={prefersReducedSidebarMotion ? undefined : { scale: [1, 1.12, 1] }}
+                          transition={prefersReducedSidebarMotion ? undefined : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                          className={`absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF4C51] px-1 text-[11px] font-bold text-white ring-2 ${isDark ? "ring-[#2F3349]" : "ring-white"}`}
+                        >
                           {unreadCount > 9 ? "9+" : unreadCount}
-                        </span>
+                        </motion.span>
                       )}
-                    </button>
+                    </motion.button>
 
                     {notificationOpen && <NotificationDropdown />}
                   </div>
 
+                  <span className={`mx-1 hidden h-6 w-px shrink-0 sm:block ${isDark ? "bg-[#3B405A]" : "bg-[#EBE9F1]"}`} />
+
                   <div className="relative">
-                    <button
+                    <motion.button
                       type="button"
                       onClick={() => {
                         setProfileOpen((prev) => !prev);
@@ -2381,12 +2529,19 @@ const DashboardLayout = () => {
                         setThemeOpen(false);
                         setNotificationOpen(false);
                       }}
+                      whileHover={prefersReducedSidebarMotion ? undefined : { scale: 1.03 }}
+                      whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.97 }}
+                      transition={{ duration: 0.18 }}
+                      className="rounded-full"
                       aria-label="Open account menu"
                       title="Open account menu"
                     >
                       <div
                         className="relative flex h-11 w-11 items-center justify-center rounded-full text-[17px] font-bold text-white"
-                        style={{ backgroundColor: primaryColor }}
+                        style={{
+                          backgroundColor: primaryColor,
+                          boxShadow: `0 0 0 2px ${primaryColor}2E, 0 4px 10px rgba(47,43,61,0.15)`,
+                        }}
                       >
                         {user?.avatar_url || user?.photo_url ? (
                           <img
@@ -2397,9 +2552,9 @@ const DashboardLayout = () => {
                         ) : (
                           initial
                         )}
-                        <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#28C76F]" />
+                        <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 bg-[#28C76F] ${isDark ? "border-[#2F3349]" : "border-white"}`} />
                       </div>
-                    </button>
+                    </motion.button>
 
                     {profileOpen && (
                       <div
@@ -2464,13 +2619,14 @@ const DashboardLayout = () => {
               <div className="block sm:hidden pb-2 pt-0">
                 <OutletSelector variant="mobile" />
               </div>
-            </div>
+            </motion.div>
           </header>
 
           <main className="min-w-0 w-full flex-1 overflow-x-hidden px-3 pt-[100px] pb-3 sm:px-4 sm:pt-[104px] sm:pb-4 md:px-6 md:pt-[120px] md:pb-6">
             <div className={`${contentWidthClass} mx-auto w-full min-w-0 space-y-4`}>
               {location.pathname.startsWith('/warehouse') ? (
-                <div className={`inline-flex rounded-md border px-3 py-2 text-[13px] font-medium ${cardClass}`}>
+                <div className={`inline-flex items-center gap-2 rounded-[10px] border px-3 py-2 text-[13px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#A5A8B6]" : "border-[#EBE9F1] bg-[#F8F7FA] text-[#6F6B7D]"}`}>
+                  <AlertCircle size={15} className="shrink-0 text-[#7367F0]" />
                   Warehouse inventory uses the selected warehouse location.
                 </div>
               ) : (
@@ -2687,99 +2843,152 @@ const DashboardLayout = () => {
         </div>
       )}
 
+      <AnimatePresence>
       {searchOpen && (
-        <div className="fixed inset-0 z-[70000] flex items-start justify-center bg-[#2F2B3D]/55 px-3 pt-[70px] sm:px-5 sm:pt-[85px] backdrop-blur-[1px] modal-overlay-enter">
-          <div
-            className={`w-full max-w-[850px] overflow-hidden rounded-md border shadow-2xl modal-enter ${cardClass}`}
+        <div className="fixed inset-0 z-[70000] flex items-start justify-center bg-[#2F2B3D]/55 px-3 pt-[70px] sm:px-5 sm:pt-[85px] backdrop-blur-sm modal-overlay-enter">
+          <motion.div
+            initial={prefersReducedSidebarMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: -6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={prefersReducedSidebarMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985, y: -6 }}
+            transition={prefersReducedSidebarMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" }}
+            className={`flex max-h-[80vh] w-full max-w-[960px] flex-col overflow-hidden rounded-2xl border shadow-[0_2px_8px_rgba(47,43,61,0.08),0_24px_64px_rgba(47,43,61,0.22)] ${cardClass}`}
           >
-            <div className="flex h-[76px] items-center justify-between border-b border-[#DBDADE] px-6">
-              <div className="flex flex-1 items-center gap-4">
-                <Search size={26} />
+            <div className={`flex h-[72px] shrink-0 items-center justify-between gap-4 border-b px-5 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Search size={20} className={`shrink-0 ${textMuted}`} />
                 <input
                   type="text"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   autoFocus
-                  placeholder={t.search}
-                  className={`w-full bg-transparent text-[18px] outline-none ${
-                    isDark ? "text-white" : "text-[#2F2B3D]"
+                  placeholder="Search pages, reports, actions..."
+                  className={`w-full bg-transparent text-[17px] outline-none placeholder:text-[#A8AAAE] ${
+                    isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"
                   }`}
                 />
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className={`text-[15px] ${textMuted}`}>[esc]</span>
-                <button type="button" onClick={() => setSearchOpen(false)}>
-                  <X size={24} />
-                </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <kbd className={`hidden rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none sm:inline-block ${isDark ? "border-[#3B405A] bg-[#25293C] text-[#A5A8B6]" : "border-[#EBE9F1] bg-[#F8F7FA] text-[#A8AAAE]"}`}>⌘K</kbd>
+                <kbd className={`hidden rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none sm:inline-block ${isDark ? "border-[#3B405A] bg-[#25293C] text-[#A5A8B6]" : "border-[#EBE9F1] bg-[#F8F7FA] text-[#A8AAAE]"}`}>Esc</kbd>
+                <motion.button
+                  type="button"
+                  onClick={() => setSearchOpen(false)}
+                  whileHover={prefersReducedSidebarMotion ? undefined : { scale: 1.05 }}
+                  whileTap={prefersReducedSidebarMotion ? undefined : { scale: 0.94 }}
+                  transition={{ duration: 0.16 }}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${isDark ? "hover:bg-[#3B405A] text-[#A5A8B6]" : "hover:bg-[#F3F2F7] text-[#6F6B7D]"}`}
+                  aria-label="Close search"
+                  title="Close search"
+                >
+                  <X size={19} />
+                </motion.button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-10 p-9 md:grid-cols-2">
-              <div>
-                <p
-                  className={`mb-5 text-[13px] uppercase tracking-[0.22em] ${textMuted}`}
-                >
-                  {t.popularSearches}
-                </p>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {query.trim() === "" ? (
+                <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+                  {[{ label: t.popularSearches, items: filteredSearch.slice(0, 6) }, { label: t.reportsLabel, items: filteredSearch.slice(6, 12) }].map((section) => (
+                    <div key={section.label}>
+                      <p className={`mb-3 px-3 text-[11px] font-bold uppercase tracking-[0.12em] ${textMuted}`}>
+                        {section.label}
+                      </p>
 
-                <div className="space-y-4">
-                  {filteredSearch.slice(0, 6).map((item) => {
-                    const Icon = item.icon;
+                      <div className="space-y-1">
+                        {section.items.map((item) => {
+                          const Icon = item.icon;
 
-                    return (
-                      <button
-                        key={item.path}
-                        type="button"
-                        onClick={() => goTo(item.path)}
-                        className="flex w-full items-center gap-4 text-left text-[18px]"
-                      >
-                        <Icon size={23} />
-                        <span>{item.title}</span>
-                      </button>
-                    );
-                  })}
+                          return (
+                            <motion.button
+                              key={item.path}
+                              type="button"
+                              onClick={() => goTo(item.path)}
+                              whileHover={prefersReducedSidebarMotion ? undefined : { x: 2 }}
+                              transition={{ duration: 0.15 }}
+                              className={`group flex min-h-[50px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7367F0]/40 ${isDark ? "hover:bg-[#3B405A]/60" : "hover:bg-[#F3F2F7]"}`}
+                            >
+                              <span
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isDark ? "bg-[#25293C]" : "bg-[#F3F2F7]"}`}
+                                style={{ color: primaryColor }}
+                              >
+                                <Icon size={17} />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className={`block truncate text-[14.5px] font-medium ${textMain}`}>{item.title}</span>
+                                <span className={`block truncate text-[12px] ${textMuted}`}>{item.group}</span>
+                              </span>
+                              <ArrowRight size={16} className={`shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 ${textMuted}`} />
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              <div>
-                <p
-                  className={`mb-5 text-[13px] uppercase tracking-[0.22em] ${textMuted}`}
-                >
-                  {t.reportsLabel}
-                </p>
-
-                <div className="space-y-4">
-                  {filteredSearch.slice(6, 12).map((item) => {
-                    const Icon = item.icon;
-
-                    return (
-                      <button
-                        key={item.path}
-                        type="button"
-                        onClick={() => goTo(item.path)}
-                        className="flex w-full items-center gap-4 text-left text-[18px]"
-                      >
-                        <Icon size={23} />
-                        <span>{item.title}</span>
-                      </button>
-                    );
-                  })}
+              ) : filteredSearch.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-14 text-center">
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-full ${isDark ? "bg-[#3B405A] text-[#A5A8B6]" : "bg-[#F3F2F7] text-[#A8AAAE]"}`}>
+                    <Search size={20} />
+                  </div>
+                  <p className={`mt-3 text-[15px] font-medium ${textMain}`}>No matching pages found</p>
+                  <p className={`mt-1 text-[13px] ${textMuted}`}>Try a different keyword</p>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <p className={`mb-3 px-3 text-[11px] font-bold uppercase tracking-[0.12em] ${textMuted}`}>
+                    Search Results
+                  </p>
+                  <div className="space-y-1">
+                    {filteredSearch.map((item) => {
+                      const Icon = item.icon;
+
+                      return (
+                        <motion.button
+                          key={item.path}
+                          type="button"
+                          onClick={() => goTo(item.path)}
+                          whileHover={prefersReducedSidebarMotion ? undefined : { x: 2 }}
+                          transition={{ duration: 0.15 }}
+                          className={`group flex min-h-[50px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7367F0]/40 ${isDark ? "hover:bg-[#3B405A]/60" : "hover:bg-[#F3F2F7]"}`}
+                        >
+                          <span
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isDark ? "bg-[#25293C]" : "bg-[#F3F2F7]"}`}
+                            style={{ color: primaryColor }}
+                          >
+                            <Icon size={17} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className={`block truncate text-[14.5px] font-medium ${textMain}`}>{item.title}</span>
+                            <span className={`block truncate text-[12px] ${textMuted}`}>{item.group}</span>
+                          </span>
+                          <ArrowRight size={16} className={`shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 ${textMuted}`} />
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div
-              className={`flex items-center gap-3 border-t px-6 py-3 text-[14px] ${textMuted} ${
-                isDark ? "border-[#3B405A]" : "border-[#DBDADE]"
+              className={`flex shrink-0 items-center gap-4 border-t px-5 py-3 text-[12.5px] ${textMuted} ${
+                isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"
               }`}
             >
-              <span className="rounded bg-[#F3F2F7] px-2 py-1">esc</span>
-              <span>to close</span>
+              <span className="flex items-center gap-1.5">
+                <kbd className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#F8F7FA]"}`}>⌘K</kbd>
+                Search
+              </span>
+              <span className="flex items-center gap-1.5">
+                <kbd className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none ${isDark ? "border-[#3B405A] bg-[#25293C]" : "border-[#EBE9F1] bg-[#F8F7FA]"}`}>Esc</kbd>
+                Close
+              </span>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
+      </AnimatePresence>
     </div>
   );
 };
