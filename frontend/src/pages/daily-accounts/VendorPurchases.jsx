@@ -3,8 +3,9 @@ import {
   Plus, Search, RotateCcw, Trash2, AlertTriangle, Wallet, ChevronRight,
   IndianRupee, ShoppingCart, Clock, ShieldAlert, CheckCircle2, Loader2,
 } from "lucide-react";
-import { outletVendorAPI, masterAPI } from "../../services/api";
+import { outletVendorAPI, masterAPI, getSelectedOutletId } from "../../services/api";
 import useAuthStore from "../../store/authStore";
+import { useSelectedOutlet } from "../../hooks/useSelectedOutlet";
 import toast from "react-hot-toast";
 
 const getPrimaryColor = () => { try { return localStorage.getItem("bbc_primary_color") || "#7367F0"; } catch { return "#7367F0"; } };
@@ -25,6 +26,8 @@ const emptyPurchase = () => ({
 
 export default function VendorPurchases() {
   const { user } = useAuthStore();
+  const { selectedOutletId } = useSelectedOutlet();
+  const outletLocked = Boolean(selectedOutletId && selectedOutletId !== "all");
   const primaryColor = getPrimaryColor();
   const isDark = getThemeMode() === "dark";
   const cardCls = isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]";
@@ -46,7 +49,10 @@ export default function VendorPurchases() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyPurchase());
-  const [filters, setFilters] = useState({ outlet_id: "", vendor_id: "", from_date: "", to_date: "" });
+  const [filters, setFilters] = useState(() => {
+    const gid = getSelectedOutletId();
+    return { outlet_id: gid !== "all" ? String(gid) : "", vendor_id: "", from_date: "", to_date: "" };
+  });
 
   const visibleOutlets = useMemo(
     () => (isAdmin ? outlets : outlets.filter((o) => userOutletIds.includes(String(o.id)))),
@@ -85,13 +91,12 @@ export default function VendorPurchases() {
   const fetchPurchases = async () => {
     setLoading(true);
     try {
-      const res = await outletVendorAPI.getPurchases({
-        outlet_id: filters.outlet_id || undefined,
-        vendor_id: filters.vendor_id || undefined,
-        from_date: filters.from_date || undefined,
-        to_date: filters.to_date || undefined,
-        limit: 100,
-      });
+      const params = { limit: 100 };
+      if (filters.outlet_id) params.outlet_id = filters.outlet_id;
+      if (filters.vendor_id) params.vendor_id = filters.vendor_id;
+      if (filters.from_date) params.from_date = filters.from_date;
+      if (filters.to_date) params.to_date = filters.to_date;
+      const res = await outletVendorAPI.getPurchases(params);
       setPurchases(res?.data?.data || []);
     } catch { toast.error("Failed to load purchases"); }
     finally { setLoading(false); }
@@ -101,6 +106,16 @@ export default function VendorPurchases() {
   useEffect(() => { fetchPurchases(); }, [filters]);
 
   useEffect(() => {
+    const gid = outletLocked ? String(selectedOutletId) : "";
+    setFilters((f) => (f.outlet_id === gid ? f : { ...f, outlet_id: gid }));
+    if (outletLocked) {
+      setForm((f) => ({ ...f, outlet_id: gid }));
+      setLedgerOutlet(gid);
+    }
+  }, [selectedOutletId]);
+
+  useEffect(() => {
+    if (outletLocked) return;
     if (visibleOutlets.length === 1 && !form.outlet_id) {
       setForm((f) => ({ ...f, outlet_id: String(visibleOutlets[0].id) }));
     }
@@ -302,7 +317,7 @@ export default function VendorPurchases() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="mb-1 block text-[13px] font-medium">Outlet *</label>
-              <select value={form.outlet_id} onChange={(e) => setForm({ ...form, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+              <select value={form.outlet_id} disabled={outletLocked} onChange={(e) => setForm({ ...form, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none disabled:cursor-not-allowed disabled:opacity-60 ${inputCls}`}>
                 <option value="">Select outlet</option>
                 {visibleOutlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
               </select>
@@ -426,7 +441,7 @@ export default function VendorPurchases() {
           <span className={`text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Vendor Ledger &amp; Payment</span>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <select value={ledgerOutlet} onChange={(e) => setLedgerOutlet(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
+          <select value={ledgerOutlet} disabled={outletLocked} onChange={(e) => setLedgerOutlet(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none disabled:cursor-not-allowed disabled:opacity-60 ${inputCls}`}>
             <option value="">Select outlet</option>
             {visibleOutlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
           </select>
@@ -481,7 +496,7 @@ export default function VendorPurchases() {
         </div>
         <div className="p-4 sm:p-5">
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-5">
-            <select value={filters.outlet_id} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputCls}`}>
+            <select value={filters.outlet_id} disabled={outletLocked} onChange={(e) => setFilters({ ...filters, outlet_id: e.target.value })} className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60 ${inputCls}`}>
               <option value="">All Outlets</option>
               {visibleOutlets.map((o) => <option key={o.id} value={o.id}>{o.outlet_name}</option>)}
             </select>
