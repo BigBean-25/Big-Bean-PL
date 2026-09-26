@@ -173,6 +173,13 @@
 /* ============================================================
    DARK MODE — body override
    ============================================================ */
+/* Tells the browser to render native form controls (date pickers, selects,
+   checkboxes, scrollbars) with its dark palette. Scoped to the html root
+   because DashboardLayout toggles `dark` on documentElement. */
+html.dark {
+  color-scheme: dark;
+}
+
 .dark body {
   background-color: #25293C;
   color: #D0D2D6;
