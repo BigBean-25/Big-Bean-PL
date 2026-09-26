@@ -1,15 +1,102 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, FilterBar } from "../../components/ui";
 import { KpiCard, fmtQty, fmtDate } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
-import { Search, RotateCcw, Download, TrendingUp, Eye, Package, FileText, Truck, DollarSign } from "lucide-react";
+import { Search, RotateCcw, Download, TrendingUp, Eye, Package, FileText, Truck, DollarSign, ChevronDown, Inbox } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 
 const docTypes = ['All', 'Warehouse Purchase Order', 'Goods Receipt', 'Purchase Return', 'Supplier Credit', 'Supplier Payment'];
 
 const num = v => v === null || v === undefined || v === '' ? 0 : Number(v);
+
+// Searchable material filter for the supplier-history grid. Button-style
+// closed state with "All Materials" default; open state offers an autofocused
+// search box matching material_name/material_code case-insensitively.
+// Follows the same conventions as the MaterialCombobox in
+// WarehouseRequisitions.jsx (outside-mousedown close, Escape close,
+// onMouseDown pick to beat blur, highlight-on-hover).
+const MaterialSearchSelect = ({ value, onChange, materials, isDark, inputClass }) => {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [hi, setHi] = useState(0);
+  const boxRef = useRef(null);
+  const searchRef = useRef(null);
+  const selected = materials.find((m) => String(m.id) === String(value));
+
+  useEffect(() => {
+    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  useEffect(() => {
+    if (open) { setTerm(""); setHi(0); searchRef.current?.focus(); }
+  }, [open]);
+
+  const q = term.trim().toLowerCase();
+  const filtered = materials
+    .filter((m) => !q || (m.material_name || "").toLowerCase().includes(q) || (m.material_code || "").toLowerCase().includes(q))
+    .slice(0, 100);
+  const optionCount = filtered.length + 1;
+
+  const pick = (id) => { onChange(id); setOpen(false); };
+
+  const optionCls = (active) =>
+    `flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] ${active ? (isDark ? "bg-[#3B405A]" : "bg-[#F3F2F7]") : ""}`;
+
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
+        className={`flex h-11 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm outline-none transition hover:border-[#7367F0]/60 ${inputClass}`}
+      >
+        <span className={`min-w-0 truncate ${selected ? "" : (isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]")}`}>
+          {selected ? selected.material_name : "All Materials"}
+        </span>
+        <ChevronDown size={15} className={`shrink-0 text-[#A8AAAE] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className={`absolute z-30 mt-1 w-full min-w-[260px] overflow-hidden rounded-lg border shadow-lg ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
+          <div className={`border-b p-2 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" />
+              <input
+                ref={searchRef}
+                value={term}
+                onChange={(e) => { setTerm(e.target.value); setHi(0); }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, Math.max(optionCount - 1, 0))); }
+                  else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+                  else if (e.key === "Enter") { e.preventDefault(); hi === 0 ? pick("") : filtered[hi - 1] && pick(String(filtered[hi - 1].id)); }
+                  else if (e.key === "Escape") { setOpen(false); }
+                }}
+                placeholder="Search material..."
+                className={`h-9 w-full rounded-md border pl-9 pr-3 text-[13px] outline-none ${inputClass}`}
+              />
+            </div>
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(""); }} onMouseEnter={() => setHi(0)} className={`${optionCls(hi === 0)} font-medium`}>
+              All Materials
+            </button>
+            {filtered.length === 0 ? (
+              <div className={`px-3 py-2.5 text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>No materials found</div>
+            ) : filtered.map((m, i) => (
+              <button key={m.id} type="button" onMouseDown={(e) => { e.preventDefault(); pick(String(m.id)); }} onMouseEnter={() => setHi(i + 1)} className={optionCls(hi === i + 1)}>
+                <span className="min-w-0 truncate">{m.material_name}</span>
+                {m.material_code && <span className={`shrink-0 text-[11px] ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>{m.material_code}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function SupplierHistory({ locationId, materials, suppliers, isDark }) {
   const [data, setData] = useState([]);
@@ -19,6 +106,8 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
   const [exporting, setExporting] = useState(false);
   const permissions = getStoredPermissions();
   const inputClass = getInputClass(isDark);
+  const filterLabelCls = `mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`;
+  const filterFieldCls = `h-11 w-full rounded-lg border px-3 text-sm outline-none transition hover:border-[#7367F0]/60 ${inputClass}`;
   const [filters, setFilters] = useState({
     search: "", supplier_id: "", material_id: "", from: "", to: "", document_type: "",
   });
@@ -139,7 +228,7 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
         actions={
           <div className="flex flex-wrap gap-2">
             {permissions?.warehouse_supplier_history?.can_export && (
-              <button onClick={exportToExcel} disabled={exporting} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}>
+              <button onClick={exportToExcel} disabled={exporting} className={`inline-flex h-11 items-center gap-2 rounded-[10px] border px-4 text-[14px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6] hover:border-[#7367F0]/60" : "border-[#DBDADE] bg-white text-[#5D596C] hover:border-[#7367F0]/60 hover:text-[#7367F0]"}`}>
                 <Download size={16} /> {exporting ? "Exporting..." : "Export"}
               </button>
             )}
@@ -158,21 +247,39 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
       </div>
 
       <FilterBar isDark={isDark} title="Filters">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
-          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search supplier" className={`w-full rounded-md py-2 pl-9 pr-3 text-sm ${inputClass}`} /></div>
-          <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
-          <select value={filters.material_id} onChange={e => setFilters({...filters, material_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Materials</option>{materials.map(m => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
-          <input type="date" value={filters.from} onChange={e => setFilters({...filters, from: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} placeholder="From" />
-          <input type="date" value={filters.to} onChange={e => setFilters({...filters, to: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`} placeholder="To" />
-          <select value={filters.document_type} onChange={e => setFilters({...filters, document_type: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Docs</option>{docTypes.map(d => <option key={d} value={d}>{d}</option>)}</select>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div>
+            <label className={filterLabelCls}>Search Supplier</label>
+            <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search supplier" className={`${filterFieldCls} pl-9`} /></div>
+          </div>
+          <div>
+            <label className={filterLabelCls}>Supplier</label>
+            <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={filterFieldCls}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
+          </div>
+          <div>
+            <label className={filterLabelCls}>Material</label>
+            <MaterialSearchSelect value={filters.material_id} onChange={v => setFilters({...filters, material_id: v})} materials={materials} isDark={isDark} inputClass={inputClass} />
+          </div>
+          <div>
+            <label className={filterLabelCls}>From Date</label>
+            <input type="date" value={filters.from} onChange={e => setFilters({...filters, from: e.target.value})} className={filterFieldCls} />
+          </div>
+          <div>
+            <label className={filterLabelCls}>To Date</label>
+            <input type="date" value={filters.to} onChange={e => setFilters({...filters, to: e.target.value})} className={filterFieldCls} />
+          </div>
+          <div>
+            <label className={filterLabelCls}>Doc Type</label>
+            <select value={filters.document_type} onChange={e => setFilters({...filters, document_type: e.target.value})} className={filterFieldCls}><option value="">All Docs</option>{docTypes.map(d => <option key={d} value={d}>{d}</option>)}</select>
+          </div>
         </div>
       </FilterBar>
 
       <SectionCard isDark={isDark}>
         <TableWrapper isDark={isDark}>
           <table className="w-full border-collapse text-[13px]">
-            <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
-              <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+            <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#25293C]" : "bg-[#F8F7FA]"}`}>
+              <tr className={`border-b text-left text-[12px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
                 <th className="px-3 py-3">Code</th>
                 <th className="px-3 py-3">Supplier</th>
                 <th className="px-3 py-3 text-right">PO Value</th>
@@ -187,9 +294,9 @@ export default function SupplierHistory({ locationId, materials, suppliers, isDa
             </thead>
             <tbody>
               {loading ? <LoadingRows rows={5} cols={10} isDark={isDark} /> : data.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-10"><EmptyState isDark={isDark} message="No supplier history found" subMessage="Select filters to view supplier purchase history" /></td></tr>
+                <tr><td colSpan={10} className="px-4 py-10"><EmptyState isDark={isDark} icon={Inbox} title="No supplier transactions found" subtitle="Try changing the warehouse or filters." /></td></tr>
               ) : data.map(s => (
-                <tr key={s.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                <tr key={s.id} className={`border-b transition-colors ${isDark ? "border-[#3B405A] hover:bg-[#25293C]" : "border-[#F3F2F7] hover:bg-[#F8F7FA]"}`}>
                   <td className="px-3 py-3">{s.supplier_code}</td>
                   <td className="px-3 py-3 font-medium">{s.supplier_name}</td>
                   <td className="px-3 py-3 text-right">₹{num(s.po_value).toFixed(2)}</td>

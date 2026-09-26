@@ -3,77 +3,16 @@ import ExcelJS from "exceljs";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
-import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow } from "./WarehouseShared";
+import { KpiCard, fmtCurrency, fmtQty, fmtDate, num, EmptyRow, MaterialCombobox } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Eye, CheckCircle, XCircle, Truck, ClipboardList, X, Upload, Download, Paperclip, Trash2 } from "lucide-react";
 import { IMPORT_MAX_ROWS, IMPORT_TEMPLATE_HEADER, parseCsvText, cellText, mapImportHeaders, buildMaterialIndex, buildUnitIndex, evaluateImportRow } from "./requisitionImport";
 import toast from "react-hot-toast";
 
-// Searchable material picker for Outlet PO line items. Matches on
-// material_name and material_code, is keyboard-usable (arrows + Enter +
-// Escape), supports clearing, and hides materials already picked on other
-// rows so a duplicate line can't be created through the UI (the backend
-// still rejects duplicates deterministically as a second guard).
-const MaterialCombobox = ({ value, onSelect, materials, excludeIds, stockById, isDark, inputClass }) => {
-  const [open, setOpen] = useState(false);
-  const [term, setTerm] = useState("");
-  const [hi, setHi] = useState(0);
-  const boxRef = useRef(null);
-  const selected = materials.find((m) => String(m.id) === String(value));
-
-  useEffect(() => {
-    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  const q = term.trim().toLowerCase();
-  const options = materials
-    .filter((m) => !excludeIds.has(String(m.id)))
-    .filter((m) => !q || (m.material_name || "").toLowerCase().includes(q) || (m.material_code || "").toLowerCase().includes(q))
-    .slice(0, 50);
-
-  const pick = (m) => { onSelect(String(m.id)); setTerm(""); setOpen(false); };
-
-  return (
-    <div ref={boxRef} className="relative">
-      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-      <input
-        value={open ? term : (selected ? `${selected.material_name}${selected.material_code ? ` (${selected.material_code})` : ""}` : "")}
-        onFocus={() => { setOpen(true); setTerm(""); setHi(0); }}
-        onChange={(e) => { setTerm(e.target.value); setOpen(true); setHi(0); }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHi((h) => Math.min(h + 1, Math.max(options.length - 1, 0))); }
-          else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
-          else if (e.key === "Enter") { e.preventDefault(); if (open && options[hi]) pick(options[hi]); }
-          else if (e.key === "Escape") { setOpen(false); }
-        }}
-        className={`h-10 w-full rounded-lg border pl-9 pr-8 text-[14px] outline-none ${inputClass}`}
-        placeholder="Search material name or code"
-      />
-      {selected && !open && (
-        <button type="button" onClick={() => onSelect("")} title="Clear material" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-rose-500"><X size={14} /></button>
-      )}
-      {open && (
-        <div className={`absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
-          {options.length === 0 ? (
-            <div className="px-3 py-2 text-[13px] text-gray-400">No materials match</div>
-          ) : options.map((m, i) => {
-            const stock = stockById[String(m.id)];
-            return (
-              <button key={m.id} type="button" onMouseDown={(e) => { e.preventDefault(); pick(m); }} onMouseEnter={() => setHi(i)}
-                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] ${i === hi ? (isDark ? "bg-[#3B405A]" : "bg-[#F3F2F7]") : ""}`}>
-                <span className="min-w-0 truncate">{m.material_name}{m.material_code ? ` · ${m.material_code}` : ""}</span>
-                {stock && <span className="shrink-0 text-[11px] text-gray-400">{fmtQty(stock.current_qty)} {stock.unit_name || ""}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
+// The searchable material picker used by the Outlet PO line items now lives in
+// WarehouseShared.jsx (MaterialCombobox) so the Transfers modal can reuse the
+// same pattern. Behavior unchanged: name/code match, keyboard support,
+// clears, hides already-picked materials per row.
 export default function WarehouseRequisitions({ locationId, locations, materials, isDark, units = [] }) {
   const [loading, setLoading] = useState(true);
   const [requisitions, setRequisitions] = useState([]);

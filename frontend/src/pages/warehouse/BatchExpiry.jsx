@@ -143,7 +143,7 @@ const BatchExpiry = () => {
           <p className={`text-sm font-semibold ${isDark ? "text-[#FF9F43]" : "text-[#FF9F43]"}`}>Expiry Alerts ({alerts.length})</p>
           <ul className="mt-2 space-y-1 text-sm">
             {alerts.slice(0, 5).map(a => (
-              <li key={`${a.raw_material_id}-${a.batch_no}`} className={isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}>
+              <li key={`${a.location_id}-${a.raw_material_id}-${a.batch_no}`} className={isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}>
                 {a.material_name} — Batch {a.batch_no} — {a.expiry_date} ({a.days_remaining} days) — Qty {a.available_qty} {a.unit_name}
               </li>
             ))}
@@ -174,7 +174,7 @@ const BatchExpiry = () => {
               <tr><td colSpan={10} className="px-4 py-8"><EmptyState message="No batch records found" isDark={isDark} /></td></tr>
             ) : (
               rows.map((r) => (
-                <tr key={`${r.raw_material_id}-${r.batch_no}-${r.expiry_date}`} className={isDark ? "border-b border-[#3B405A]" : "border-b border-[#F3F2F7]"}>
+                <tr key={`${r.location_id}-${r.raw_material_id}-${r.batch_no}-${r.expiry_date}`} className={isDark ? "border-b border-[#3B405A]" : "border-b border-[#F3F2F7]"}>
                   <td className="px-4 py-3">{r.material_name}</td>
                   <td className="px-4 py-3 font-mono text-xs">{r.batch_no}</td>
                   <td className="px-4 py-3">{r.expiry_date || "—"}</td>

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, PageHeader, FilterBar, StatusBadge } from "../../components/ui";
-import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate, MaterialCombobox } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import {
   Search, RotateCcw, Plus, FileText, Eye, Edit, Send, CheckCircle, XCircle, Lock,
@@ -374,7 +374,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                 <div className="space-y-2">
                   {form.items.map((it, idx) => (
                     <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 items-end border-b pb-2 last:border-0">
-                      <div className="sm:col-span-3"><select value={it.raw_material_id} onChange={e => updateItem(idx, "raw_material_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">Material</option>{materials.filter(m => m.is_active).map(m => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select></div>
+                      <div className="sm:col-span-3"><MaterialCombobox value={it.raw_material_id} onSelect={v => updateItem(idx, "raw_material_id", v)} materials={materials.filter(m => m.is_active)} excludeIds={new Set(form.items.filter((x, i) => i !== idx).map((x) => String(x.raw_material_id)).filter(Boolean))} isDark={isDark} inputClass={inputClass} /></div>
                       <div className="sm:col-span-1"><input type="number" min="0" placeholder="Qty" value={it.ordered_qty} onChange={e => updateItem(idx, "ordered_qty", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
                       <div className="sm:col-span-2"><select value={it.unit_id} onChange={e => updateItem(idx, "unit_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">Unit</option>{units.map(u => <option key={u.id} value={u.id}>{u.unit_name}</option>)}</select></div>
                       <div className="sm:col-span-2"><input type="number" min="0" placeholder="Rate" value={it.rate} onChange={e => updateItem(idx, "rate", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>

@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, StatusBadge, Pagination } from "../../components/ui";
-import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate, MaterialCombobox } from "./WarehouseShared";
 import { getInputClass } from "../../components/ui";
 import { Search, RotateCcw, Plus, Truck, Eye, X, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
@@ -376,7 +376,7 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
                         return (
                           <tr key={it._key ?? idx} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                             <td className="px-2 py-2">
-                              <select value={it.raw_material_id} onChange={(e) => updateItem(idx, "raw_material_id", e.target.value)} className={`h-9 w-40 rounded-md border px-2 text-base md:text-[13px] outline-none ${inputClass}`}><option value="">Select</option>{materials.map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}</select>
+                              <MaterialCombobox value={it.raw_material_id} onSelect={(v) => updateItem(idx, "raw_material_id", v)} materials={materials} excludeIds={new Set()} isDark={isDark} inputClass={inputClass} />
                             </td>
                             <td className="px-2 py-2"><input type="number" min="0" value={it.received_qty} onChange={(e) => updateItem(idx, "received_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-base md:text-[13px] outline-none ${inputClass}`} /></td>
                             <td className="px-2 py-2"><input type="number" min="0" value={it.rejected_qty} onChange={(e) => updateItem(idx, "rejected_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-right text-base md:text-[13px] outline-none ${inputClass}`} /></td>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { warehouseAPI, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { SectionCard, TableWrapper, LoadingRows, EmptyState, getInputClass, StatusBadge } from "../../components/ui";
-import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate } from "./WarehouseShared";
+import { KpiCard, fmtCurrency, fmtQty, num, EmptyRow, fmtDate, MaterialCombobox } from "./WarehouseShared";
 import { WASTAGE_KINDS, wastageKindToPayload, wastageItemToKind } from "./wastageKinds";
 import { Search, RotateCcw, Plus, X, Eye, Send, CheckCircle, ShieldCheck, Lock, Trash2, FileText } from "lucide-react";
 import toast from "react-hot-toast";
@@ -268,10 +268,9 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
   const renderItemCells = (it, idx) => (
     <>
       <td className="px-2 py-2">
-        <select value={it.raw_material_id} onChange={(e) => updateItem(idx, "raw_material_id", e.target.value)} className={`h-9 w-44 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
-          <option value="">Select</option>
-          {materials.map((m) => <option key={m.id} value={m.id}>{m.material_name}</option>)}
-        </select>
+        <div className="w-56">
+          <MaterialCombobox value={it.raw_material_id} onSelect={(v) => updateItem(idx, "raw_material_id", v)} materials={materials} excludeIds={new Set()} isDark={isDark} inputClass={inputClass} placeholder="Search material" />
+        </div>
       </td>
       <td className="px-2 py-2">
         <select value={it.unit_id} onChange={(e) => updateItem(idx, "unit_id", e.target.value)} className={`h-9 w-28 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
