@@ -314,6 +314,9 @@ const emptyForm = () => ({
 
 const UserManagement = () => {
   const currentUser = useAuthStore((state) => state.user);
+  const canDeleteUser = Boolean(currentUser?.permissions?.users?.can_delete);
+  const canCreateUser = Boolean(currentUser?.permissions?.users?.can_create);
+  const canEditUser = Boolean(currentUser?.permissions?.users?.can_edit);
 
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -473,6 +476,7 @@ const UserManagement = () => {
   };
 
   const handleEdit = (user) => {
+    if (!canEditUser) return;
     setEditingUser(user);
     setFormData({
       full_name: user.full_name || "",
@@ -494,6 +498,7 @@ const UserManagement = () => {
   };
 
   const handleDelete = (id, user) => {
+    if (!canDeleteUser) return;
     if (Number(id) === Number(currentUser?.id)) return;
 
     const target = user || users.find((u) => Number(u.id) === Number(id));
@@ -536,6 +541,7 @@ const UserManagement = () => {
   };
 
   const handleToggleStatus = (user, next) => {
+    if (!canEditUser) return;
     if (Number(user.id) === Number(currentUser?.id)) return;
     const nextActive = next === 1 || next === true;
     setPendingConfirmation({ type: "status", user, nextActive });
@@ -564,6 +570,8 @@ const UserManagement = () => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (editingUser ? !canEditUser : !canCreateUser) return;
 
     if (!formData.full_name.trim()) {
       toast.error("Please enter full name");
@@ -1053,19 +1061,21 @@ const UserManagement = () => {
             Export
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              resetForm();
-              setShowForm(true);
-              setSelectedUser(null);
-            }}
-            className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
-            style={{ backgroundColor: primaryColor }}
-          >
-            <Plus size={18} />
-            Add New User
-          </button>
+          {canCreateUser && (
+            <button
+              type="button"
+              onClick={() => {
+                resetForm();
+                setShowForm(true);
+                setSelectedUser(null);
+              }}
+              className="flex items-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white shadow-[0_3px_12px_rgba(115,103,240,0.35)]"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <Plus size={18} />
+              Add New User
+            </button>
+          )}
         </div>
       </div>
 
@@ -1412,64 +1422,70 @@ const UserManagement = () => {
               </div>
 
               <div className="mt-6 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleEdit(selectedUser)}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  <Edit2 size={17} />
-                  Edit
-                </button>
+                {canEditUser && (
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(selectedUser)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold text-white"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <Edit2 size={17} />
+                    Edit
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    selectedUser.is_active === 1 || selectedUser.is_active === true
-                      ? handleToggleStatus(selectedUser, 0)
-                      : handleToggleStatus(selectedUser, 1)
-                  }
-                  disabled={Number(selectedUser.id) === Number(currentUser?.id) || togglingId === selectedUser.id}
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
-                    isDark ? "bg-[#00A6B7]/15 text-[#22D3EE]" : "bg-[#EEF9FC] text-[#00A6B7]"
-                  }`}
-                  title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot change your own status" : (selectedUser.is_active === 1 || selectedUser.is_active === true ? "Deactivate" : "Activate")}
-                >
-                  {togglingId === selectedUser.id ? (
-                    <Loader2 size={17} className="animate-spin" />
-                  ) : (
-                    <>
-                      {selectedUser.is_active === 1 || selectedUser.is_active === true ? (
-                        <>
-                          <X size={17} /> Deactivate
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle size={17} /> Activate
-                        </>
-                      )}
-                    </>
-                  )}
-                </button>
+                {canEditUser && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      selectedUser.is_active === 1 || selectedUser.is_active === true
+                        ? handleToggleStatus(selectedUser, 0)
+                        : handleToggleStatus(selectedUser, 1)
+                    }
+                    disabled={Number(selectedUser.id) === Number(currentUser?.id) || togglingId === selectedUser.id}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
+                      isDark ? "bg-[#00A6B7]/15 text-[#22D3EE]" : "bg-[#EEF9FC] text-[#00A6B7]"
+                    }`}
+                    title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot change your own status" : (selectedUser.is_active === 1 || selectedUser.is_active === true ? "Deactivate" : "Activate")}
+                  >
+                    {togglingId === selectedUser.id ? (
+                      <Loader2 size={17} className="animate-spin" />
+                    ) : (
+                      <>
+                        {selectedUser.is_active === 1 || selectedUser.is_active === true ? (
+                          <>
+                            <X size={17} /> Deactivate
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle size={17} /> Activate
+                          </>
+                        )}
+                      </>
+                    )}
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => handleDelete(selectedUser.id, selectedUser)}
-                  disabled={Number(selectedUser.id) === Number(currentUser?.id) || deletingId === selectedUser.id}
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
-                    isDark ? "bg-[#EA5455]/15 text-[#FF6B6B]" : "bg-[#FCEAEA] text-[#EA5455]"
-                  }`}
-                  title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
-                >
-                  {deletingId === selectedUser.id ? (
-                    <Loader2 size={17} className="animate-spin" />
-                  ) : (
-                    <>
-                      <Trash2 size={17} />
-                      Delete
-                    </>
-                  )}
-                </button>
+                {canDeleteUser && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(selectedUser.id, selectedUser)}
+                    disabled={Number(selectedUser.id) === Number(currentUser?.id) || deletingId === selectedUser.id}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-[15px] font-semibold disabled:opacity-50 ${
+                      isDark ? "bg-[#EA5455]/15 text-[#FF6B6B]" : "bg-[#FCEAEA] text-[#EA5455]"
+                    }`}
+                    title={Number(selectedUser.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                  >
+                    {deletingId === selectedUser.id ? (
+                      <Loader2 size={17} className="animate-spin" />
+                    ) : (
+                      <>
+                        <Trash2 size={17} />
+                        Delete
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1929,32 +1945,38 @@ const UserManagement = () => {
                     >
                       <Eye size={15} /> View
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(user)}
-                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
-                      title="Edit"
-                    >
-                      <Edit2 size={15} /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
-                      disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
-                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
-                    >
-                      {togglingId === user.id ? <Loader2 size={15} className="animate-spin" /> : user.is_active === 1 || user.is_active === true ? <><X size={15} /> Deactivate</> : <><CheckCircle size={15} /> Activate</>}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(user.id, user)}
-                      disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                      className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
-                      title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
-                    >
-                      {deletingId === user.id ? <Loader2 size={15} className="animate-spin" /> : <><Trash2 size={15} /> Delete</>}
-                    </button>
+                    {canEditUser && (
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(user)}
+                        className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                        title="Edit"
+                      >
+                        <Edit2 size={15} /> Edit
+                      </button>
+                    )}
+                    {canEditUser && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
+                        disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                        className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                        title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
+                      >
+                        {togglingId === user.id ? <Loader2 size={15} className="animate-spin" /> : user.is_active === 1 || user.is_active === true ? <><X size={15} /> Deactivate</> : <><CheckCircle size={15} /> Activate</>}
+                      </button>
+                    )}
+                    {canDeleteUser && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(user.id, user)}
+                        disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                        className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}
+                        title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                      >
+                        {deletingId === user.id ? <Loader2 size={15} className="animate-spin" /> : <><Trash2 size={15} /> Delete</>}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2038,26 +2060,29 @@ const UserManagement = () => {
                           <Eye size={16} />
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(user)}
-                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${
-                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
-                          }`}
-                          title="Edit"
-                        >
-                          <Edit2 size={16} />
-                        </button>
+                        {canEditUser && (
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(user)}
+                            className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] ${
+                              isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                            }`}
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
-                          disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${
-                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
-                          }`}
-                          title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
-                        >
+                        {canEditUser && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStatus(user, user.is_active === 1 || user.is_active === true ? 0 : 1)}
+                            disabled={togglingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                            className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#00A6B7] hover:text-[#00A6B7] disabled:opacity-50 ${
+                              isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                            }`}
+                            title={Number(user.id) === Number(currentUser?.id) ? "Cannot change your own status" : (user.is_active === 1 || user.is_active === true ? "Deactivate" : "Activate")}
+                          >
                           {togglingId === user.id ? (
                             <Loader2 size={16} className="animate-spin" />
                           ) : user.is_active === 1 || user.is_active === true ? (
@@ -2065,23 +2090,26 @@ const UserManagement = () => {
                           ) : (
                             <CheckCircle size={16} />
                           )}
-                        </button>
+                          </button>
+                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(user.id, user)}
-                          disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
-                          className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${
-                            isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
-                          }`}
-                          title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
-                        >
-                          {deletingId === user.id ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={16} />
-                          )}
-                        </button>
+                        {canDeleteUser && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(user.id, user)}
+                            disabled={deletingId === user.id || Number(user.id) === Number(currentUser?.id)}
+                            className={`flex h-9 w-9 items-center justify-center rounded-md border transition hover:border-[#EA5455] hover:text-[#EA5455] disabled:opacity-50 ${
+                              isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"
+                            }`}
+                            title={Number(user.id) === Number(currentUser?.id) ? "Cannot delete your own account" : "Delete permanently"}
+                          >
+                            {deletingId === user.id ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -50,6 +50,26 @@ export const getVendors = async (req, res) => {
   }
 };
 
+// Selector-only lookup for pages that need a vendor dropdown without full
+// Vendor Master access (Vendor Purchases, Vendor Ledger & Payments). Returns
+// the minimum fields those selectors display/use.
+export const getVendorLookup = async (req, res) => {
+  try {
+    const { is_active } = req.query;
+    let where = '1=1';
+    const params = [];
+    if (is_active !== undefined) { where += ' AND is_active = ?'; params.push(is_active); }
+    const rows = await query(
+      `SELECT id, vendor_name, category, credit_days FROM outlet_vendors WHERE ${where} ORDER BY vendor_name`,
+      params
+    );
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Vendor lookup error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching vendor lookup' });
+  }
+};
+
 export const getVendorById = async (req, res) => {
   try {
     const rows = await query('SELECT * FROM outlet_vendors WHERE id = ?', [req.params.id]);
@@ -685,8 +705,8 @@ export const rejectVendorPayment = async (req, res) => {
 
 // ============================================================================
 // Phase 7D3A1 - Outlet Vendor Opening Balance (one row per outlet+vendor).
-// Permission module: outlet_vendors (view/create/edit) - same module that owns
-// vendor financials; no parallel module invented. Mutations take the vendor
+// Permission module: vendor_ledger_payments (view/create/edit) - same module
+// that owns vendor financials. Mutations take the vendor
 // FOR UPDATE lock so they serialize against payment verification (which holds
 // the same outlet_vendors row lock during its authoritative checks).
 // ============================================================================
@@ -839,7 +859,7 @@ export const getVendorDashboardSummary = async (req, res) => {
     const outletScope = req.outletScope;
     const allowedOutletIds = outletScope && !outletScope.all ? outletScope.outletIds : null;
     const rolePerms = await loadRolePermissions(req.user.role_id);
-    const canVerify = Boolean(rolePerms?.outlet_vendors?.can_verify);
+    const canVerify = Boolean(rolePerms?.vendor_ledger_payments?.can_verify);
     const data = await getVendorPayablesSummary({
       asOfDate: new Date().toISOString().slice(0, 10),
       allowedOutletIds,

@@ -633,11 +633,11 @@ const DayClosing = () => {
     const isSelf = Boolean(
       user?.id && closing.submitted_by && Number(user.id) === Number(closing.submitted_by)
     );
-    const canVerify = (permissions.can_verify || isAdmin) && !isSelf;
-    const canReject = (permissions.can_reject || isAdmin) && !isSelf;
-    const canDelete = permissions.can_delete || isAdmin;
-    const canEdit = permissions.can_edit || isAdmin;
-    const canSubmit = permissions.can_submit || isAdmin;
+    const canVerify = Boolean(permissions.can_verify) && !isSelf;
+    const canReject = Boolean(permissions.can_reject) && !isSelf;
+    const canDelete = Boolean(permissions.can_delete);
+    const canEdit = Boolean(permissions.can_edit);
+    const canSubmit = Boolean(permissions.can_submit);
 
     items.push({ icon: Eye, onClick: () => openDetail(closing), label: "View", cls: isDark ? "bg-[#3B405A] text-[#D0D2D6]" : "bg-[#F3F2F7] text-[#2F2B3D]" });
 

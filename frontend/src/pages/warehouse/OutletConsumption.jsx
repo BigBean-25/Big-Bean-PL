@@ -31,7 +31,7 @@ export default function OutletConsumption() {
 
   const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const modulePerms = getStoredPermissions()?.outlet_consumption || {};
-  const can = (a) => isAdminRole || Boolean(modulePerms[a]);
+  const can = (a) => Boolean(modulePerms[a]);
   const isOwn = (d) => Boolean(user?.id && d?.created_by && Number(user.id) === Number(d.created_by));
 
   const [outlets, setOutlets] = useState([]);

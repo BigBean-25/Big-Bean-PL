@@ -10,9 +10,8 @@ const emptyItem = () => ({ raw_material_id: "", requested_qty: "", unit_id: "", 
 export default function RequestsTab({ requests, kitchenId, outlets, materials, units, isDark, canCreate, canEdit, onRefresh }) {
   const inputClass = getInputClass(isDark);
   const { user } = useAuthStore();
-  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const reqPerms = getStoredPermissions()?.production_requests || {};
-  const can = (a) => isAdminRole || Boolean(reqPerms[a]);
+  const can = (a) => Boolean(reqPerms[a]);
   const isOwn = (r) =>
     Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
   // Backend: submit accepts can_submit OR can_edit; approve/reject accept

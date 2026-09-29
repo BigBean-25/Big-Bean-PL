@@ -185,7 +185,7 @@ async function main() {
     dispatchId = d.id;
     await postProductionDispatch(dispatchId, userId);
     const stItem = (await query('SELECT id FROM stock_transfer_items WHERE transfer_id = ?', [dispatchId]))[0];
-    await receiveProductionDispatch(dispatchId, { received_at: today, items: [{ id: stItem.id, received_qty: 7, short_qty: 1, damaged_qty: 0 }] }, userId);
+    await receiveProductionDispatch(dispatchId, { received_at: today, receipt_key: `VISUAL-CK-RCPT-${dispatchId}`, items: [{ id: stItem.id, received_qty: 7, short_qty: 1, damaged_qty: 0, discrepancy_reason: 'SHORT_SUPPLY' }] }, userId);
     const reqAfter = await getProductionRequestById(requestId);
     assert('Request received = 7', Number(reqAfter.received_qty) === 7);
     assert('Request short = 1', Number(reqAfter.short_qty) === 1);

@@ -103,9 +103,8 @@ export default function WarehousePhase2c({ module, locationId, locations, materi
   const config = MODULE_CONFIG[module];
   const inputClass = getInputClass(isDark);
   const { user } = useAuthStore();
-  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const modulePerms = getStoredPermissions()?.[module] || {};
-  const can = (a) => isAdminRole || Boolean(modulePerms[a]);
+  const can = (a) => Boolean(modulePerms[a]);
   const isOwn = (d) =>
     Boolean(user?.id && d?.created_by && Number(user.id) === Number(d.created_by));
   const [loading, setLoading] = useState(true);

@@ -1,16 +1,18 @@
 import { query } from '../config/database.js';
 import { PERMISSION_ACTIONS, matrixToRows, rowsToPermissionObject } from '../utils/rolePermissionModules.js';
 
-const canManageRoleAccess = (roleName = '') => ['Super Admin', 'Admin', 'Technical Admin', 'Developer'].includes(String(roleName || '').trim());
+// Write gate only - reads are enforced permission-wise by the route-level
+// checkPermission('role_access', 'can_view') on roleAccessRoutes, so a
+// diagnostic role (Developer/Technical Admin: view+export only) keeps read
+// visibility without a name bypass. Developer and Technical Admin were
+// removed from this list during role hardening: support roles must not
+// rewrite another role's permission matrix.
+const canManageRoleAccess = (roleName = '') => ['Super Admin', 'Admin'].includes(String(roleName || '').trim());
 
 const normalizePermissionRows = (roleId, roleName, rows = []) => matrixToRows(roleId, roleName, rows);
 
 export const getRoleAccessRoles = async (req, res) => {
   try {
-    if (!canManageRoleAccess(req.user.role_name)) {
-      return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
-    }
-
     const roles = await query(
       `SELECT id, role_name, description, is_active
        FROM roles
@@ -27,10 +29,6 @@ export const getRoleAccessRoles = async (req, res) => {
 
 export const getRolePermissions = async (req, res) => {
   try {
-    if (!canManageRoleAccess(req.user.role_name)) {
-      return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
-    }
-
     const { roleId } = req.params;
     const roles = await query('SELECT id, role_name FROM roles WHERE id = ?', [roleId]);
 
@@ -82,14 +80,13 @@ export const updateRolePermissions = async (req, res) => {
     const { roleId } = req.params;
 
     // Nothing else stopped a caller from editing the permission row for the
-    // role they themselves currently hold - e.g. Technical Admin (which has
-    // role_access.can_edit) could grant its own role can_delete/can_approve/
-    // can_lock rights the role is explicitly designed not to have (see the
-    // "Deliberately no delete and no financial approve/reject/lock" comment
-    // in rolePermissionModules.js), fully bypassing that restriction via this
-    // screen. Super Admin/Admin/Developer are unaffected since they already
-    // have full access by default and have no legitimate reason to edit
-    // their own role here.
+    // role they themselves currently hold - e.g. a support role with
+    // role_access.can_edit could grant its own role can_delete/can_approve/
+    // can_lock rights the role is explicitly designed not to have, fully
+    // bypassing that restriction via this screen. Super Admin/Admin are
+    // unaffected since they already have full access by default and have no
+    // legitimate reason to edit their own role here (Developer and Technical
+    // Admin can no longer reach this endpoint at all).
     if (Number(roleId) === Number(req.user.role_id)) {
       return res.status(403).json({ success: false, message: 'You cannot edit permissions for your own role' });
     }

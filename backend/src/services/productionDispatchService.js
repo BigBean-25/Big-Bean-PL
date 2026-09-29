@@ -2,6 +2,7 @@ import { query, getConnection } from '../config/database.js';
 import { getMaterialBaseUnit, convertToBase } from '../utils/uomUtils.js';
 import { getCurrentStock } from './warehouseService.js';
 import { allocateFEFO } from './warehouseBatchService.js';
+import { validateReceiptItemReasons, receiptDiscrepancyFlag, insertReceiptHeader, insertReceiptItem } from './transferReceiptService.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -280,7 +281,13 @@ export async function postProductionDispatch(id, userId) {
 }
 
 export async function receiveProductionDispatch(id, data, userId) {
-  const { received_at, items } = data;
+  const { received_at, items, receipt_key, receipt_remarks } = data;
+  // Same idempotency contract as warehouse receiveTransfer: the
+  // client-generated receipt_key + UNIQUE(transfer_id, receipt_key) makes a
+  // retried submission unable to apply stock twice.
+  if (!receipt_key || !String(receipt_key).trim()) throw new Error('Receipt key is required');
+  if (String(receipt_key).length > 64) throw new Error('Receipt key is too long');
+  validateReceiptItemReasons(items);
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
@@ -294,6 +301,18 @@ export async function receiveProductionDispatch(id, data, userId) {
     if (!['In Transit', 'Partially Received'].includes(transfer[0].status)) {
       await conn.rollback();
       throw new Error('Dispatch must be In Transit before it can be received');
+    }
+
+    // Receipt history header first, inside this transaction: a duplicate
+    // receipt_key means this attempt already ran - roll back and return the
+    // already-applied state instead of double-crediting stock.
+    const receiptId = await insertReceiptHeader(
+      conn, id, String(receipt_key).trim(), userId, receipt_remarks, receiptDiscrepancyFlag(items)
+    );
+    if (receiptId === null) {
+      await conn.rollback();
+      const existing = await getProductionDispatchById(id);
+      return { ...existing, duplicate_receipt: true };
     }
 
     for (const it of items) {
@@ -326,6 +345,10 @@ export async function receiveProductionDispatch(id, data, userId) {
         `UPDATE stock_transfer_items SET received_qty = ?, short_qty = ?, damaged_qty = ? WHERE id = ?`,
         [newReceived, newShort, newDamaged, it.id]
       );
+      // Per-receipt history for this event; the cumulative columns above and
+      // all stock/fulfilment semantics are unchanged.
+      const pendingAfter = Math.max(0, num(ti[0].dispatched_qty) - newReceived - newShort - newDamaged);
+      await insertReceiptItem(conn, receiptId, it.id, it, pendingAfter);
     }
 
     const allItems = await conn.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', [id]);

@@ -25,8 +25,7 @@ export default function PurchaseReturns({ locationId, isDark }) {
   const inputClass = getInputClass(isDark);
   const permissions = getStoredPermissions();
   const { user } = useAuthStore();
-  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
-  const can = (a) => isAdminRole || Boolean(permissions?.warehouse_purchase_returns?.[a]);
+  const can = (a) => Boolean(permissions?.warehouse_purchase_returns?.[a]);
   const isOwn = (r) =>
     Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
   const canCreate = can("can_create");

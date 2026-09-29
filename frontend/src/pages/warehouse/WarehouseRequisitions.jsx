@@ -27,9 +27,8 @@ export default function WarehouseRequisitions({ locationId, locations, materials
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 25, pages: 1 });
   const inputClass = getInputClass(isDark);
   const { user } = useAuthStore();
-  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const reqPerms = getStoredPermissions()?.warehouse_requisitions || {};
-  const can = (a) => isAdminRole || Boolean(reqPerms[a]);
+  const can = (a) => Boolean(reqPerms[a]);
   const isOwn = (r) =>
     Boolean(user?.id && r?.created_by && Number(user.id) === Number(r.created_by));
 

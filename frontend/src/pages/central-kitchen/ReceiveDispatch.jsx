@@ -6,6 +6,24 @@ import toast from "react-hot-toast";
 
 const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v));
 
+const DISCREPANCY_REASON_OPTIONS = [
+  { value: "SHORT_SUPPLY", label: "Short Supply" },
+  { value: "DAMAGED_IN_TRANSIT", label: "Damaged in Transit" },
+  { value: "NOT_RECEIVED", label: "Not Received" },
+  { value: "WRONG_ITEM", label: "Wrong Item" },
+  { value: "QUALITY_ISSUE", label: "Quality Issue" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "REJECTED", label: "Rejected" },
+  { value: "OTHER", label: "Other" },
+];
+
+// One key per receipt attempt - kept across retries of the same submit so
+// the backend UNIQUE(transfer_id, receipt_key) can never double-apply stock.
+const newReceiptKey = () => {
+  try { return crypto.randomUUID(); }
+  catch { return `rcpt-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+};
+
 export default function ReceiveDispatch() {
   const isDark = getThemeMode() === "dark";
   const inputClass = getInputClass(isDark);
@@ -15,6 +33,11 @@ export default function ReceiveDispatch() {
   const [dispatches, setDispatches] = useState([]);
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState({});
+  const [receiptKey, setReceiptKey] = useState(null);
+  const [receiptRemarks, setReceiptRemarks] = useState("");
+  const [receiptHistory, setReceiptHistory] = useState([]);
+  const [receiptHistoryLoading, setReceiptHistoryLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const canReceive = !!(getStoredPermissions()?.production_dispatch?.can_edit);
 
   const fetchOutletLocations = async () => {
@@ -40,6 +63,15 @@ export default function ReceiveDispatch() {
   useEffect(() => { fetchOutletLocations(); }, []);
   useEffect(() => { fetchDispatches(); }, [locationId]);
 
+  const fetchReceiptHistory = async (dispatchId) => {
+    setReceiptHistoryLoading(true);
+    try {
+      const res = await productionAPI.getProductionDispatchReceipts(dispatchId);
+      setReceiptHistory(res?.data?.data || []);
+    } catch { setReceiptHistory([]); }
+    finally { setReceiptHistoryLoading(false); }
+  };
+
   const openDetail = async (d) => {
     try {
       const res = await productionAPI.getProductionDispatch(d.id);
@@ -47,26 +79,59 @@ export default function ReceiveDispatch() {
       setDetail(full);
       setReceipt((full.items || []).reduce((acc, it) => ({
         ...acc,
-        [it.id]: { received_qty: Math.max(0, num(it.dispatched_qty) - num(it.received_qty)).toString(), short_qty: "0", damaged_qty: "0" },
+        [it.id]: {
+          received_qty: Math.max(0, num(it.dispatched_qty) - num(it.received_qty)).toString(),
+          short_qty: "0",
+          damaged_qty: "0",
+          reason: "",
+          remarks: "",
+        },
       }), {}));
+      setReceiptKey(newReceiptKey());
+      setReceiptRemarks("");
+      fetchReceiptHistory(full.id);
     } catch (error) { toast.error("Failed to load dispatch details"); }
   };
 
   const updateReceipt = (id, key, value) => setReceipt((r) => ({ ...r, [id]: { ...r[id], [key]: value } }));
 
   const submitReceipt = async () => {
+    if (saving) return;
+    const items = Object.entries(receipt).map(([id, r]) => ({
+      id: Number(id),
+      received_qty: num(r.received_qty),
+      short_qty: num(r.short_qty),
+      damaged_qty: num(r.damaged_qty),
+      discrepancy_reason: r.reason || null,
+      remarks: r.remarks || null,
+    }));
+    if (items.some((it) => it.received_qty < 0 || it.short_qty < 0 || it.damaged_qty < 0)) {
+      toast.error("Received, short and damaged quantities cannot be negative");
+      return;
+    }
+    for (const it of items) {
+      if ((it.damaged_qty > 0 || it.short_qty > 0) && !it.discrepancy_reason) {
+        toast.error("Select a discrepancy reason for items with damaged or short quantity");
+        return;
+      }
+      if (it.discrepancy_reason === "OTHER" && !String(it.remarks || "").trim()) {
+        toast.error("Remarks are required when the discrepancy reason is Other");
+        return;
+      }
+    }
+    setSaving(true);
     try {
-      const items = Object.entries(receipt).map(([id, r]) => ({
-        id: Number(id),
-        received_qty: num(r.received_qty),
-        short_qty: num(r.short_qty),
-        damaged_qty: num(r.damaged_qty),
-      }));
-      await productionAPI.receiveProductionDispatch(detail.id, { received_at: new Date().toISOString().split("T")[0], items });
+      await productionAPI.receiveProductionDispatch(detail.id, {
+        received_at: new Date().toISOString().split("T")[0],
+        items,
+        receipt_key: receiptKey,
+        receipt_remarks: receiptRemarks || null,
+      });
       toast.success("Dispatch received");
       setDetail(null);
       fetchDispatches();
     } catch (error) { toast.error(error?.response?.data?.message || "Receipt failed"); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -133,25 +198,97 @@ export default function ReceiveDispatch() {
                 <table className="w-full border-collapse text-[13px]">
                   <thead>
                     <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                      <th className="px-2 py-2">Product</th><th className="px-2 py-2">Dispatched</th><th className="px-2 py-2">Received Qty</th><th className="px-2 py-2">Short</th><th className="px-2 py-2">Damaged</th>
+                      <th className="px-2 py-2">Product</th><th className="px-2 py-2">Dispatched</th><th className="px-2 py-2">Already Received</th><th className="px-2 py-2">Pending to Receive</th><th className="px-2 py-2">Receiving Now</th><th className="px-2 py-2">Short / Not Received</th><th className="px-2 py-2">Damaged</th><th className="px-2 py-2">Details</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(detail.items || []).map((it) => (
+                    {(detail.items || []).map((it) => {
+                      const pending = Math.max(0, num(it.dispatched_qty) - num(it.received_qty) - num(it.damaged_qty) - num(it.short_qty));
+                      const needsReason = num(receipt[it.id]?.damaged_qty) > 0 || num(receipt[it.id]?.short_qty) > 0;
+                      return (
                       <tr key={it.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                         <td className="px-2 py-2">{it.material_name}</td>
                         <td className="px-2 py-2">{Number(it.dispatched_qty).toFixed(2)} {it.unit_name}</td>
-                        <td className="px-2 py-2"><input type="number" value={receipt[it.id]?.received_qty || ""} onChange={(e) => updateReceipt(it.id, "received_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
-                        <td className="px-2 py-2"><input type="number" value={receipt[it.id]?.short_qty || ""} onChange={(e) => updateReceipt(it.id, "short_qty", e.target.value)} className={`h-9 w-20 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
-                        <td className="px-2 py-2"><input type="number" value={receipt[it.id]?.damaged_qty || ""} onChange={(e) => updateReceipt(it.id, "damaged_qty", e.target.value)} className={`h-9 w-20 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
+                        <td className="px-2 py-2">{Number(it.received_qty).toFixed(2)}</td>
+                        <td className="px-2 py-2">{pending.toFixed(2)}</td>
+                        <td className="px-2 py-2"><input type="number" min="0" value={receipt[it.id]?.received_qty || ""} onChange={(e) => updateReceipt(it.id, "received_qty", e.target.value)} className={`h-9 w-24 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
+                        <td className="px-2 py-2"><input type="number" min="0" value={receipt[it.id]?.short_qty || ""} onChange={(e) => updateReceipt(it.id, "short_qty", e.target.value)} className={`h-9 w-20 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
+                        <td className="px-2 py-2"><input type="number" min="0" value={receipt[it.id]?.damaged_qty || ""} onChange={(e) => updateReceipt(it.id, "damaged_qty", e.target.value)} className={`h-9 w-20 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} /></td>
+                        <td className="px-2 py-2">
+                          <div className="flex min-w-56 flex-col gap-1">
+                            {needsReason && (
+                              <select value={receipt[it.id]?.reason || ""} onChange={(e) => updateReceipt(it.id, "reason", e.target.value)} className={`h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`}>
+                                <option value="">Discrepancy reason *</option>
+                                {DISCREPANCY_REASON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                            )}
+                            <input value={receipt[it.id]?.remarks || ""} onChange={(e) => updateReceipt(it.id, "remarks", e.target.value)} placeholder="Remarks" className={`h-9 rounded-md border px-2 text-[13px] outline-none ${inputClass}`} />
+                          </div>
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </TableWrapper>
+
+              <div className="mt-4">
+                <input value={receiptRemarks} onChange={(e) => setReceiptRemarks(e.target.value)} placeholder="Receipt remarks (optional)" className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputClass}`} />
+              </div>
+
+              <div className="mt-4">
+                <h4 className={`mb-2 text-[12px] font-semibold uppercase tracking-wider ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Receipt History</h4>
+                {receiptHistoryLoading ? (
+                  <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Loading receipts…</p>
+                ) : receiptHistory.length === 0 ? (
+                  <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>No receipts recorded yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {receiptHistory.map((r) => (
+                      <div key={r.id} className={`rounded-md border p-3 ${Number(r.discrepancy_flag) === 1 ? (isDark ? "border-[#FF9F43] bg-[#FF9F43]/10" : "border-[#FF9F43] bg-[#FFF4E5]") : (isDark ? "border-[#3B405A]" : "border-[#EBE9F1]")}`}>
+                        <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
+                          <span className={`font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{new Date(r.received_at).toLocaleString()}</span>
+                          <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>by {r.received_by_name || "—"}</span>
+                          {Number(r.discrepancy_flag) === 1 && <span className="rounded-full bg-[#FF9F43]/20 px-2 py-0.5 text-[11px] font-semibold text-[#FF9F43]">Discrepancy</span>}
+                          {r.receipt_remarks && <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>· {r.receipt_remarks}</span>}
+                        </div>
+                        <TableWrapper isDark={isDark}>
+                          <table className="w-full border-collapse text-[12px]">
+                            <thead>
+                              <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                                <th className="px-2 py-1.5">Item</th>
+                                <th className="px-2 py-1.5 text-right">Received</th>
+                                <th className="px-2 py-1.5 text-right">Damaged</th>
+                                <th className="px-2 py-1.5 text-right">Short / Not Received</th>
+                                <th className="px-2 py-1.5 text-right">Pending After</th>
+                                <th className="px-2 py-1.5">Reason</th>
+                                <th className="px-2 py-1.5">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.items.map((ri) => (
+                                <tr key={`${r.id}-${ri.transfer_item_id}`} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                                  <td className="px-2 py-1.5">{ri.material_name || `#${ri.transfer_item_id}`}</td>
+                                  <td className="px-2 py-1.5 text-right">{Number(ri.received_qty).toFixed(2)}</td>
+                                  <td className="px-2 py-1.5 text-right">{Number(ri.damaged_qty).toFixed(2)}</td>
+                                  <td className="px-2 py-1.5 text-right">{Number(ri.short_qty).toFixed(2)}</td>
+                                  <td className="px-2 py-1.5 text-right">{Number(ri.pending_after_qty).toFixed(2)}</td>
+                                  <td className="px-2 py-1.5">{ri.discrepancy_reason ? (DISCREPANCY_REASON_OPTIONS.find((o) => o.value === ri.discrepancy_reason)?.label || ri.discrepancy_reason) : "—"}</td>
+                                  <td className="px-2 py-1.5">{ri.remarks || "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TableWrapper>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="mt-4 flex justify-end gap-2">
                 <button onClick={() => setDetail(null)} className="h-10 rounded-lg border px-4 text-[14px] font-medium">Cancel</button>
-                <button onClick={submitReceipt} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8]">Confirm Receipt</button>
+                <button onClick={submitReceipt} disabled={saving} className="h-10 rounded-lg bg-[#7367F0] px-4 text-[14px] font-semibold text-white hover:bg-[#6354D8] disabled:opacity-50">{saving ? "Recording…" : "Confirm Receipt"}</button>
               </div>
             </div>
           </div>

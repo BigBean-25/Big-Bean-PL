@@ -90,6 +90,8 @@ import FixedCostsEntry from "./pages/settings/FixedCostsEntry";
 import Warehouse from "./pages/warehouse/Warehouse";
 import CentralKitchen from "./pages/central-kitchen/CentralKitchen";
 import ReceiveDispatch from "./pages/central-kitchen/ReceiveDispatch";
+import SystemSupport from "./pages/system-support/SystemSupport";
+import DeveloperTools from "./pages/developer-tools/DeveloperTools";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -429,6 +431,12 @@ function App() {
           <Route path="central-kitchen/:tab?" element={<CentralKitchen />} />
           <Route path="central-kitchen-receive" element={<ReceiveDispatch />} />
           <Route path="outlet-consumption" element={<OutletConsumption />} />
+
+          {/* Platform diagnostics: Super Admin (/system-support/*) and
+              Developer (/developer/*). Pages self-guard on role_name; the
+              sidebar only surfaces them for those roles. */}
+          <Route path="system-support/:capability" element={<SystemSupport />} />
+          <Route path="developer/:capability" element={<DeveloperTools />} />
 
           <Route path="*" element={<NotFound />} />
         </Route>

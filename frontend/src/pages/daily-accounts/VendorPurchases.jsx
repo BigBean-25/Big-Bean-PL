@@ -3,7 +3,7 @@ import {
   Plus, Search, RotateCcw, Trash2, AlertTriangle, Wallet, ChevronRight,
   IndianRupee, ShoppingCart, Clock, ShieldAlert, CheckCircle2, Loader2,
 } from "lucide-react";
-import { outletVendorAPI, masterAPI, getSelectedOutletId } from "../../services/api";
+import { outletVendorAPI, masterAPI, getSelectedOutletId, getStoredPermissions } from "../../services/api";
 import useAuthStore from "../../store/authStore";
 import { useSelectedOutlet } from "../../hooks/useSelectedOutlet";
 import toast from "react-hot-toast";
@@ -35,6 +35,15 @@ export default function VendorPurchases() {
   const mutedCls = isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]";
   const mainCls = isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]";
   const borderCls = isDark ? "border-[#3B405A]" : "border-[#EBE9F1]";
+
+  // vendor_purchases gates the entry/list; the embedded ledger + payment panel
+  // belongs to vendor_ledger_payments and is hidden entirely without it.
+  const purchasePerms = useMemo(() => getStoredPermissions()?.vendor_purchases || {}, []);
+  const ledgerPerms = useMemo(() => getStoredPermissions()?.vendor_ledger_payments || {}, []);
+  const canCreatePurchase = Boolean(purchasePerms.can_create);
+  const canDeletePurchase = Boolean(purchasePerms.can_delete);
+  const canViewLedger = Boolean(ledgerPerms.can_view);
+  const canCreatePayment = Boolean(ledgerPerms.can_create);
 
   const isAdmin = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const userOutletIds = useMemo(() => (user?.outlets || []).map((o) => String(o.id || o.outlet_id)), [user]);
@@ -73,7 +82,7 @@ export default function VendorPurchases() {
     try {
       const [o, v, pm, eh, rm, u] = await Promise.all([
         masterAPI.getOutlets(),
-        outletVendorAPI.getVendors({ is_active: 1 }),
+        outletVendorAPI.getVendorLookup({ is_active: 1 }),
         masterAPI.getPaymentModes(),
         masterAPI.getExpenseHeads({ is_active: 1 }),
         masterAPI.getRawMaterials({ limit: 1000 }),
@@ -256,7 +265,7 @@ export default function VendorPurchases() {
   };
 
   const fetchLedger = async () => {
-    if (!ledgerOutlet || !ledgerVendor) return;
+    if (!canViewLedger || !ledgerOutlet || !ledgerVendor) return;
     setLedgerLoading(true);
     try {
       const res = await outletVendorAPI.getLedger({ outlet_id: ledgerOutlet, vendor_id: ledgerVendor, date: today() });
@@ -311,6 +320,7 @@ export default function VendorPurchases() {
         <StatCard title="Emergency Buys" value={summary.emergencyCount} subtitle="Zepto / Hyperpure / top-up" icon={ShieldAlert} color="#EA5455" bg="#FCEAEA" />
       </div>
 
+      {canCreatePurchase && (
       <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
         <span className={`mb-3 block text-[12px] font-semibold uppercase tracking-wider ${mutedCls}`}>Record a Purchase</span>
         <form onSubmit={handleCreate} className="space-y-4">
@@ -434,7 +444,9 @@ export default function VendorPurchases() {
           </button>
         </form>
       </div>
+      )}
 
+      {canViewLedger && (
       <div className={`rounded-md border p-4 shadow-[0_2px_12px_rgba(47,43,61,0.06)] sm:p-5 ${cardCls}`}>
         <div className="mb-3 flex items-center gap-2">
           <Wallet size={16} style={{ color: primaryColor }} />
@@ -472,7 +484,7 @@ export default function VendorPurchases() {
           <p className={`mt-4 text-[13px] ${mutedCls}`}>Select an outlet and vendor to view their ledger.</p>
         )}
 
-        {ledger && ledger.current_outstanding > 0.005 && (
+        {ledger && ledger.current_outstanding > 0.005 && canCreatePayment && (
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4">
             <input type="number" min="0" step="0.01" max={ledger.current_outstanding} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="Payment amount" className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`} />
             <select value={payModeId} onChange={(e) => setPayModeId(e.target.value)} className={`h-10 w-full rounded-md border px-3 text-[14px] outline-none ${inputCls}`}>
@@ -489,6 +501,7 @@ export default function VendorPurchases() {
           <div className="mt-3 flex items-center gap-2 text-[13px] text-[#28C76F]"><CheckCircle2 size={15} /> Fully settled — no outstanding balance.</div>
         )}
       </div>
+      )}
 
       <div className={`rounded-md border shadow-[0_2px_12px_rgba(47,43,61,0.06)] ${cardCls}`}>
         <div className={`border-b px-4 py-3 sm:px-6 ${borderCls}`}>
@@ -539,7 +552,9 @@ export default function VendorPurchases() {
                     <td className={`px-3 py-2.5 text-[13px] ${mutedCls}`}>{p.paid_by}</td>
                     <td className={`px-3 py-2.5 text-[13px] ${mutedCls}`}>{p.payment_mode_name || "Credit"}</td>
                     <td className="px-3 py-2.5">
-                      <button onClick={() => handleDeletePurchase(p.id)} className="text-[#EA5455]"><Trash2 size={14} /></button>
+                      {canDeletePurchase && (
+                        <button onClick={() => handleDeletePurchase(p.id)} className="text-[#EA5455]"><Trash2 size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 ))}

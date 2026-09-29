@@ -3,6 +3,8 @@ import { query } from '../config/database.js';
 import { protect } from '../middleware/auth.js';
 import { checkPermission } from '../middleware/permissionMiddleware.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
+import { isLocationAccessible } from '../middleware/warehouseMiddleware.js';
+import { getTransferReceiptHistory } from '../services/transferReceiptService.js';
 import {
   getCentralKitchenLocations, getProductionDashboard, getProductionRequests, getProductionRequestById,
   createProductionRequest, updateProductionRequestStatus, updateProductionRequestItems, getProductionPlans, getProductionPlanById,
@@ -94,7 +96,7 @@ const canReceiveProductionDispatch = async (req, res, next) => {
     // platform-wide admin roles (whose remit genuinely spans every outlet and
     // who hold no user_outlets rows) bypass it; everyone else, Central Kitchen
     // Admin included, must be assigned to the receiving outlet.
-    const isPlatformAdmin = ['Super Admin', 'Admin', 'Developer'].includes(req.user.role_name);
+    const isPlatformAdmin = ['Super Admin', 'Admin'].includes(req.user.role_name);
     if (isPlatformAdmin) {
       if (perm.length && perm[0].is_read_only) {
         return res.status(403).json({ success: false, message: 'Read-only users cannot modify data' });
@@ -410,6 +412,25 @@ router.get('/dispatch/pending-items/:requestId', checkPermission('production_dis
 
 router.get('/dispatch/:id', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
   try { const data = await getProductionDispatchById(Number(req.params.id)); res.json({ success: true, data }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
+// Per-receipt history for one production dispatch. Same visibility rule as
+// the warehouse transfer history: can_view + the caller must be able to
+// access the source (kitchen) or destination (outlet) location.
+router.get('/dispatch/:id/receipts', checkPermission('production_dispatch', 'can_view'), async (req, res) => {
+  try {
+    const dispatch = await getProductionDispatchById(Number(req.params.id));
+    if (!dispatch) return res.status(404).json({ success: false, message: 'Dispatch not found' });
+    const [srcLoc] = await query('SELECT from_location_id, to_location_id FROM stock_transfers WHERE id = ?', [dispatch.id]);
+    const canSeeSource = await isLocationAccessible(req.user, srcLoc?.from_location_id);
+    const canSeeDest = await isLocationAccessible(req.user, srcLoc?.to_location_id);
+    if (!canSeeSource && !canSeeDest) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this dispatch' });
+    }
+    const data = await getTransferReceiptHistory(Number(req.params.id));
+    res.json({ success: true, data });
+  }
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 

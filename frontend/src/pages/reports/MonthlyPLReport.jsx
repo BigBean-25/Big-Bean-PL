@@ -36,7 +36,7 @@ const PLSection = ({ title, icon: Icon, children, isDark, color = "#7367F0" }) =
 
 const MonthlyPLReport = () => {
   const { user } = useAuthStore();
-  const canFinalize = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
+  const canFinalize = Boolean(user?.permissions?.monthly_pl?.can_lock);
 
   const [outlets, setOutlets] = useState([]);
   const [reportData, setReportData] = useState(null);

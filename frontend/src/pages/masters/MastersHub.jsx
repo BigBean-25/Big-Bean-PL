@@ -48,7 +48,7 @@ const ITEM_MODULES = {
   "/masters/outlets": "outlets",
   "/masters/categories": "categories",
   "/masters/suppliers": "suppliers",
-  "/masters/outlet-vendors": "outlet_vendors",
+  "/masters/outlet-vendors": "outlet_vendor_master",
   "/masters/raw-materials": "raw_materials",
   "/masters/menu-items": "menu_items",
   "/masters/locations": "locations",
@@ -80,7 +80,7 @@ const MastersHub = () => {
       return canAccessMasterRoute(moduleKey);
     }
 
-    if (moduleKey === "outlet_vendors" || moduleKey === "locations") {
+    if (moduleKey === "outlet_vendor_master" || moduleKey === "locations") {
       return Boolean(permissions?.[moduleKey]?.can_view);
     }
 

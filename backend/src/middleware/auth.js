@@ -85,7 +85,7 @@ export const checkOutletAccess = async (req, res, next) => {
       return next();
     }
 
-    if (req.user.role_name === 'Super Admin' || req.user.role_name === 'Developer') {
+    if (req.user.role_name === 'Super Admin') {
       return next();
     }
 

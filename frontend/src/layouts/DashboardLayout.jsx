@@ -34,14 +34,10 @@ import {
   BookOpen,
   ArrowRightLeft,
   ArrowRight,
-  Scale,
   Truck,
   ChefHat,
-  Trash2,
   BarChart3,
-  PackageCheck,
   SlidersHorizontal,
-  AlertTriangle,
   Store,
 } from "lucide-react";
 import useAuthStore from "../store/authStore";
@@ -80,6 +76,8 @@ const CHEVRON_TRANSITION = {
 
 const normalizeRole = (role = "") => role.trim();
 
+// Kept in step with backend/src/utils/roleAccess.js - scope/diagnostic
+// visibility only; every write still passes module permission checks.
 const ALL_OUTLET_ROLES = [
   "Technical Admin",
   "Super Admin",
@@ -88,21 +86,27 @@ const ALL_OUTLET_ROLES = [
   "Accountant",
   "Warehouse Admin",
   "Central Kitchen Admin",
+  "Bakehouse Admin",
   "Viewer / Auditor",
   "Viewer Auditor",
   "Viewer",
 ];
 
-const LOCKED_OUTLET_ROLES = ["Outlet Manager", "Outlet Admin", "Outlet Staff"];
+// Same outlet-locked set as backend roleAccess.js LOCKED_OUTLET_ROLES -
+// franchise roles manage their own outlet(s), not the whole company.
+const LOCKED_OUTLET_ROLES = ["Outlet Manager", "Outlet Admin", "Outlet Staff", "Franchise", "Franchise Owner"];
 
 const buildPermissions = (roleName = "User") => {
   const role = normalizeRole(roleName);
   const isTechnical = role === "Technical Admin";
   const isSuper = role === "Super Admin";
-  const isLegacyAdmin = role === "Admin" || role === "Developer";
+  const isLegacyAdmin = role === "Admin";
   const isAccountant = role === "Accountant";
   const isWarehouseAdmin = role === "Warehouse Admin";
-  const isCentralKitchenAdmin = role === "Central Kitchen Admin";
+  // 'Bakehouse Admin' is the same job under the new user-facing name - the
+  // backend (buildDefaultPermissionMatrix / ALL_OUTLET_ROLES) aliases it to
+  // the Central Kitchen Admin profile, so the frontend must too.
+  const isCentralKitchenAdmin = role === "Central Kitchen Admin" || role === "Bakehouse Admin";
   const isManager = role === "Outlet Manager" || role === "Outlet Admin";
   const isStaff = role === "Outlet Staff";
   const isViewer = role === "Viewer / Auditor" || role === "Viewer Auditor" || role === "Viewer";
@@ -141,7 +145,7 @@ const buildPermissions = (roleName = "User") => {
     canViewCompanyPL: isSuper || isLegacyAdmin || isTechnical || isAccountant || isViewer,
     canLockDay: isSuper || isLegacyAdmin,
     canLockMonth: isSuper || isLegacyAdmin || isAccountant,
-    canEmergencyCorrect: isTechnical,
+    canEmergencyCorrect: isSuper,
     isWarehouseAdmin,
     isCentralKitchenAdmin,
   };
@@ -491,7 +495,7 @@ const DashboardLayout = () => {
   const legacyCanView = (moduleKey, fallback = false) =>
     legacyPermissions?.[moduleKey]?.can_view ?? fallback;
   const canAccessMasterRoute = (moduleKey) => {
-    if (moduleKey === "outlet_vendors" || moduleKey === "locations") {
+    if (moduleKey === "outlet_vendor_master" || moduleKey === "locations") {
       return canView(moduleKey);
     }
 
@@ -685,85 +689,63 @@ const DashboardLayout = () => {
   }, []);
 
   const menuItems = useMemo(() => {
+    // Role-wise sidebar hierarchy (approved presentation, slides 1-10): the
+    // nine fixed `section` labels below are the top-level groups; each entry
+    // inside a group is an expandable sub-section (or a direct link). Every
+    // child stays gated on can_view - grouping/order here is purely
+    // presentational and never grants or hides access beyond the matrix.
     const items = [
+      // ------------------------------------------------------------ OVERVIEW
       {
         key: "dashboard",
         title: t.dashboard,
         icon: LayoutDashboard,
         path: "/",
-        section: "Dashboard / Outlet Performance",
+        section: "Overview",
         show: canView("dashboard", legacyCanView("dashboard", true)),
       },
       {
-        key: "outletDashboard",
-        title: t.outletDashboard,
-        icon: LayoutDashboard,
-        section: "Dashboard / Outlet Performance",
-        show: canView("sales_target") || canView("dashboard", legacyCanView("dashboard", true)),
-        // Consolidated, outlet-facing landing menu. Most sub-items just deep
-        // link into pages that already live elsewhere in the sidebar (Daily
-        // Accounts, Sales, Stock, Masters, Reports) - only the "Dashboard"
-        // and "Sales" group's first item and the "Wastage" item are new
-        // pages. "Vivin Store" / "Big Bean Bake House" are outlet-facing
-        // display names for the existing Warehouse PO/GRN flow and the
-        // existing Central Kitchen (already labeled "Bakehouse") Request/
-        // Receive flow, respectively - no new backend entities.
+        key: "outlet-performance",
+        title: "Outlet Performance",
+        icon: BarChart3,
+        section: "Overview",
+        show: canView("sales_target"),
         submenu: [
-          ...(canView("sales_target") ? [{ title: t.outletDashboard, path: "/outlet-dashboard", group: "Dashboard" }] : []),
-          ...(canView("sales_target") ? [{ title: t.outletSalesAnalysis, path: "/outlet-dashboard/sales", group: "Sales" }] : []),
-          ...(canView("warehouse_wastage") ? [{ title: t.outletWastage, path: "/outlet-dashboard/wastage", group: "Stock" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.outletWastageByCategory, path: "/outlet-dashboard/wastage-by-category", group: "Wastage" }] : []),
+          ...(canView("sales_target") ? [{ title: t.outletDashboard, path: "/outlet-dashboard" }] : []),
+          ...(canView("sales_target") ? [{ title: t.outletSalesAnalysis, path: "/outlet-dashboard/sales" }] : []),
         ],
       },
+      // -------------------------------------------------- FINANCE & ACCOUNTS
       {
-        key: "users",
-        title: "User Management",
-        icon: Users,
-        section: "Users & Access",
-        show: canView("users", permissions.canManageUsers) || canView("role_access", false),
-        submenu: [
-          ...(canView("users", permissions.canManageUsers) ? [{ title: t.users, path: "/users" }] : []),
-          ...(canView("role_access", false) ? [{ title: "Roles & Permissions", path: "/role-access" }] : []),
-        ],
-      },
-      {
-        key: "masters",
-        title: t.masters,
-        icon: Settings,
-        section: "Master Data",
-        show: canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendors") || canView("raw_materials") || canView("menu_items") || canView("locations"),
-        submenu: [
-          ...((canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendors") || canView("raw_materials") || canView("menu_items") || canView("locations")) ? [{ title: "Master Data Home", path: "/masters" }] : []),
-          ...(canView("outlets", legacyCanView("outlets", permissions.canManageMasters)) ? [{ title: t.outlets, path: "/masters/outlets" }] : []),
-          ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories" }] : []),
-          ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers" }] : []),
-          ...(canView("outlet_vendors") ? [{ title: t.outletVendors, path: "/masters/outlet-vendors" }] : []),
-          ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials" }] : []),
-          ...(canView("menu_items", legacyCanView("menu_items", permissions.canManageMasters)) ? [{ title: t.menuItems, path: "/masters/menu-items" }] : []),
-          ...(canView("locations") ? [{ title: t.locationManagement, path: "/masters/locations" }] : []),
-        ],
-      },
-      {
-        key: "daily",
-        title: t.dailyAccounts,
+        key: "daily-operations",
+        title: "Daily Operations",
         icon: ClipboardList,
-        section: "Daily Accounts",
-        show: canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) || canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) || canView("bank_deposits", false) || canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) || canView("daily_checklist", legacyCanView("daily_checklist", false)) || canView("outlet_vendors"),
+        section: "Finance & Accounts",
+        show: canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) || canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) || canView("bank_deposits", false) || canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) || canView("daily_checklist", legacyCanView("daily_checklist", false)),
         submenu: [
           ...(canView("daily_cashbook", legacyCanView("daily_cashbook", permissions.canCreateCashbook)) ? [{ title: t.cashbook, path: "/daily-accounts/cashbook" }] : []),
           ...(canView("daily_expenses", legacyCanView("daily_expenses", permissions.canCreateExpense)) ? [{ title: t.expenses, path: "/daily-accounts/expenses" }] : []),
           ...(canView("bank_deposits", false) ? [{ title: t.bankDeposits, path: "/daily-accounts/bank-deposits" }] : []),
           ...(canView("day_closing", legacyCanView("day_closing", permissions.canSubmitCashbook)) ? [{ title: t.dayClosing, path: "/daily-accounts/day-closing" }] : []),
           ...(canView("daily_checklist", legacyCanView("daily_checklist", false)) ? [{ title: t.checklist, path: "/daily-accounts/checklist" }] : []),
-          ...(canView("outlet_vendors") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases" }] : []),
-          ...(canView("outlet_vendors") ? [{ title: t.vendorLedgerPayments, path: "/daily-accounts/vendor-ledger-payments" }] : []),
         ],
       },
       {
-        key: "payroll",
-        title: t.payroll,
+        key: "vendor-accounts",
+        title: "Vendor Accounts",
+        icon: Truck,
+        section: "Finance & Accounts",
+        show: canView("vendor_purchases") || canView("vendor_ledger_payments"),
+        submenu: [
+          ...(canView("vendor_purchases") ? [{ title: t.vendorPurchases, path: "/daily-accounts/vendor-purchases" }] : []),
+          ...(canView("vendor_ledger_payments") ? [{ title: t.vendorLedgerPayments, path: "/daily-accounts/vendor-ledger-payments" }] : []),
+        ],
+      },
+      {
+        key: "monthly-expenses",
+        title: "Monthly Expenses",
         icon: Wallet,
-        section: "Monthly Accounts",
+        section: "Finance & Accounts",
         show: canView("payroll", permissions.canViewPayroll) || canView("utility_bills", false) || canView("fixed_costs", false),
         submenu: [
           ...(canView("payroll", permissions.canViewPayroll) ? [{ title: t.employeeSalary, path: "/payroll/employee-salary" }] : []),
@@ -772,22 +754,109 @@ const DashboardLayout = () => {
         ],
       },
       {
-        key: "stock",
-        title: t.stock,
-        icon: Package,
-        section: "Outlet Stock",
-        show: canView("opening_stock", permissions.canUploadStock || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("closing_stock", false),
+        key: "settlements",
+        title: "Settlements",
+        icon: DollarSign,
+        section: "Finance & Accounts",
+        show: canView("online_payouts", permissions.canViewPayouts) || canView("dine_in_payouts", permissions.canViewPayouts),
+        submenu: [
+          ...(canView("online_payouts", legacyCanView("online_payouts", permissions.canViewPayouts)) ? [{ title: t.onlinePayouts, path: "/payouts/online" }] : []),
+          ...(canView("dine_in_payouts", legacyCanView("dine_in_payouts", permissions.canViewPayouts)) ? [{ title: t.dineInPayouts, path: "/payouts/dine-in" }] : []),
+        ],
+      },
+      // ---------------------------------------------------------------- SALES
+      {
+        key: "sales",
+        title: t.sales,
+        icon: TrendingUp,
+        section: "Sales",
+        show: canView("item_sales") || canView("item_sales_daily") || canView("item_sales_monthly") || canView("item_sales_tax"),
+        submenu: [
+          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload" }] : []),
+          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload" }] : []),
+          ...(canView("item_sales") ? [{ title: t.itemSales, path: "/sales/item-sales" }] : []),
+          ...(canView("item_sales_tax") ? [{ title: t.itemTaxUpload, path: "/sales/item-tax-upload" }] : []),
+        ],
+      },
+      // ------------------------------------------------------------ INVENTORY
+      {
+        key: "outlet-inventory",
+        title: "Outlet Inventory",
+        icon: Store,
+        section: "Inventory",
+        show: canView("opening_stock", permissions.canUploadStock || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("closing_stock", false) || canView("outlet_consumption") || canView("warehouse_wastage"),
         submenu: [
           ...(canView("opening_stock", legacyCanView("opening_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.openingStock, path: "/stock/opening-stock" }] : []),
           ...(canView("closing_stock", legacyCanView("closing_stock", permissions.canUploadStock || permissions.isReadOnly)) ? [{ title: t.closingStock, path: "/stock/closing-stock" }] : []),
           ...(canView("outlet_consumption") ? [{ title: "Outlet Consumption", path: "/outlet-consumption" }] : []),
+          // Outlet-facing wastage page (moved out of the old Outlet Performance
+          // menu) - the central-warehouse variant lives under Stock Control.
+          ...(canView("warehouse_wastage") ? [{ title: "Outlet Wastage", path: "/outlet-dashboard/wastage" }] : []),
         ],
       },
       {
-        key: "purchases",
-        title: t.purchases,
+        key: "warehouse-inventory",
+        title: "Warehouse Inventory",
+        icon: Package,
+        section: "Inventory",
+        show: canView("warehouse_dashboard") || canView("warehouse_stock") || canView("warehouse_ledger") || canView("warehouse_batch_expiry"),
+        submenu: [
+          // Warehouse Dashboard lives here (not in Overview) - the approved
+          // Super Admin presentation keeps Overview to Dashboard + Outlet
+          // Performance and does not add a separate Warehouse group.
+          ...(canView("warehouse_dashboard") ? [{ title: "Warehouse Dashboard", path: "/warehouse/dashboard" }] : []),
+          ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock" }] : []),
+          ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger" }] : []),
+          ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry" }] : []),
+        ],
+      },
+      {
+        key: "stock-control",
+        title: "Stock Control",
+        icon: SlidersHorizontal,
+        section: "Inventory",
+        show: canView("warehouse_transfers") || canView("physical_stock_counts") || canView("stock_adjustments") || canView("warehouse_wastage"),
+        submenu: [
+          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers" }] : []),
+          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts" }] : []),
+          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments" }] : []),
+          // Outlet-locked users get their own scoped wastage page (Outlet
+          // Inventory -> Outlet Wastage). This item leads to the
+          // Central-Warehouse-scoped page, which would show them an empty
+          // list and a create flow that 403s - hide via isOutletLocked.
+          ...(canView("warehouse_wastage") && !permissions.isOutletLocked ? [{ title: "Warehouse Wastage", path: "/warehouse/warehouse-wastage" }] : []),
+        ],
+      },
+      // ---------------------------------------------------------- PROCUREMENT
+      {
+        key: "supplier-purchasing",
+        title: "Supplier Purchasing",
         icon: ShoppingCart,
-        section: "Purchases & Payments",
+        section: "Procurement",
+        show: canView("warehouse_purchase_orders") || canView("grn") || canView("warehouse_purchase_returns") || canView("warehouse_reorder") || canView("warehouse_supplier_history"),
+        submenu: [
+          ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders" }] : []),
+          ...(canView("grn") ? [{ title: t.warehouseGRN, path: "/warehouse/grn" }] : []),
+          ...(canView("warehouse_purchase_returns") ? [{ title: t.warehousePurchaseReturns, path: "/warehouse/purchase-returns" }] : []),
+          ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder" }] : []),
+          ...(canView("warehouse_supplier_history") ? [{ title: t.warehouseSupplierHistory, path: "/warehouse/supplier-history" }] : []),
+        ],
+      },
+      {
+        key: "outlet-supply",
+        title: "Outlet Supply",
+        icon: Truck,
+        section: "Procurement",
+        show: canView("warehouse_requisitions"),
+        submenu: [
+          ...(canView("warehouse_requisitions") ? [{ title: "Outlet Requisitions", path: "/warehouse/requisitions" }] : []),
+        ],
+      },
+      {
+        key: "purchase-accounting",
+        title: "Purchase Accounting",
+        icon: BookOpen,
+        section: "Procurement",
         show: canView("material_purchase", permissions.canUploadPurchase || roleName === "Outlet Manager" || roleName === "Outlet Admin" || permissions.isReadOnly) || canView("supplier_payments", false),
         submenu: [
           ...(canView("material_purchase") ? [{ title: t.materialPurchase, path: "/purchases/material-purchase" }] : []),
@@ -795,161 +864,258 @@ const DashboardLayout = () => {
           ...(canView("supplier_payments") ? [{ title: t.supplierPayments, path: "/purchases/supplier-payments" }] : []),
         ],
       },
+      // ------------------------------------------- CENTRAL KITCHEN / BAKEHOUSE
       {
-        key: "sales",
-        title: t.sales,
-        icon: TrendingUp,
-        section: "Sales Uploads",
-        show: canView("item_sales") || canView("item_sales_daily") || canView("item_sales_monthly") || canView("item_sales_tax"),
+        key: "production",
+        title: "Production",
+        icon: ChefHat,
+        section: "Central Kitchen",
+        show: canView("production_dashboard") || canView("production_requests") || canView("production_planning") || canView("production_batches") || canView("production_wastage") || canView("production_variance"),
         submenu: [
-          ...(canView("item_sales") ? [{ title: t.itemSales, path: "/sales/item-sales" }] : []),
-          ...(canView("item_sales_daily") ? [{ title: t.dailySalesUpload, path: "/sales/daily-upload" }] : []),
-          ...(canView("item_sales_monthly") ? [{ title: t.monthlySalesUpload, path: "/sales/monthly-upload" }] : []),
-          ...(canView("item_sales_tax") ? [{ title: t.itemTaxUpload, path: "/sales/item-tax-upload" }] : []),
+          // Bakehouse Dashboard leads the production pages inside the Central
+          // Kitchen group, per the approved presentation.
+          ...(canView("production_dashboard") ? [{ title: t.centralKitchenDashboard, path: "/central-kitchen/dashboard" }] : []),
+          ...(canView("production_requests") ? [{ title: t.centralKitchenRequests, path: "/central-kitchen/requests" }] : []),
+          ...(canView("production_planning") ? [{ title: t.centralKitchenPlanning, path: "/central-kitchen/plans" }] : []),
+          ...(canView("production_batches") ? [{ title: t.centralKitchenBatches, path: "/central-kitchen/batches" }] : []),
+          ...(canView("production_wastage") ? [{ title: t.centralKitchenWastage, path: "/central-kitchen/wastage" }] : []),
+          ...(canView("production_variance") ? [{ title: t.centralKitchenVariance, path: "/central-kitchen/variance" }] : []),
         ],
       },
       {
-        key: "recipe",
-        title: t.recipe,
+        key: "distribution",
+        title: "Distribution",
+        icon: ArrowRightLeft,
+        section: "Central Kitchen",
+        show: canView("production_dispatch"),
+        submenu: [
+          ...(canView("production_dispatch") ? [{ title: t.centralKitchenDispatches, path: "/central-kitchen/dispatches" }] : []),
+          // Outlet-facing receipt confirmation: hidden from the kitchen role -
+          // the outlet confirms receipt, the bakehouse is never the receiver
+          // (it would also 403: no user_outlets row).
+          ...(canView("production_dispatch") && !permissions.isCentralKitchenAdmin ? [{ title: t.receiveDispatch, path: "/central-kitchen-receive" }] : []),
+        ],
+      },
+      // ------------------------------------------------------- MENU & RECIPES
+      {
+        key: "recipes",
+        title: "Recipes",
         icon: Coffee,
-        section: "Recipes",
-        show: canView("recipe_list", roleName !== "Outlet Staff" && roleName !== "Outlet Manager" && roleName !== "Outlet Admin"),
+        section: "Menu & Recipes",
+        show: canView("recipe_list", roleName !== "Outlet Staff" && roleName !== "Outlet Manager" && roleName !== "Outlet Admin") || canView("add_recipe", !permissions.isReadOnly),
         submenu: [
           ...(canView("recipe_list", legacyCanView("recipe_list", roleName !== "Outlet Staff")) ? [{ title: t.recipeList, path: "/recipes" }] : []),
           ...(canView("add_recipe", !permissions.isReadOnly) ? [{ title: t.addRecipe, path: "/recipes/new" }] : []),
         ],
       },
-      {
-        key: "payouts",
-        title: t.payouts,
-        icon: DollarSign,
-        section: "Monthly Accounts",
-        show: canView("online_payouts", permissions.canViewPayouts) || canView("dine_in_payouts", permissions.canViewPayouts),
-        submenu: [
-          ...(canView("online_payouts", legacyCanView("online_payouts", permissions.canViewPayouts)) ? [{ title: t.onlinePayouts, path: "/payouts/online" }] : []),
-          ...(canView("dine_in_payouts", legacyCanView("dine_in_payouts", permissions.canViewPayouts)) ? [{ title: t.dineInPayouts, path: "/payouts/dine-in" }] : []),
-        ],
-      },
+      // -------------------------------------------------- REPORTS & ANALYTICS
       {
         key: "reports",
         title: t.reports,
         icon: FileText,
         section: "Reports & Analytics",
-        show: canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)),
+        show: canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)) || canView("controlled_exceptions"),
         submenu: [
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)) ? [{ title: "Reports Home", path: "/reports" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.dailyCashbookReport, path: "/reports/daily-cashbook" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.expenseReport, path: "/reports/expense-report" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.actualConsumption, path: "/reports/actual-consumption" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.theoreticalConsumption, path: "/reports/theoretical-consumption" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.supplierPending, path: "/reports/supplier-pending" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) && permissions.canAccessAllOutlets ? [{ title: t.purchaseGST, path: "/reports/purchase-gst" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.salesGST, path: "/reports/sales-gst" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.gstr1, path: "/reports/gstr1" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.consumptionVariance, path: "/reports/consumption-variance" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Physical vs Theoretical", path: "/reports/consumption-reconciliation" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) || canView("monthly_pl", legacyCanView("monthly_pl", permissions.canViewPL)) ? [{ title: "Reports Home", path: "/reports", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.dailyCashbookReport, path: "/reports/daily-cashbook", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.expenseReport, path: "/reports/expense-report", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.supplierPending, path: "/reports/supplier-pending", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) && permissions.canAccessAllOutlets ? [{ title: t.purchaseGST, path: "/reports/purchase-gst", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.salesGST, path: "/reports/sales-gst", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.gstr1, path: "/reports/gstr1", group: "Financial" }] : []),
+          ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl", group: "Financial" }] : []),
+          ...(canView("monthly_pl", permissions.canViewPL) && permissions.canAccessAllOutlets ? [{ title: t.outletComparison, path: "/reports/outlet-comparison", group: "Financial" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.actualConsumption, path: "/reports/actual-consumption", group: "Consumption & Stock" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.theoreticalConsumption, path: "/reports/theoretical-consumption", group: "Consumption & Stock" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.consumptionVariance, path: "/reports/consumption-variance", group: "Consumption & Stock" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Physical vs Theoretical", path: "/reports/consumption-reconciliation", group: "Consumption & Stock" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: t.outletWastageByCategory, path: "/outlet-dashboard/wastage-by-category", group: "Consumption & Stock" }] : []),
           // Phase 7A (Req 13): Closing Reconciliation and Hybrid COGS already had
           // routes and were already listed in ReportsHub, but were missing here -
           // the two lists are now consistent. Same `reports` gate as their
           // ReportsHub entries, so no role gains access it did not already have.
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Closing Reconciliation", path: "/reports/closing-reconciliation" }] : []),
-          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Hybrid COGS", path: "/reports/hybrid-cogs" }] : []),
-          ...(canView("monthly_pl", permissions.canViewPL) ? [{ title: t.monthlyPL, path: "/reports/monthly-pl" }] : []),
-          ...(canView("monthly_pl", permissions.canViewPL) && permissions.canAccessAllOutlets ? [{ title: t.outletComparison, path: "/reports/outlet-comparison" }] : []),
-          ...(canView("controlled_exceptions") ? [{ title: "Exceptions & Reversals", path: "/reports/exceptions" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Closing Reconciliation", path: "/reports/closing-reconciliation", group: "Consumption & Stock" }] : []),
+          ...(canView("reports", legacyCanView("reports", permissions.canViewReports)) ? [{ title: "Hybrid COGS", path: "/reports/hybrid-cogs", group: "Consumption & Stock" }] : []),
+          ...(canView("controlled_exceptions") ? [{ title: "Exceptions & Reversals", path: "/reports/exceptions", group: "Exceptions" }] : []),
         ],
       },
       {
-        key: "warehouse",
-        title: t.warehouse,
+        key: "warehouse-reports",
+        title: "Warehouse Reports",
+        icon: BarChart3,
+        path: "/warehouse/reports",
+        section: "Reports & Analytics",
+        show: canView("warehouse_reports"),
+      },
+      // -------------------------------------------------------- ADMINISTRATION
+      {
+        key: "access-control",
+        title: "Access Control",
+        icon: Users,
+        section: "Administration",
+        show: canView("users", permissions.canManageUsers) || canView("role_access", false),
+        submenu: [
+          ...(canView("users", permissions.canManageUsers) ? [{ title: t.users, path: "/users" }] : []),
+          ...(canView("role_access", false) ? [{ title: "Roles & Permissions", path: "/role-access" }] : []),
+        ],
+      },
+      {
+        key: "master-data",
+        title: "Master Data",
+        icon: Grid3X3,
+        section: "Administration",
+        show: canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendor_master") || canView("raw_materials") || canView("menu_items") || canView("locations"),
+        submenu: [
+          ...((canView("outlets") || canView("categories") || canView("suppliers") || canView("outlet_vendor_master") || canView("raw_materials") || canView("menu_items") || canView("locations")) ? [{ title: "Master Data Home", path: "/masters" }] : []),
+          ...(canView("outlets", legacyCanView("outlets", permissions.canManageMasters)) ? [{ title: t.outlets, path: "/masters/outlets" }] : []),
+          ...(canView("categories", legacyCanView("categories", permissions.canManageMasters)) ? [{ title: t.categories, path: "/masters/categories" }] : []),
+          ...(canView("suppliers", legacyCanView("suppliers", permissions.canManageMasters)) ? [{ title: t.suppliers, path: "/masters/suppliers" }] : []),
+          ...(canView("outlet_vendor_master") ? [{ title: t.outletVendors, path: "/masters/outlet-vendors" }] : []),
+          ...(canView("raw_materials", legacyCanView("raw_materials", permissions.canManageMasters)) ? [{ title: t.rawMaterials, path: "/masters/raw-materials" }] : []),
+          ...(canView("menu_items", legacyCanView("menu_items", permissions.canManageMasters)) ? [{ title: t.menuItems, path: "/masters/menu-items" }] : []),
+          ...(canView("locations") ? [{ title: t.locationManagement, path: "/masters/locations" }] : []),
+        ],
+      },
+      {
+        key: "configuration",
+        title: "Configuration",
+        icon: Settings,
+        section: "Administration",
+        show: canView("warehouse_settings"),
+        submenu: [
+          ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings" }] : []),
+        ],
+      },
+      // ------------------------------------------------------- SYSTEM / SUPPORT
+      // Super Admin-only platform section (approved Slide 10 model). Direct
+      // links, not an expandable group: every child is a real registered
+      // route that renders an honest read-only surface - capabilities with no
+      // implementation show an explicit "not configured" state, never a 404.
+      {
+        key: "system-health",
+        title: "System Health",
+        icon: CheckCircle2,
+        path: "/system-support/health",
+        section: "System / Support",
+        show: roleName === "Super Admin",
+      },
+      {
+        key: "integration-status",
+        title: "Integration Status",
+        icon: RefreshCw,
+        path: "/system-support/integrations",
+        section: "System / Support",
+        show: roleName === "Super Admin",
+      },
+      {
+        key: "audit-logs",
+        title: "Audit Logs",
+        icon: FileText,
+        path: "/system-support/audit-logs",
+        section: "System / Support",
+        show: roleName === "Super Admin",
+      },
+      {
+        // Intentional alias: one canonical configuration surface already
+        // exists (Administration -> Configuration -> Warehouse Settings), so
+        // this entry links to the same route rather than duplicating a page.
+        key: "system-configuration",
+        title: "Configuration",
+        icon: Settings,
+        path: "/warehouse/settings",
+        alias: true,
+        section: "System / Support",
+        show: roleName === "Super Admin" && canView("warehouse_settings"),
+      },
+      {
+        key: "support-tools",
+        title: "Support Tools",
+        icon: SlidersHorizontal,
+        path: "/system-support/support-tools",
+        section: "System / Support",
+        show: roleName === "Super Admin",
+      },
+      // ------------------------------------- DEVELOPMENT / NON-PRODUCTION
+      // Developer-only. Every child is a read-only diagnostic/informational
+      // page; the production Developer matrix stays view/export-only and no
+      // write, SQL, shell, deploy, or credential surface is provided here.
+      {
+        key: "dev-tools",
+        title: "Development Tools",
+        icon: SlidersHorizontal,
+        path: "/developer/tools",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
+      },
+      {
+        key: "dev-test-data",
+        title: "Test Data Management",
         icon: Package,
-        section: "Warehouse Overview / Procurement / Inventory / Stock Control / Reports & Settings",
-        show: canView("warehouse_dashboard") || canView("warehouse_stock") || canView("grn") || canView("warehouse_requisitions") || canView("warehouse_transfers"),
-        // Each entry carries a `group` label so the submenu renders as
-        // labeled sub-sections (Overview / Procurement / Inventory /
-        // Stock Control / Reports & Settings) instead of one flat 16-item list -
-        // grouping is purely a rendering concern (see the submenu render block
-        // below), the path/permission wiring underneath is unchanged.
-        //
-        // Phase 7A (Req 14): this sidebar is now the SINGLE canonical Warehouse
-        // navigation - the duplicate in-page tab strip in Warehouse.jsx was
-        // removed. The previously 8-item "Inventory" block was split so that
-        // stock-taking/adjustment actions sit under their own "Stock Control"
-        // heading; every path, module key and permission gate is unchanged, and
-        // entries must stay contiguous by `group` because the renderer emits a
-        // heading whenever `sub.group` differs from the previous item's.
-        submenu: [
-          ...(canView("warehouse_dashboard") ? [{ title: t.warehouseDashboard, path: "/warehouse/dashboard", icon: LayoutDashboard, group: "Overview" }] : []),
-          ...(canView("warehouse_purchase_orders") ? [{ title: t.warehousePurchaseOrders, path: "/warehouse/purchase-orders", icon: FileText, group: "Procurement" }] : []),
-          ...(canView("grn") ? [{ title: t.warehouseGRN, path: "/warehouse/grn", icon: ClipboardCheck, group: "Procurement" }] : []),
-          ...(canView("warehouse_purchase_returns") ? [{ title: t.warehousePurchaseReturns, path: "/warehouse/purchase-returns", icon: Truck, group: "Procurement" }] : []),
-          ...(canView("warehouse_supplier_history") ? [{ title: t.warehouseSupplierHistory, path: "/warehouse/supplier-history", icon: TrendingUp, group: "Procurement" }] : []),
-          ...(canView("warehouse_reorder") ? [{ title: t.warehouseReorder, path: "/warehouse/low-stock-reorder", icon: AlertTriangle, group: "Procurement" }] : []),
-          ...(canView("warehouse_stock") ? [{ title: t.warehouseCurrentStock, path: "/warehouse/current-stock", icon: Package, group: "Inventory" }] : []),
-          ...(canView("warehouse_ledger") ? [{ title: t.warehouseLedger, path: "/warehouse/ledger", icon: BookOpen, group: "Inventory" }] : []),
-          ...(canView("warehouse_batch_expiry") ? [{ title: t.warehouseBatchExpiry, path: "/warehouse/batch-expiry", icon: Scale, group: "Inventory" }] : []),
-          ...(canView("warehouse_requisitions") ? [{ title: t.warehouseRequisitions, path: "/warehouse/requisitions", icon: ClipboardList, group: "Inventory" }] : []),
-          ...(canView("warehouse_transfers") ? [{ title: t.warehouseTransfers, path: "/warehouse/transfers", icon: ArrowRightLeft, group: "Stock Control" }] : []),
-          ...(canView("physical_stock_counts") ? [{ title: t.warehousePhysicalCount, path: "/warehouse/physical-stock-counts", icon: Scale, group: "Stock Control" }] : []),
-          ...(canView("stock_adjustments") ? [{ title: t.warehouseAdjustments, path: "/warehouse/stock-adjustments", icon: SlidersHorizontal, group: "Stock Control" }] : []),
-          // Outlet-locked users get their own scoped wastage page (My Store ->
-          // Wastage -> /outlet-dashboard/wastage). The Warehouse-group item
-          // leads to the Central-Warehouse-scoped page, which would show them
-          // an empty list and a create flow that 403s - hide it from them via
-          // the existing isOutletLocked flag rather than a role check.
-          ...(canView("warehouse_wastage") && !permissions.isOutletLocked ? [{ title: t.warehouseWastage, path: "/warehouse/warehouse-wastage", icon: Trash2, group: "Stock Control" }] : []),
-          ...(canView("warehouse_reports") ? [{ title: t.warehouseReports, path: "/warehouse/reports", icon: BookOpen, group: "Reports & Settings" }] : []),
-          ...(canView("warehouse_settings") ? [{ title: t.warehouseSettings, path: "/warehouse/settings", icon: Settings, group: "Reports & Settings" }] : []),
-        ],
+        path: "/developer/test-data",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
       },
       {
-        key: "central-kitchen",
-        title: t.centralKitchen,
-        icon: ChefHat,
-        section: "Central Kitchen & Bakehouse",
-        show: canView("production_dashboard") || canView("production_requests") || canView("production_batches") || canView("production_wastage") || canView("production_variance") || canView("production_dispatch"),
-        submenu: [
-          ...(canView("production_dashboard") ? [{ title: t.centralKitchenDashboard, path: "/central-kitchen/dashboard", icon: LayoutDashboard }] : []),
-          ...(canView("production_requests") ? [{ title: t.centralKitchenRequests, path: "/central-kitchen/requests", icon: ClipboardList }] : []),
-          ...(canView("production_planning") ? [{ title: t.centralKitchenPlanning, path: "/central-kitchen/plans", icon: ChefHat }] : []),
-          ...(canView("production_batches") ? [{ title: t.centralKitchenBatches, path: "/central-kitchen/batches", icon: Package }] : []),
-          ...(canView("production_wastage") ? [{ title: t.centralKitchenWastage, path: "/central-kitchen/wastage", icon: Trash2 }] : []),
-          ...(canView("production_variance") ? [{ title: t.centralKitchenVariance, path: "/central-kitchen/variance", icon: BarChart3 }] : []),
-          ...(canView("production_dispatch") ? [{ title: t.centralKitchenDispatches, path: "/central-kitchen/dispatches", icon: Truck }] : []),
-        ],
+        key: "dev-staging",
+        title: "Staging / QA Environment",
+        icon: Monitor,
+        path: "/developer/staging",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
       },
       {
-        key: "receive-dispatch",
-        title: t.receiveDispatch,
-        icon: PackageCheck,
-        path: "/central-kitchen-receive",
-        section: "Central Kitchen & Bakehouse",
-        // Standalone (not nested under Central Kitchen) so outlet staff who only have
-        // production_dispatch access - not the CK dashboard/planning modules - still see it.
-        show: canView("production_dispatch"),
+        key: "dev-deployment",
+        title: "Deployment",
+        icon: ArrowRight,
+        path: "/developer/deployment",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
+      },
+      {
+        key: "dev-debug-logs",
+        title: "Debug Logs",
+        icon: AlertCircle,
+        path: "/developer/debug-logs",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
+      },
+      {
+        key: "dev-api-tools",
+        title: "API & Integration Tools",
+        icon: ArrowRightLeft,
+        path: "/developer/api-tools",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
+      },
+      {
+        key: "dev-feature-flags",
+        title: "Feature Flags",
+        icon: Grid3X3,
+        path: "/developer/feature-flags",
+        section: "Development / Non-Production",
+        show: roleName === "Developer",
       },
     ];
 
-    // Group into PetPooja-style labeled clusters: same-section items must sit
-    // adjacent to each other, or the sidebar re-prints the section label every
-    // time it reappears instead of once per cluster. Array.prototype.sort is
-    // stable, so relative order within a section is preserved.
+    // Top-level groups render in this fixed order; items cluster by their
+    // `section` label, so same-section entries must stay contiguous (stable
+    // sort preserves in-section order). A label missing from this list would
+    // sort to index -1 - i.e. the top of the sidebar.
     const SECTION_ORDER = [
-      "Dashboard / Outlet Performance",
-      "Users & Access",
-      "Master Data",
-      "Daily Accounts",
-      "Monthly Accounts",
-      "Outlet Stock",
-      "Purchases & Payments",
-      "Sales Uploads",
-      "Recipes",
+      "Overview",
+      "Finance & Accounts",
+      "Sales",
+      "Inventory",
+      "Procurement",
+      "Central Kitchen",
+      "Menu & Recipes",
       "Reports & Analytics",
-      "Central Kitchen & Bakehouse",
-      "Inventory & Production",
-      // Must match the warehouse item's `section` string exactly - it sits last
-      // by design, and a mismatch sorts it to index -1 (i.e. the top).
-      "Warehouse Overview / Procurement / Inventory / Stock Control / Reports & Settings",
+      "Administration",
+      // Platform diagnostics last - Super Admin's System / Support and the
+      // Developer-only Development / Non-Production group sit after the
+      // approved 1-9 business hierarchy.
+      "System / Support",
+      "Development / Non-Production",
     ];
     return items.slice().sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
   }, [permissions, roleName, t]);
@@ -1004,7 +1170,7 @@ const DashboardLayout = () => {
   // shortcuts to routes owned by other groups - they never make this group
   // the active destination.
   const isParentActive = (item) => {
-    if (item.path) return isActive(item.path);
+    if (item.path) return !item.alias && isActive(item.path);
     return item.submenu?.some((sub) => !sub.alias && isActive(sub.path));
   };
 
@@ -1012,7 +1178,7 @@ const DashboardLayout = () => {
     "/masters/outlets": "outlets",
     "/masters/categories": "categories",
     "/masters/suppliers": "suppliers",
-    "/masters/outlet-vendors": "outlet_vendors",
+    "/masters/outlet-vendors": "outlet_vendor_master",
     "/masters/raw-materials": "raw_materials",
     "/masters/menu-items": "menu_items",
     "/masters/locations": "locations",
@@ -1031,7 +1197,8 @@ const DashboardLayout = () => {
     "/daily-accounts/bank-deposits": "bank_deposits",
     "/daily-accounts/day-closing": "day_closing",
     "/daily-accounts/checklist": "daily_checklist",
-    "/daily-accounts/vendor-ledger-payments": "outlet_vendors",
+    "/daily-accounts/vendor-purchases": "vendor_purchases",
+    "/daily-accounts/vendor-ledger-payments": "vendor_ledger_payments",
     "/payroll/employee-salary": "payroll",
     "/month-end/utility-bills": "utility_bills",
     "/month-end/fixed-costs": "fixed_costs",
@@ -1096,7 +1263,7 @@ const DashboardLayout = () => {
         canAccessMasterRoute("outlets") ||
         canAccessMasterRoute("categories") ||
         canAccessMasterRoute("suppliers") ||
-        canAccessMasterRoute("outlet_vendors") ||
+        canAccessMasterRoute("outlet_vendor_master") ||
         canAccessMasterRoute("raw_materials") ||
         canAccessMasterRoute("menu_items") ||
         canAccessMasterRoute("locations");

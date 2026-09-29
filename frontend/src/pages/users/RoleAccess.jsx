@@ -70,15 +70,31 @@ const presets = {
     next = applyByKeys(next, ["warehouse_requisitions"], { can_view: true, can_create: true, can_submit: true, can_export: true });
     next = applyByKeys(next, ["outlet_consumption"], { can_view: true, can_create: true, can_edit: true, can_delete: true, can_submit: true, can_export: true });
     next = applyByKeys(next, ["warehouse_wastage"], { can_view: true, can_create: true, can_submit: true, can_export: true });
-    next = applyByKeys(next, ["outlet_vendors"], { can_view: true, can_create: true, can_submit: true, can_export: true });
+    next = applyByKeys(next, ["outlet_vendor_master"], { can_view: true });
+    next = applyByKeys(next, ["vendor_purchases", "vendor_ledger_payments"], { can_view: true, can_create: true, can_submit: true, can_export: true });
     next = applyByKeys(next, ["production_dashboard"], { can_view: true });
     next = applyByKeys(next, ["production_requests"], { can_view: true, can_create: true, can_submit: true, can_export: true });
+    // Receive-only: can_view exposes /central-kitchen-receive + dispatch
+    // list/detail; can_edit is the receive key the backend checks. Create and
+    // post stay off - no dispatch control. Mirrors the Outlet Staff grant and
+    // buildDefaultPermissionMatrix('Outlet Admin').
+    next = applyByKeys(next, ["production_dispatch"], { can_view: true, can_edit: true });
     return next;
   },
   outletStaff: (rows) => {
+    // Mirrors buildDefaultPermissionMatrix('Outlet Staff') - keep in sync.
     let next = setAllActions(rows, false);
     next = applyByKeys(next, ["dashboard"], { can_view: true });
-    next = applyByKeys(next, ["daily_expenses"], { can_view: true, can_create: true, can_upload: true });
+    next = applyByKeys(next, ["daily_cashbook", "bank_deposits", "daily_checklist"], { can_view: true, can_create: true, can_edit: true, can_delete: true, can_submit: true });
+    next = applyByKeys(next, ["daily_expenses"], { can_view: true, can_create: true, can_edit: true, can_delete: true, can_upload: true, can_submit: true });
+    next = applyByKeys(next, ["item_sales", "item_sales_daily"], { can_view: true, can_upload: true });
+    next = applyByKeys(next, ["opening_stock", "closing_stock"], { can_view: true, can_upload: true, can_delete: true });
+    next = applyByKeys(next, ["outlet_consumption"], { can_view: true, can_create: true, can_edit: true, can_delete: true, can_submit: true });
+    next = applyByKeys(next, ["warehouse_wastage"], { can_view: true, can_create: true, can_edit: true, can_delete: true, can_submit: true });
+    next = applyByKeys(next, ["warehouse_requisitions", "production_requests"], { can_view: true, can_create: true, can_submit: true });
+    next = applyByKeys(next, ["production_dispatch"], { can_view: true, can_edit: true });
+    next = applyByKeys(next, ["warehouse_transfers"], { can_view: true, can_submit: true });
+    next = applyByKeys(next, ["vendor_purchases"], { can_view: true, can_create: true });
     return next;
   },
   hoAccounts: (rows) => {
@@ -89,7 +105,9 @@ const presets = {
     next = applyByKeys(next, ["daily_expenses"], { can_view: true, can_approve: true, can_reject: true, can_export: true });
     next = applyByKeys(next, ["day_closing", "daily_checklist", "bank_deposits"], { can_view: true, can_export: true });
     next = applyByKeys(next, ["opening_stock", "closing_stock", "material_purchase"], { can_view: true, can_verify: true, can_export: true });
-    next = applyByKeys(next, ["supplier_payments", "outlet_vendors"], { can_view: true, can_create: true, can_edit: true, can_submit: true, can_verify: true, can_reject: true, can_export: true });
+    next = applyByKeys(next, ["supplier_payments"], { can_view: true, can_create: true, can_edit: true, can_submit: true, can_verify: true, can_reject: true, can_export: true });
+    next = applyByKeys(next, ["outlet_vendor_master"], { can_view: true, can_create: true, can_edit: true, can_export: true });
+    next = applyByKeys(next, ["vendor_purchases", "vendor_ledger_payments"], { can_view: true, can_create: true, can_edit: true, can_submit: true, can_verify: true, can_reject: true, can_export: true });
     next = applyByKeys(next, ["item_sales", "item_sales_daily", "item_sales_monthly"], { can_view: true, can_verify: true, can_export: true });
     next = applyByKeys(next, ["item_sales_tax"], { can_view: true, can_create: true, can_upload: true, can_export: true, can_delete: true });
     next = applyByKeys(next, ["payroll", "utility_bills", "fixed_costs"], { can_view: true, can_create: true, can_edit: true, can_verify: true, can_export: true });
@@ -118,7 +136,7 @@ const ROLE_ACCESS_SECTION_LAYOUT = [
   {
     title: "Master Data",
     groups: [
-      { label: null, keys: ["outlets", "categories", "suppliers", "outlet_vendors", "raw_materials", "menu_items", "locations"] },
+      { label: null, keys: ["outlets", "categories", "suppliers", "outlet_vendor_master", "raw_materials", "menu_items", "locations"] },
     ],
   },
   {
@@ -143,7 +161,7 @@ const ROLE_ACCESS_SECTION_LAYOUT = [
   {
     title: "Purchases & Payments",
     groups: [
-      { label: null, keys: ["material_purchase", "supplier_payments"] },
+      { label: null, keys: ["material_purchase", "supplier_payments", "vendor_purchases", "vendor_ledger_payments"] },
     ],
   },
   {
@@ -193,7 +211,6 @@ const MODULE_LABEL_OVERRIDES = {
 
 const MODULE_NOTES = {
   sales_target: "Also controls outlet dashboard / sales analysis",
-  outlet_vendors: "Also controls vendor purchase / ledger screens",
   material_purchase: "Also controls GRN Accounting Review",
   production_dispatch: "Also controls Receive Dispatch",
 };
@@ -204,6 +221,7 @@ const getModuleNote = (row) => MODULE_NOTES[row.module_key] || "";
 const RoleAccess = () => {
   const user = useAuthStore((state) => state.user);
   const canCreateRole = user?.permissions?.roles?.can_create === true;
+  const canEditRoleAccess = Boolean(user?.permissions?.role_access?.can_edit);
 
   const [roles, setRoles] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState("");
@@ -270,6 +288,7 @@ const RoleAccess = () => {
   }, [selectedRoleId]);
 
   const togglePermission = (moduleKey, actionKey) => {
+    if (!canEditRoleAccess) return;
     setPermissions((prev) =>
       prev.map((row) =>
         row.module_key === moduleKey ? { ...row, [actionKey]: !row[actionKey] } : row
@@ -278,15 +297,17 @@ const RoleAccess = () => {
   };
 
   const applyPreset = (presetKey) => {
+    if (!canEditRoleAccess) return;
     setPermissions((prev) => presets[presetKey](prev));
   };
 
   const handleReset = () => {
+    if (!canEditRoleAccess) return;
     setPermissions(originalPermissions);
   };
 
   const handleSave = async () => {
-    if (!selectedRoleId) return;
+    if (!canEditRoleAccess || !selectedRoleId) return;
     setSaving(true);
     try {
       const response = await roleAccessAPI.updatePermissions(selectedRoleId, permissions);
@@ -398,14 +419,15 @@ const RoleAccess = () => {
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 sm:w-auto"
+              disabled={!canEditRoleAccess}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 sm:w-auto"
             >
               <RotateCcw size={16} /> Reset
             </button>
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !canEditRoleAccess}
               className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-bold text-white shadow-lg shadow-violet-200 hover:bg-violet-700 disabled:opacity-60 dark:shadow-none sm:w-auto"
             >
               <Save size={16} /> {saving ? "Saving..." : "Save Permissions"}
@@ -519,7 +541,8 @@ const RoleAccess = () => {
               key={key}
               type="button"
               onClick={() => applyPreset(key)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-violet-600 dark:hover:bg-slate-800 dark:hover:text-violet-300"
+              disabled={!canEditRoleAccess}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-violet-600 dark:hover:bg-slate-800 dark:hover:text-violet-300"
             >
               {label}
             </button>
@@ -589,7 +612,8 @@ const RoleAccess = () => {
                                   <button
                                     type="button"
                                     onClick={() => togglePermission(row.module_key, action.key)}
-                                    className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition ${
+                                    disabled={!canEditRoleAccess}
+                                    className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-70 ${
                                       row[action.key]
                                         ? "border-violet-500 bg-violet-600 text-white shadow-sm shadow-violet-200"
                                         : "border-slate-200 bg-white text-transparent hover:border-violet-300 dark:border-slate-700 dark:bg-slate-800"

@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect, applyOutletScope } from '../middleware/auth.js';
-import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { checkAnyPermission, checkPermission } from '../middleware/permissionMiddleware.js';
 import { applyLocationScope, checkLocationAccess, isLocationAccessible, resolveScopedLocationId, resolveScopedLocationIds } from '../middleware/warehouseMiddleware.js';
 import { query } from '../config/database.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
@@ -19,6 +19,7 @@ import {
   approveRequisition, dispatchRequisition, getTransfers, getTransferById, receiveTransfer, createDirectTransfer, dispatchDirectTransfer,
   getLocationsForManagement, updateLocation, getLocationOperationalSummary,
 } from '../services/warehouseService.js';
+import { getTransferReceiptHistory } from '../services/transferReceiptService.js';
 import { getProcurementSources } from '../services/warehouseProcurementDiagnosticsService.js';
 import { getCoverageReadiness } from '../services/warehouseCoverageReadinessService.js';
 import {
@@ -432,6 +433,25 @@ router.get('/transfers/:id', checkPermission('warehouse_transfers', 'can_view'),
   catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
 });
 
+// Per-receipt history for one transfer. Same visibility rule as the transfer
+// detail above: view permission + the caller must be able to access either
+// the source or the destination location.
+router.get('/transfers/:id/receipts', checkPermission('warehouse_transfers', 'can_view'), applyLocationScope, async (req, res) => {
+  try {
+    const transfer = await getTransferById(req.params.id);
+    if (!transfer) return res.status(404).json({ success: false, message: 'Transfer not found' });
+    if (!req.locationScope.all) {
+      const allowed = req.locationScope.locationIds;
+      if (!allowed.includes(Number(transfer.from_location_id)) && !allowed.includes(Number(transfer.to_location_id))) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this transfer' });
+      }
+    }
+    const data = await getTransferReceiptHistory(transfer.id);
+    res.json({ success: true, data });
+  }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.message }); }
+});
+
 // Req #16: direct Outlet -> Outlet transfer creation (Draft only - no stock
 // movement in this phase). Location access is enforced here with the same
 // isLocationAccessible helper the receive route already uses, applied to BOTH
@@ -471,7 +491,7 @@ router.post('/transfers/:id/dispatch', checkPermission('warehouse_transfers', 'c
   catch (error) { res.status(error.statusCode || 400).json({ success: false, message: error.message }); }
 });
 
-router.post('/transfers/:id/receive', checkPermission('warehouse_transfers', 'can_edit'), async (req, res) => {
+router.post('/transfers/:id/receive', checkAnyPermission('warehouse_transfers', ['can_submit', 'can_edit']), async (req, res) => {
   try {
     const transfer = await getTransferById(req.params.id);
     if (!transfer) return res.status(404).json({ success: false, message: 'Transfer not found' });

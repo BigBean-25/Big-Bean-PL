@@ -76,6 +76,17 @@ const FadeIn = ({ delay = 0, className = "", children }) => {
 
 const CENTRAL_KITCHEN_LOCATION_KEY = "bbc_central_kitchen_location_id";
 
+const DISCREPANCY_REASON_OPTIONS = [
+  { value: "SHORT_SUPPLY", label: "Short Supply" },
+  { value: "DAMAGED_IN_TRANSIT", label: "Damaged in Transit" },
+  { value: "NOT_RECEIVED", label: "Not Received" },
+  { value: "WRONG_ITEM", label: "Wrong Item" },
+  { value: "QUALITY_ISSUE", label: "Quality Issue" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "REJECTED", label: "Rejected" },
+  { value: "OTHER", label: "Other" },
+];
+
 export default function CentralKitchen() {
   const isDark = getThemeMode() === "dark";
   const reduceMotion = useReducedMotion();
@@ -97,6 +108,8 @@ export default function CentralKitchen() {
   const [dispatchFilters, setDispatchFilters] = useState({ search: "", status: "", outlet: "", fromDate: "", toDate: "" });
   const [showNewDispatch, setShowNewDispatch] = useState(false);
   const [viewingDispatch, setViewingDispatch] = useState(null);
+  const [viewingReceipts, setViewingReceipts] = useState([]);
+  const [viewingReceiptsLoading, setViewingReceiptsLoading] = useState(false);
   const [printDispatchOpen, setPrintDispatchOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState("");
   const [pendingRequestItems, setPendingRequestItems] = useState([]);
@@ -518,8 +531,22 @@ export default function CentralKitchen() {
     catch (error) { toast.error(error?.response?.data?.message || "Post failed"); }
   };
 
+  // The dispatch detail modal is the manager-facing surface that stays
+  // reachable for every status including "Received" - receipt events are
+  // loaded alongside it so a completed receipt can be re-opened later to
+  // answer who received what and why.
   const handleViewDispatch = async (id) => {
-    try { const res = await productionAPI.getProductionDispatch(id); setViewingDispatch(res?.data?.data || res?.data); }
+    try {
+      const res = await productionAPI.getProductionDispatch(id);
+      setViewingDispatch(res?.data?.data || res?.data);
+      setViewingReceipts([]);
+      setViewingReceiptsLoading(true);
+      try {
+        const receiptsRes = await productionAPI.getProductionDispatchReceipts(id);
+        setViewingReceipts(receiptsRes?.data?.data || []);
+      } catch { setViewingReceipts([]); }
+      finally { setViewingReceiptsLoading(false); }
+    }
     catch (error) { toast.error("Failed to load dispatch details"); }
   };
 
@@ -601,6 +628,56 @@ export default function CentralKitchen() {
                 </tbody>
               </table>
             </TableWrapper>
+          </div>
+
+          <div className="mt-6">
+            <h4 className={`mb-2 font-medium ${isDark ? "text-white" : "text-[#2F2B3D]"}`}>Receipt History</h4>
+            {viewingReceiptsLoading ? (
+              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Loading receipts…</p>
+            ) : viewingReceipts.length === 0 ? (
+              <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>No receipts recorded yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {viewingReceipts.map((r) => (
+                  <div key={r.id} className={`rounded-md border p-3 ${Number(r.discrepancy_flag) === 1 ? (isDark ? "border-[#FF9F43] bg-[#FF9F43]/10" : "border-[#FF9F43] bg-[#FFF4E5]") : (isDark ? "border-[#3B405A]" : "border-[#EBE9F1]")}`}>
+                    <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
+                      <span className={`font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{new Date(r.received_at).toLocaleString()}</span>
+                      <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>by {r.received_by_name || "—"}</span>
+                      {Number(r.discrepancy_flag) === 1 && <span className="rounded-full bg-[#FF9F43]/20 px-2 py-0.5 text-[11px] font-semibold text-[#FF9F43]">Discrepancy</span>}
+                      {r.receipt_remarks && <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>· {r.receipt_remarks}</span>}
+                    </div>
+                    <TableWrapper isDark={isDark}>
+                      <table className="w-full border-collapse text-[12px]">
+                        <thead>
+                          <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                            <th className="px-2 py-1.5">Item</th>
+                            <th className="px-2 py-1.5 text-right">Received This Time</th>
+                            <th className="px-2 py-1.5 text-right">Damaged</th>
+                            <th className="px-2 py-1.5 text-right">Short / Not Received</th>
+                            <th className="px-2 py-1.5 text-right">Pending After</th>
+                            <th className="px-2 py-1.5">Reason</th>
+                            <th className="px-2 py-1.5">Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {r.items.map((ri) => (
+                            <tr key={`${r.id}-${ri.transfer_item_id}`} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                              <td className="px-2 py-1.5">{ri.material_name || `#${ri.transfer_item_id}`}</td>
+                              <td className="px-2 py-1.5 text-right">{Number(ri.received_qty).toFixed(2)}</td>
+                              <td className="px-2 py-1.5 text-right">{Number(ri.damaged_qty).toFixed(2)}</td>
+                              <td className="px-2 py-1.5 text-right">{Number(ri.short_qty).toFixed(2)}</td>
+                              <td className="px-2 py-1.5 text-right">{Number(ri.pending_after_qty).toFixed(2)}</td>
+                              <td className="px-2 py-1.5">{ri.discrepancy_reason ? (DISCREPANCY_REASON_OPTIONS.find((o) => o.value === ri.discrepancy_reason)?.label || ri.discrepancy_reason) : "—"}</td>
+                              <td className="px-2 py-1.5">{ri.remarks || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableWrapper>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

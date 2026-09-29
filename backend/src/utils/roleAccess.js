@@ -11,6 +11,11 @@ export const ALL_OUTLET_ROLES = [
   'Accountant',
   'Warehouse Admin',
   'Central Kitchen Admin',
+  // Alias for the same job under the new user-facing name, kept in step with
+  // the 'Bakehouse Admin' branch in buildDefaultPermissionMatrix - without it
+  // isKnownRole() would 403 such a user off every outlet-scoped route while
+  // still handing them a production permission matrix.
+  'Bakehouse Admin',
   'Technical Admin',
   'Viewer',
   'Viewer / Auditor'
@@ -30,11 +35,14 @@ export const normalizeRoleName = (roleName = '') => String(roleName || '').trim(
 export const getRolePermissions = (roleName = '') => {
   const role = normalizeRoleName(roleName);
   const isSuper = role === 'Super Admin';
-  const isLegacyAdmin = role === 'Admin' || role === 'Developer';
+  const isLegacyAdmin = role === 'Admin';
   const isAccountant = role === 'Accountant';
   const isManager = role === 'Outlet Admin';
   const isStaff = role === 'Outlet Staff';
-  const isViewer = role === 'Viewer';
+  // Every Viewer variant must hit the blanket write-block in auth.js, not just
+  // the exact 'Viewer' string - buildDefaultPermissionMatrix already marks all
+  // three variants is_read_only, so the role-level flag was the weaker layer.
+  const isViewer = role === 'Viewer' || role === 'Viewer / Auditor' || role === 'Viewer Auditor';
 
   return {
     can_access_all_outlets: ALL_OUTLET_ROLES.includes(role),

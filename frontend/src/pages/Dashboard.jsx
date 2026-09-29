@@ -248,7 +248,7 @@ const Dashboard = () => {
   const firstName = user?.full_name?.split(" ")?.[0] || "User";
   const permissions = getStoredPermissions();
   const selectedOutletId = getSelectedOutletId();
-  const canViewVendors = Boolean(permissions?.outlet_vendors?.can_view);
+  const canViewVendors = Boolean(permissions?.vendor_ledger_payments?.can_view);
 
   const totalSales = Number(summary?.net_sales || 0);
   const totalExpenses = Number(summary?.daily_expenses || 0);

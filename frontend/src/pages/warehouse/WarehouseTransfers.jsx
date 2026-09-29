@@ -17,6 +17,10 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
   const [filters, setFilters] = useState(emptyFilters);
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState({});
+  const [receiptKey, setReceiptKey] = useState(null);
+  const [receiptRemarks, setReceiptRemarks] = useState("");
+  const [receiptHistory, setReceiptHistory] = useState([]);
+  const [receiptHistoryLoading, setReceiptHistoryLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -26,6 +30,7 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
   const transferPerms = getStoredPermissions()?.warehouse_transfers || {};
   const canCreate = Boolean(transferPerms.can_create);
   const canEdit = Boolean(transferPerms.can_edit);
+  const canSubmit = Boolean(transferPerms.can_submit);
   const canExport = Boolean(transferPerms.can_export);
   const [dispatching, setDispatching] = useState(false);
 
@@ -123,13 +128,35 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
 
   useEffect(() => { fetchTransfers(); }, [filters, locationId, outletSelected]);
 
+  // One receipt_key per receipt ATTEMPT: generated when the detail view opens
+  // and kept across retries of the same submit, so a double-click or network
+  // retry re-sends the same key and the backend's UNIQUE(transfer_id,
+  // receipt_key) refuses to apply stock twice. A later new receipt opens the
+  // detail again and gets a fresh key.
+  const newReceiptKey = () => {
+    try { return crypto.randomUUID(); }
+    catch { return `rcpt-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+  };
+
+  const fetchReceiptHistory = async (transferId) => {
+    setReceiptHistoryLoading(true);
+    try {
+      const res = await warehouseAPI.getTransferReceipts(transferId);
+      setReceiptHistory(res?.data?.data || []);
+    } catch { setReceiptHistory([]); }
+    finally { setReceiptHistoryLoading(false); }
+  };
+
   const openDetail = async (t) => {
     try {
       const res = await warehouseAPI.getTransfer(t.id);
       const d = res?.data?.data;
       if (d) {
         setDetail(d);
-        setReceipt(d.items.reduce((acc, it) => ({ ...acc, [it.id]: { received: "", damaged: "", short: "", remarks: "" } }), {}));
+        setReceipt(d.items.reduce((acc, it) => ({ ...acc, [it.id]: { received: "", damaged: "", short: "", reason: "", remarks: "" } }), {}));
+        setReceiptKey(newReceiptKey());
+        setReceiptRemarks("");
+        fetchReceiptHistory(d.id);
       }
     } catch (error) { toast.error("Failed to load transfer"); }
   };
@@ -138,14 +165,24 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
 
   const submitReceipt = async () => {
     if (saving) return;
-    const items = Object.entries(receipt).map(([id, r]) => ({ id: Number(id), received_qty: num(r.received), damaged_qty: num(r.damaged), short_qty: num(r.short), remarks: r.remarks }));
+    const items = Object.entries(receipt).map(([id, r]) => ({ id: Number(id), received_qty: num(r.received), damaged_qty: num(r.damaged), short_qty: num(r.short), discrepancy_reason: r.reason || null, remarks: r.remarks }));
     if (items.some((it) => it.received_qty < 0 || it.damaged_qty < 0 || it.short_qty < 0)) {
       toast.error("Received, damaged and short quantities cannot be negative");
       return;
     }
+    for (const it of items) {
+      if ((it.damaged_qty > 0 || it.short_qty > 0) && !it.discrepancy_reason) {
+        toast.error("Select a discrepancy reason for items with damaged or short quantity");
+        return;
+      }
+      if (it.discrepancy_reason === "OTHER" && !String(it.remarks || "").trim()) {
+        toast.error("Remarks are required when the discrepancy reason is Other");
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await warehouseAPI.receiveTransfer(detail.id, { items });
+      await warehouseAPI.receiveTransfer(detail.id, { items, receipt_key: receiptKey, receipt_remarks: receiptRemarks || null });
       toast.success("Receipt recorded");
       setDetail(null);
       fetchTransfers();
@@ -170,7 +207,21 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
     };
     return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${styles[t] || (isDark ? "bg-[#3B405A] text-[#A5A8B6]" : "bg-[#F3F2F7] text-[#6F6B7D]")}`}>{t || "Other"}</span>;
   };
-  const canReceive = detail && ["In Transit", "Partially Received"].includes(detail.status);
+  // Receive is permission-gated by can_submit (Outlet Staff receive-only) with
+  // can_edit kept as the legacy fallback used by warehouse/admin roles.
+  const canReceive = detail && ["In Transit", "Partially Received"].includes(detail.status)
+    && (canSubmit || canEdit);
+
+  const DISCREPANCY_REASON_OPTIONS = [
+    { value: "SHORT_SUPPLY", label: "Short Supply" },
+    { value: "DAMAGED_IN_TRANSIT", label: "Damaged in Transit" },
+    { value: "NOT_RECEIVED", label: "Not Received" },
+    { value: "WRONG_ITEM", label: "Wrong Item" },
+    { value: "QUALITY_ISSUE", label: "Quality Issue" },
+    { value: "EXPIRED", label: "Expired" },
+    { value: "REJECTED", label: "Rejected" },
+    { value: "OTHER", label: "Other" },
+  ];
 
   // Req #18: export the CURRENT backend-filtered result set (same ExcelJS
   // pattern as SupplierHistory / WarehouseReports).
@@ -344,11 +395,12 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
                         <th className="px-2 py-2">Material</th>
                         <th className="px-2 py-2 text-right">Planned</th>
                         <th className="px-2 py-2 text-right">Dispatched</th>
-                        <th className="px-2 py-2 text-right">Received</th>
+                        <th className="px-2 py-2 text-right">Already Received</th>
                         <th className="px-2 py-2 text-right">Damaged</th>
-                        <th className="px-2 py-2 text-right">Short</th>
+                        <th className="px-2 py-2 text-right">Short / Not Received</th>
+                        <th className="px-2 py-2 text-right">Pending to Receive</th>
                         <th className="px-2 py-2 text-right">Unit</th>
-                        {canReceive && <th className="px-2 py-2 text-center">Receive</th>}
+                        {canReceive && <th className="px-2 py-2 text-center">Receive This Time</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -362,14 +414,21 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
                             <td className="px-2 py-2 text-right">{fmtQty(it.received_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.damaged_qty)}</td>
                             <td className="px-2 py-2 text-right">{fmtQty(it.short_qty)}</td>
+                            <td className="px-2 py-2 text-right">{fmtQty(remaining)}</td>
                             <td className="px-2 py-2 text-right">{it.unit_name}</td>
                             {canReceive && (
                               <td className="px-2 py-2">
                                 <div className="grid grid-cols-2 gap-2">
-                                  <input type="number" min="0" value={receipt[it.id]?.received || ""} onChange={(e) => updateReceipt(it.id, "received", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder={`Recv (${remaining})`} />
-                                  <input type="number" min="0" value={receipt[it.id]?.damaged || ""} onChange={(e) => updateReceipt(it.id, "damaged", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder="Damage" />
-                                  <input type="number" min="0" value={receipt[it.id]?.short || ""} onChange={(e) => updateReceipt(it.id, "short", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder="Short" />
+                                  <input type="number" min="0" value={receipt[it.id]?.received || ""} onChange={(e) => updateReceipt(it.id, "received", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder={`Receiving now (max ${remaining})`} />
+                                  <input type="number" min="0" value={receipt[it.id]?.damaged || ""} onChange={(e) => updateReceipt(it.id, "damaged", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder="Damaged" />
+                                  <input type="number" min="0" value={receipt[it.id]?.short || ""} onChange={(e) => updateReceipt(it.id, "short", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder="Short / Not received" />
                                   <input value={receipt[it.id]?.remarks || ""} onChange={(e) => updateReceipt(it.id, "remarks", e.target.value)} className={`rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`} placeholder="Remarks" />
+                                  {(num(receipt[it.id]?.damaged) > 0 || num(receipt[it.id]?.short) > 0) && (
+                                    <select value={receipt[it.id]?.reason || ""} onChange={(e) => updateReceipt(it.id, "reason", e.target.value)} className={`col-span-2 rounded-md border px-2 py-1 text-[13px] outline-none ${inputClass}`}>
+                                      <option value="">Discrepancy reason *</option>
+                                      {DISCREPANCY_REASON_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                    </select>
+                                  )}
                                 </div>
                               </td>
                             )}
@@ -382,6 +441,62 @@ export default function WarehouseTransfers({ locationId, outletSelected, locatio
               </SectionCard>
 
               <ReconciliationCard items={detail.items} isDark={isDark} />
+
+              <SectionCard title="Receipt History" isDark={isDark}>
+                {receiptHistoryLoading ? (
+                  <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Loading receipts…</p>
+                ) : receiptHistory.length === 0 ? (
+                  <p className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>No receipts recorded yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {receiptHistory.map((r) => (
+                      <div key={r.id} className={`rounded-md border p-3 ${Number(r.discrepancy_flag) === 1 ? (isDark ? "border-[#FF9F43] bg-[#FF9F43]/10" : "border-[#FF9F43] bg-[#FFF4E5]") : (isDark ? "border-[#3B405A]" : "border-[#EBE9F1]")}`}>
+                        <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
+                          <span className={`font-semibold ${isDark ? "text-[#D0D2D6]" : "text-[#2F2B3D]"}`}>{new Date(r.received_at).toLocaleString()}</span>
+                          <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>by {r.received_by_name || "—"}</span>
+                          {Number(r.discrepancy_flag) === 1 && <span className="rounded-full bg-[#FF9F43]/20 px-2 py-0.5 text-[11px] font-semibold text-[#FF9F43]">Discrepancy</span>}
+                          {r.receipt_remarks && <span className={isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}>· {r.receipt_remarks}</span>}
+                        </div>
+                        <TableWrapper isDark={isDark}>
+                          <table className="w-full border-collapse text-[12px]">
+                            <thead>
+                              <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
+                                <th className="px-2 py-1.5">Item</th>
+                                <th className="px-2 py-1.5 text-right">Received</th>
+                                <th className="px-2 py-1.5 text-right">Damaged</th>
+                                <th className="px-2 py-1.5 text-right">Short / Not Received</th>
+                                <th className="px-2 py-1.5 text-right">Pending After</th>
+                                <th className="px-2 py-1.5">Reason</th>
+                                <th className="px-2 py-1.5">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.items.map((ri) => (
+                                <tr key={ri.id || `${r.id}-${ri.transfer_item_id}`} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
+                                  <td className="px-2 py-1.5">{ri.material_name || `#${ri.transfer_item_id}`}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmtQty(ri.received_qty)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmtQty(ri.damaged_qty)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmtQty(ri.short_qty)}</td>
+                                  <td className="px-2 py-1.5 text-right">{fmtQty(ri.pending_after_qty)}</td>
+                                  <td className="px-2 py-1.5">{ri.discrepancy_reason ? (DISCREPANCY_REASON_OPTIONS.find((o) => o.value === ri.discrepancy_reason)?.label || ri.discrepancy_reason) : "—"}</td>
+                                  <td className="px-2 py-1.5">{ri.remarks || "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TableWrapper>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+
+              {canReceive && (
+                <div>
+                  <span className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${isDark ? "text-[#A5A8B6]" : "text-[#A8AAAE]"}`}>Receipt Remarks (optional)</span>
+                  <input value={receiptRemarks} onChange={(e) => setReceiptRemarks(e.target.value)} placeholder="e.g. Box arrived torn, one bag missing" className={`h-10 w-full rounded-md border px-3 text-[13px] outline-none ${inputClass}`} />
+                </div>
+              )}
 
               <div className="flex justify-end gap-2">
                 <button onClick={() => setDetail(null)} disabled={saving} className="h-10 rounded-lg border px-4 text-[14px] font-medium disabled:opacity-50">Close</button>

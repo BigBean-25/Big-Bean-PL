@@ -34,6 +34,9 @@ export const ROLE_PERMISSION_MODULES = [
   { module_key: 'material_purchase', module_name: 'Material Purchase' },
   { module_key: 'supplier_payments', module_name: 'Supplier Payments' },
   { module_key: 'outlet_vendors', module_name: 'Outlet Vendors' },
+  { module_key: 'outlet_vendor_master', module_name: 'Outlet Vendor Master' },
+  { module_key: 'vendor_purchases', module_name: 'Vendor Purchases' },
+  { module_key: 'vendor_ledger_payments', module_name: 'Vendor Ledger & Payments' },
   { module_key: 'item_sales', module_name: 'Item-wise Sales' },
   { module_key: 'item_sales_daily', module_name: 'Daily Sales Upload' },
   { module_key: 'item_sales_monthly', module_name: 'Monthly Sales Upload' },
@@ -118,11 +121,48 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
   );
   const allKeys = ROLE_PERMISSION_MODULES.map((module) => module.module_key);
 
-  // Developer, Super Admin, Admin - unrestricted. The business owner and the
-  // people running the platform day to day all need to be able to touch
+  // Super Admin - unrestricted. The platform owner needs to be able to touch
   // anything without being blocked by a missing permission row.
-  if (role === 'Super Admin' || role === 'Admin' || role === 'Developer') {
+  if (role === 'Super Admin') {
     setModules(matrix, allKeys, full());
+    return matrix;
+  }
+
+  // Developer - technical/development support: view + export diagnostics
+  // across every module, nothing else. Developer is not a business
+  // transaction maker/checker/approver, stock mover, or operator, so every
+  // write/workflow action stays 0. The matching role-name bypasses (role
+  // reassignment, Role Access write, platform receive, legacy admin flags)
+  // were removed alongside this preset; ALL_OUTLET_ROLES membership stays
+  // because it only widens read/diagnostic scope - every write route still
+  // requires a module action permission.
+  if (role === 'Developer') {
+    setModules(matrix, allKeys, viewExport());
+    return matrix;
+  }
+
+  // Admin ("Head Office Admin") - same broad business/operations authority as
+  // the full matrix, minus a small approved hardening delta: permanent user
+  // deletion stays a platform-level control (create/edit/deactivate via
+  // can_edit/toggle-status remains), and the roles/role_access write flags
+  // that have no live routes today are cleared. role_access.can_edit is
+  // deliberately kept - whether HO Admin manages role permissions is a
+  // pending management decision, as are controlled_exceptions.can_lock,
+  // financial can_delete breadth, warehouse_settings.can_edit, and
+  // users/roles can_create.
+  if (role === 'Admin') {
+    setModules(matrix, allKeys, full());
+    setModules(matrix, ['users'], { can_delete: 0 });
+    setModules(matrix, ['roles'], { can_edit: 0, can_delete: 0 });
+    setModules(matrix, ['role_access'], {
+      can_create: 0,
+      can_upload: 0,
+      can_submit: 0,
+      can_verify: 0,
+      can_approve: 0,
+      can_reject: 0,
+      can_lock: 0
+    });
     return matrix;
   }
 
@@ -140,6 +180,11 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     setModules(matrix, ['day_closing', 'daily_checklist', 'bank_deposits'], viewExport());
     setModules(matrix, STOCK_PURCHASE_MODULES, { can_view: 1, can_verify: 1, can_export: 1 });
     setModules(matrix, ['supplier_payments', 'outlet_vendors'], { can_view: 1, can_create: 1, can_edit: 1, can_submit: 1, can_verify: 1, can_reject: 1, can_export: 1 });
+    // Split keys mirror the legacy outlet_vendors grant: vendor master stays
+    // view/create/edit (no delete), purchases and the ledger/payment workflow
+    // carry the full financial maker+checker set.
+    setModules(matrix, ['outlet_vendor_master'], { can_view: 1, can_create: 1, can_edit: 1, can_export: 1 });
+    setModules(matrix, ['vendor_purchases', 'vendor_ledger_payments'], { can_view: 1, can_create: 1, can_edit: 1, can_submit: 1, can_verify: 1, can_reject: 1, can_export: 1 });
     setModules(matrix, SALES_MODULES, { can_view: 1, can_verify: 1, can_export: 1 });
     setModules(matrix, ['item_sales_tax'], { can_view: 1, can_create: 1, can_upload: 1, can_export: 1, can_delete: 1 });
     setModules(matrix, MONTH_END_MODULES, { can_view: 1, can_create: 1, can_edit: 1, can_verify: 1, can_export: 1 });
@@ -151,14 +196,16 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     return matrix;
   }
 
-  // Technical Admin - IT/support role: broad view+edit+export for
-  // troubleshooting data issues, plus real user/role provisioning rights
-  // (onboarding staff, fixing a stuck role assignment). Deliberately no
-  // delete and no financial approve/reject/lock - support shouldn't be able
-  // to destroy records or sign off on money.
+  // Technical Admin - IT/support role: diagnostic read + export across every
+  // module for troubleshooting, nothing else. Final least-privilege profile:
+  // the audit showed users.can_create + roles.can_create + role_access.can_edit
+  // formed a self-service privilege-escalation chain (mint a role, arm it,
+  // create a user holding it), and users.can_edit could reset any privileged
+  // account's password - so all create/edit rights were removed, including on
+  // masters/locations/warehouse_settings which control business reference data
+  // and maker-checker/approval gates. No delete and no workflow actions at all.
   if (role === 'Technical Admin') {
-    setModules(matrix, allKeys, { ...viewOnly(), can_edit: 1, can_export: 1 });
-    setModules(matrix, ['users', 'roles', 'role_access'], { can_view: 1, can_create: 1, can_edit: 1 });
+    setModules(matrix, allKeys, viewExport());
     return matrix;
   }
 
@@ -188,7 +235,10 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
   // (not manage) warehouse stock/ledger and raw materials, since batches
   // consume materials the warehouse owns, and recipes, since a batch's
   // required quantities come straight from the BOM.
-  if (role === 'Central Kitchen Admin') {
+  // 'Bakehouse Admin' is accepted as an alias so a role created under the new
+  // user-facing name gets the same preset instead of falling through to the
+  // dashboard-only default.
+  if (role === 'Central Kitchen Admin' || role === 'Bakehouse Admin') {
     setModules(matrix, ['dashboard', 'production_dashboard'], { can_view: 1 });
     setModules(matrix, PRODUCTION_WORKFLOW_MODULES, {
       can_view: 1, can_create: 1, can_edit: 1, can_submit: 1,
@@ -236,16 +286,123 @@ export const buildDefaultPermissionMatrix = (roleName = '') => {
     // maker/checker split as outlet_consumption above.
     setModules(matrix, ['warehouse_wastage'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    // Split keys: master is read-only for a manager (vendor CRUD stays with
+    // head office), purchases and ledger/payments keep the same maker shape
+    // the legacy outlet_vendors grant carried.
+    setModules(matrix, ['outlet_vendor_master'], { can_view: 1 });
+    setModules(matrix, ['vendor_purchases', 'vendor_ledger_payments'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
     setModules(matrix, ['production_dashboard'], { can_view: 1 });
     setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    // production_dispatch: receive-only, identical to the Outlet Staff grant.
+    // can_view opens /central-kitchen-receive and the dispatch list/detail GETs;
+    // can_edit is the receive authorization key read by
+    // canReceiveProductionDispatch (which still requires a user_outlets row
+    // for the destination outlet). can_create (dispatch creation) and
+    // can_submit (posting) stay 0 - no Bakehouse dispatch control.
+    setModules(matrix, ['production_dispatch'], { can_view: 1, can_edit: 1 });
     return matrix;
   }
 
-  // Outlet Staff - front-line entry only: log an expense, upload a proof,
-  // see the dashboard. Nothing else.
+  // Outlet Staff - front-line maker for their own outlet's day: raise the
+  // cashbook/expenses/deposits/checklist, upload sales and stock files, record
+  // consumption and wastage, request stock from the warehouse and the
+  // bakehouse, and confirm bakehouse deliveries on arrival.
+  //
+  // Strictly maker-only: can_verify / can_approve / can_reject / can_lock are
+  // granted for NO module. That is what keeps Outlet Staff away from every
+  // stock-posting step too, because the post routes are deliberately gated on
+  // can_approve (outletConsumptionRoutes' workflowRoute('post', 'can_approve')
+  // and warehouse-wastage/:id/post) rather than on a separate action.
+  //
+  // Deletes are only granted where the service already refuses to delete
+  // anything past Draft (cashbook/expenses/deposits/checklist "Draft or
+  // Rejected" checks, outlet_consumption + wastage "Only Draft ... can be
+  // deleted") or where assertMonthEditable guards the month (stock uploads).
   if (role === 'Outlet Staff') {
     setModules(matrix, ['dashboard'], { can_view: 1 });
-    setModules(matrix, ['daily_expenses'], { can_view: 1, can_create: 1, can_upload: 1 });
+    setModules(matrix, DAILY_OPS_MODULES.filter((key) => key !== 'day_closing'), { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1 });
+    // day_closing stays out: closing the day is the manager's sign-off, not a
+    // front-line entry task.
+    setModules(matrix, ['daily_expenses'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_upload: 1, can_submit: 1 });
+    setModules(matrix, ['item_sales', 'item_sales_daily'], { can_view: 1, can_upload: 1 });
+    // item_sales_monthly and item_sales_tax remain accounts-side uploads.
+    setModules(matrix, ['opening_stock', 'closing_stock'], { can_view: 1, can_upload: 1, can_delete: 1 });
+    setModules(matrix, ['outlet_consumption'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1 });
+    setModules(matrix, ['warehouse_wastage'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1 });
+    // warehouse_requisitions: no can_edit on purpose - in warehouseRoutes.js
+    // requisitions/:id/dispatch is gated on can_edit, and there is no
+    // Draft-edit route, so can_edit would only hand out dispatch rights.
+    setModules(matrix, ['warehouse_requisitions'], { can_view: 1, can_create: 1, can_submit: 1 });
+    setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1 });
+    // production_dispatch: can_edit is this module's receive-only key -
+    // canReceiveProductionDispatch reads production_dispatch.can_edit and also
+    // requires a user_outlets row for the destination outlet, while dispatch
+    // creation uses can_create and posting uses can_submit. Granting view+edit
+    // therefore gives receiving alone.
+    setModules(matrix, ['production_dispatch'], { can_view: 1, can_edit: 1 });
+    // warehouse_transfers: receive-only. The receive route accepts can_submit
+    // (dispatch stays on can_edit), so view+submit confirms receipts without
+    // handing out transfer creation or dispatch. Destination-location scope
+    // is still enforced by the route itself.
+    setModules(matrix, ['warehouse_transfers'], { can_view: 1, can_submit: 1 });
+    // vendor_purchases only: staff raise third-party purchase entries against
+    // their outlet. No vendor master, no ledger, no payments, no opening
+    // balances, and no delete (purchase delete has no payment linkage guard).
+    // The vendor dropdown is served by the read-only /lookup endpoint.
+    setModules(matrix, ['vendor_purchases'], { can_view: 1, can_create: 1 });
+    // Deliberately NOT granted:
+    //   outlet_vendor_master     - vendor CRUD is head-office admin work.
+    //   vendor_ledger_payments   - money movement, opening balances and the
+    //                              payment workflow stay with checker roles.
+    return matrix;
+  }
+
+  // Franchise - runs their own franchise outlet(s). LOCKED_OUTLET_ROLES in
+  // roleAccess.js already pins every request to the assigned outlet, so this
+  // preset only decides *what* they may do there. Maker shape deliberately
+  // mirrors the outlet-side split: they raise and submit documents while the
+  // verify/approve/post/lock checker steps stay with all-outlet roles. Before
+  // this preset existed the role fell through to the dashboard-only default.
+  if (role === 'Franchise') {
+    setModules(matrix, ['dashboard', 'sales_target'], { can_view: 1 });
+    setModules(matrix, DAILY_OPS_MODULES, { can_view: 1, can_create: 1, can_edit: 1, can_submit: 1 });
+    setModules(matrix, STOCK_PURCHASE_MODULES, { can_view: 1, can_upload: 1, can_export: 1 });
+    setModules(matrix, SALES_MODULES.filter((key) => key !== 'item_sales_monthly'), { can_view: 1, can_upload: 1 });
+    setModules(matrix, ['outlet_consumption'], { can_view: 1, can_create: 1, can_edit: 1, can_delete: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['warehouse_wastage'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['warehouse_requisitions'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['warehouse_transfers'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['warehouse_stock'], viewExport());
+    setModules(matrix, ['outlet_vendors'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    // Split keys: franchisees raise purchases but money movement (payments,
+    // opening balances) is head-office only - ledger stays view/export.
+    setModules(matrix, ['vendor_purchases'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['vendor_ledger_payments'], { can_view: 1, can_export: 1 });
+    setModules(matrix, ['production_dashboard'], { can_view: 1 });
+    setModules(matrix, ['production_requests'], { can_view: 1, can_create: 1, can_submit: 1, can_export: 1 });
+    setModules(matrix, ['production_dispatch'], viewExport());
+    setModules(matrix, ['reports'], viewExport());
+    return matrix;
+  }
+
+  // Franchise Owner - oversight of their own franchise group, not a data-entry
+  // role: performance, sales, expenses, P&L and inventory visibility only. No
+  // approve/verify/post/lock by default - management asked for approvals "only
+  // where explicitly permitted", which means granted deliberately through Role
+  // Access rather than handed out by this preset.
+  if (role === 'Franchise Owner') {
+    setModules(matrix, ['dashboard', 'sales_target'], viewExport());
+    setModules(matrix, DAILY_OPS_MODULES, viewExport());
+    setModules(matrix, SALES_MODULES, viewExport());
+    setModules(matrix, STOCK_PURCHASE_MODULES, viewExport());
+    setModules(matrix, ['outlet_consumption', 'warehouse_wastage', 'warehouse_stock'], viewExport());
+    setModules(matrix, ['warehouse_requisitions', 'warehouse_transfers'], viewExport());
+    setModules(matrix, ['production_requests', 'production_dispatch'], viewExport());
+    setModules(matrix, MONTH_END_MODULES, viewExport());
+    setModules(matrix, PAYOUT_MODULES, viewExport());
+    setModules(matrix, ['outlet_vendors'], viewExport());
+    setModules(matrix, ['outlet_vendor_master', 'vendor_purchases', 'vendor_ledger_payments'], viewExport());
+    setModules(matrix, REPORT_MODULES, viewExport());
     return matrix;
   }
 

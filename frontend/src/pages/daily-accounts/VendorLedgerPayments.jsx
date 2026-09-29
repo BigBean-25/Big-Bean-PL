@@ -145,8 +145,8 @@ export default function VendorLedgerPayments() {
   const [openingForm, setOpeningForm] = useState({ opening_amount: "", effective_date: "", due_date: "", remarks: "" });
   const requestSeq = useRef(0);
 
-  // Workflow permissions live on the outlet_vendors module key
-  const permissions = useMemo(() => getStoredPermissions()?.outlet_vendors || {}, []);
+  // Workflow permissions live on the vendor_ledger_payments module key
+  const permissions = useMemo(() => getStoredPermissions()?.vendor_ledger_payments || {}, []);
   const can = (action) => Boolean(permissions[action]);
   // Reversal requests go through the generic controlled_exceptions module
   const excPermissions = useMemo(() => getStoredPermissions()?.controlled_exceptions || {}, []);
@@ -189,7 +189,7 @@ export default function VendorLedgerPayments() {
   const fetchLookups = useCallback(async () => {
     try {
       const [v, pm] = await Promise.all([
-        outletVendorAPI.getVendors({ is_active: 1 }),
+        outletVendorAPI.getVendorLookup({ is_active: 1 }),
         masterAPI.getPaymentModes(),
       ]);
       setVendors(v?.data?.data || []);

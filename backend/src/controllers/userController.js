@@ -8,8 +8,10 @@ import { validateContactFields } from '../utils/validators.js';
 // contact details" - it's a privilege change. users.can_edit alone is too
 // broad a gate for it (e.g. Technical Admin has users.can_edit for
 // onboarding/support, but was never meant to be able to promote an account,
-// including its own, to Super Admin). Only these two roles may change role_id.
-const ROLE_REASSIGNMENT_ROLES = ['Super Admin', 'Developer'];
+// including its own, to Super Admin). Only Super Admin may change role_id -
+// Developer lost this as part of role hardening (support role, not a
+// privilege-escalation path).
+const ROLE_REASSIGNMENT_ROLES = ['Super Admin'];
 
 export const getUsers = async (req, res) => {
   try {
@@ -202,7 +204,7 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: contactError });
     }
 
-    // updateUser blocks a non-Super-Admin/Developer from reassigning an
+    // updateUser blocks a non-Super-Admin caller from reassigning an
     // existing user to a privileged role, but createUser had no equivalent
     // check at all - anyone with users.can_create (e.g. Technical Admin,
     // onboarding regular staff) could sidestep that entirely by just
@@ -213,7 +215,7 @@ export const createUser = async (req, res) => {
       if (targetRole && ROLE_REASSIGNMENT_ROLES.includes(targetRole.role_name)) {
         return res.status(403).json({
           success: false,
-          message: 'Only Super Admin or Developer can create a user with this role'
+          message: 'Only Super Admin can create a user with this role'
         });
       }
     }
@@ -308,7 +310,7 @@ export const updateUser = async (req, res) => {
     if (role_id && Number(role_id) !== Number(existing[0].role_id) && !ROLE_REASSIGNMENT_ROLES.includes(req.user.role_name)) {
       return res.status(403).json({
         success: false,
-        message: 'Only Super Admin or Developer can change a user\'s role'
+        message: 'Only Super Admin can change a user\'s role'
       });
     }
 

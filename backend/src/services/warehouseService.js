@@ -7,6 +7,7 @@ import { validateContactFields } from '../utils/validators.js';
 import { canAccessAllOutlets } from '../utils/roleAccess.js';
 import { assertNotOwnDocument } from '../utils/makerChecker.js';
 import { createEffectInTransaction, resolveAccountingOwner } from './accountingEffectService.js';
+import { validateReceiptItemReasons, receiptDiscrepancyFlag, insertReceiptHeader, insertReceiptItem } from './transferReceiptService.js';
 
 const num = (value) => (value === null || value === undefined || value === '' ? 0 : Number(value));
 
@@ -1176,8 +1177,15 @@ const postReceiptVariance = async (connection, txDate, locationId, materialId, u
 };
 
 export const receiveTransfer = async (id, data, userId) => {
-  const { items } = data;
+  const { items, receipt_key, receipt_remarks } = data;
   if (!items?.length) throw new Error('No receipt items provided');
+  // The client-generated receipt_key is what makes a retried submission safe:
+  // the UNIQUE(transfer_id, receipt_key) constraint on
+  // stock_transfer_receipts refuses the second attempt outright, so the same
+  // click/retry can never apply stock twice.
+  if (!receipt_key || !String(receipt_key).trim()) throw new Error('Receipt key is required');
+  if (String(receipt_key).length > 64) throw new Error('Receipt key is too long');
+  validateReceiptItemReasons(items);
   const connection = await getConnection();
   try {
     await connection.beginTransaction();
@@ -1192,6 +1200,20 @@ export const receiveTransfer = async (id, data, userId) => {
     if (transfer.status !== 'In Transit' && transfer.status !== 'Partially Received') {
       await connection.rollback(); throw new Error('Only an in-transit or partially received transfer can be received');
     }
+
+    // Receipt history header goes in FIRST, inside this transaction, so the
+    // unique constraint is hit before a single quantity is applied. On a
+    // duplicate key the attempt is a retry of an already-applied receipt:
+    // roll back and return the current state idempotently.
+    const receiptId = await insertReceiptHeader(
+      connection, id, String(receipt_key).trim(), userId, receipt_remarks, receiptDiscrepancyFlag(items)
+    );
+    if (receiptId === null) {
+      await connection.rollback();
+      const existing = await getTransferById(id);
+      return { ...existing, duplicate_receipt: true };
+    }
+
     const [itemRows] = await connection.execute('SELECT * FROM stock_transfer_items WHERE transfer_id = ? FOR UPDATE', [id]);
 
     const seenIds = new Set();
@@ -1229,6 +1251,12 @@ export const receiveTransfer = async (id, data, userId) => {
         `UPDATE stock_transfer_items SET received_qty = ?, short_qty = ?, damaged_qty = ?, remarks = ? WHERE id = ?`,
         [newReceived, newShort, newDamaged, it.remarks || ti.remarks, ti.id]
       );
+
+      // Per-receipt history: this event's increments plus the pending balance
+      // left on the line afterwards - cumulative columns above stay untouched
+      // by history and continue to drive stock/status exactly as before.
+      const pendingAfter = Math.max(0, num(ti.dispatched_qty) - newReceived - newDamaged - newShort);
+      await insertReceiptItem(connection, receiptId, ti.id, it, pendingAfter);
 
       // TRANSFER_IN upserts the same way: one ledger row per transfer-item+
       // batch that accumulates across partial receipts (see postReceiptVariance).

@@ -158,8 +158,6 @@ const MonthlySalesUpload = () => {
   const permissions = user?.permissions || {};
 
   const hasPermission = (module, action) => {
-    const adminRoles = ["Super Admin", "Admin", "Developer"];
-    if (adminRoles.includes(user?.role_name)) return true;
     return !!permissions[module]?.[action];
   };
 

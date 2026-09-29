@@ -622,6 +622,7 @@ export const warehouseAPI = {
   getTransferValidUoms: (rawMaterialId) => api.get(`/warehouse/transfers/valid-uoms/${rawMaterialId}`),
   getTransfer: (id) => api.get(`/warehouse/transfers/${id}`),
   receiveTransfer: (id, data) => api.post(`/warehouse/transfers/${id}/receive`, data),
+  getTransferReceipts: (id) => api.get(`/warehouse/transfers/${id}/receipts`),
 
   getPhysicalStockCounts: (params) => api.get("/warehouse/physical-stock-counts", { params }),
   getPhysicalStockCount: (id) => api.get(`/warehouse/physical-stock-counts/${id}`),
@@ -757,6 +758,7 @@ export const productionAPI = {
   createProductionDispatch: (data) => api.post("/production/dispatch", data),
   postProductionDispatch: (id) => api.post(`/production/dispatch/${id}/post`),
   receiveProductionDispatch: (id, data) => api.post(`/production/dispatch/${id}/receive`, data),
+  getProductionDispatchReceipts: (id) => api.get(`/production/dispatch/${id}/receipts`),
   exportProductionDispatches: (params) => api.get("/production/dispatch-export", { params, responseType: "blob" }),
 };
 
@@ -775,6 +777,7 @@ export const outletConsumptionAPI = {
 };
 
 export const outletVendorAPI = {
+  getVendorLookup: (params) => api.get("/outlet-vendors/lookup", { params }),
   getVendors: (params) => api.get("/outlet-vendors", { params }),
   getVendor: (id) => api.get(`/outlet-vendors/${id}`),
   createVendor: (data) => api.post("/outlet-vendors", data),

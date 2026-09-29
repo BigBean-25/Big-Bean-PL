@@ -24,9 +24,8 @@ export default function WarehouseGRN({ locationId, locations, materials, supplie
   const inputClass = getInputClass(isDark);
 
   const { user } = useAuthStore();
-  const isAdminRole = ["Super Admin", "Admin", "Developer"].includes(user?.role_name);
   const grnPerms = getStoredPermissions()?.grn || {};
-  const can = (a) => isAdminRole || Boolean(grnPerms[a]);
+  const can = (a) => Boolean(grnPerms[a]);
   const isOwn = (g) =>
     Boolean(user?.id && g?.created_by && Number(user.id) === Number(g.created_by));
 

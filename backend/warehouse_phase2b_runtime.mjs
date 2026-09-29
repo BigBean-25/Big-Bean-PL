@@ -81,7 +81,8 @@ async function main() {
   results.outletStockBeforeReceipt = outletCoffee ? { qty: outletCoffee.current_qty } : { qty: 0 };
 
   const received = await receiveTransfer(transfer.id, {
-    items: transfer.items.map((i) => ({ id: i.id, received_qty: 38, damaged_qty: 1, short_qty: 1, remarks: 'Received 38, damaged 1, short 1' })),
+    items: transfer.items.map((i) => ({ id: i.id, received_qty: 38, damaged_qty: 1, short_qty: 1, discrepancy_reason: 'SHORT_SUPPLY', remarks: 'Received 38, damaged 1, short 1' })),
+    receipt_key: 'TEST_RCPT_2B_001',
   }, whUser.id);
   results.receipt = received ? { status: received.status, items: received.items.map((i) => ({ material: i.material_name, dispatched: i.dispatched_qty, received: i.received_qty, damaged: i.damaged_qty, short: i.short_qty })) } : 'FAIL';
 
@@ -115,10 +116,14 @@ async function main() {
     results.dispatchIdempotency = false;
   } catch (e) { results.dispatchIdempotency = true; }
 
-  // Idempotency: second receive should not duplicate TRANSFER_IN
+  // Idempotency: retrying the SAME receipt_key must be a no-op - the
+  // UNIQUE(transfer_id, receipt_key) guard returns the existing state flagged
+  // duplicate_receipt instead of applying stock twice. (The transfer is
+  // already 'Received' here so the status guard throws first; either way the
+  // second attempt must not record another receipt.)
   try {
-    await receiveTransfer(transfer.id, { items: transfer.items.map((i) => ({ id: i.id, received_qty: 0, damaged_qty: 0, short_qty: 0 })) }, whUser.id);
-    results.receiveIdempotency = false;
+    const retry = await receiveTransfer(transfer.id, { items: transfer.items.map((i) => ({ id: i.id, received_qty: 0, damaged_qty: 0, short_qty: 0 })), receipt_key: 'TEST_RCPT_2B_001' }, whUser.id);
+    results.receiveIdempotency = retry && retry.duplicate_receipt === true;
   } catch (e) { results.receiveIdempotency = true; }
 
   // Negative stock protection: try to dispatch 200 KG from a new requisition
