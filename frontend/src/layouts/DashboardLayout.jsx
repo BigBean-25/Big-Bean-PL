@@ -239,7 +239,7 @@ const LANGUAGES = {
     warehousePhysicalCount: "Physical Counts",
     warehouseAdjustments: "Adjustments",
     warehouseWastage: "Wastage",
-    warehousePurchaseOrders: "Supplier Purchases",
+    warehousePurchaseOrders: "Supplier Orders",
     warehouseSupplierHistory: "Supplier Transaction History",
     warehouseReorder: "Low Stock & Reordering",
     warehouseReports: "Reports",
