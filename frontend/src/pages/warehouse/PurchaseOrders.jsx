@@ -91,28 +91,6 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
 
   const getSupplier = (id) => suppliers.find(s => String(s.id) === String(id));
 
-  // Supplier-wise procurement: once a supplier is selected, the PO can only
-  // contain raw materials whose preferred supplier is that supplier.
-  const supplierMaterials = useMemo(() => {
-    if (!form.supplier_id) return [];
-    return materials.filter(
-      (material) =>
-        Number(material.is_active) === 1 &&
-        String(material.preferred_supplier_id || "") === String(form.supplier_id)
-    );
-  }, [materials, form.supplier_id]);
-
-  const handleSupplierChange = (supplierId) => {
-    const supplier = getSupplier(supplierId);
-    setForm((current) => ({
-      ...current,
-      supplier_id: supplierId,
-      payment_terms: supplier?.payment_terms || "",
-      // Never carry another supplier's items into this PO.
-      items: [{ raw_material_id: "", ordered_qty: "", unit_id: "", rate: "", discount: "0", tax: "0", batch_required: 0, expiry_required: 0, remarks: "" }],
-    }));
-  };
-
   const resetForm = () => {
     setForm({
       po_date: new Date().toISOString().split("T")[0],
@@ -155,10 +133,6 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
     if (saving) return;
     if (!form.supplier_id) { toast.error("Supplier is required"); return; }
     if (form.items.some(it => !it.raw_material_id || !it.ordered_qty || !it.rate)) { toast.error("All item fields are required"); return; }
-    if (form.items.some(it => !supplierMaterials.some(m => String(m.id) === String(it.raw_material_id)))) {
-      toast.error("This PO contains a material that is not mapped to the selected supplier");
-      return;
-    }
     if (form.items.some(it => num(it.ordered_qty) < 0 || num(it.rate) < 0 || num(it.discount) < 0 || num(it.tax) < 0)) { toast.error("Quantity, rate, discount and tax cannot be negative"); return; }
     const payload = {
       ...form,
@@ -383,7 +357,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>PO Date *</label><input type="date" value={form.po_date} onChange={e => setForm({...form, po_date: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`} /></div>
-                <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier *</label><select value={form.supplier_id} onChange={e => handleSupplierChange(e.target.value)} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select supplier</option>{suppliers.filter(s => Number(s.is_active) === 1).map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></div>
+                <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier *</label><select value={form.supplier_id} onChange={e => setForm({...form, supplier_id: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select</option>{suppliers.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></div>
                 <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Expected Delivery</label><input type="date" value={form.expected_delivery_date} onChange={e => setForm({...form, expected_delivery_date: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`} /></div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -400,19 +374,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
                 <div className="space-y-2">
                   {form.items.map((it, idx) => (
                     <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 items-end border-b pb-2 last:border-0">
-                      <div className="sm:col-span-3">
-                        {!form.supplier_id ? (
-                          <div className={`rounded-md border px-3 py-2 text-sm ${isDark ? "border-[#3B405A] bg-[#25293C] text-[#A5A8B6]" : "border-[#DBDADE] bg-[#F8F7FA] text-[#A8AAAE]"}`}>
-                            Select supplier first
-                          </div>
-                        ) : supplierMaterials.length === 0 ? (
-                          <div className={`rounded-md border px-3 py-2 text-sm ${isDark ? "border-[#3B405A] bg-[#25293C] text-[#A5A8B6]" : "border-[#DBDADE] bg-[#F8F7FA] text-[#A8AAAE]"}`}>
-                            No materials mapped to this supplier
-                          </div>
-                        ) : (
-                          <MaterialCombobox value={it.raw_material_id} onSelect={v => updateItem(idx, "raw_material_id", v)} materials={supplierMaterials} excludeIds={new Set(form.items.filter((x, i) => i !== idx).map((x) => String(x.raw_material_id)).filter(Boolean))} isDark={isDark} inputClass={inputClass} />
-                        )}
-                      </div>
+                      <div className="sm:col-span-3"><MaterialCombobox value={it.raw_material_id} onSelect={v => updateItem(idx, "raw_material_id", v)} materials={materials.filter(m => m.is_active)} excludeIds={new Set(form.items.filter((x, i) => i !== idx).map((x) => String(x.raw_material_id)).filter(Boolean))} isDark={isDark} inputClass={inputClass} /></div>
                       <div className="sm:col-span-1"><input type="number" min="0" placeholder="Qty" value={it.ordered_qty} onChange={e => updateItem(idx, "ordered_qty", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
                       <div className="sm:col-span-2"><select value={it.unit_id} onChange={e => updateItem(idx, "unit_id", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm ${inputClass}`}><option value="">Unit</option>{units.map(u => <option key={u.id} value={u.id}>{u.unit_name}</option>)}</select></div>
                       <div className="sm:col-span-2"><input type="number" min="0" placeholder="Rate" value={it.rate} onChange={e => updateItem(idx, "rate", e.target.value)} className={`w-full rounded-md px-2 py-1.5 text-sm text-right ${inputClass}`} /></div>
