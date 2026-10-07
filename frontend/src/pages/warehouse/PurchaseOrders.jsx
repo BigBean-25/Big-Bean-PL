@@ -154,7 +154,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
     try {
       if (form.id) await warehouseAPI.updatePurchaseOrder(form.id, payload);
       else await warehouseAPI.createPurchaseOrder(payload);
-      toast.success("Warehouse purchase order saved");
+      toast.success("Supplier purchase saved");
       setShow(false);
       resetForm();
       fetchPOs();
@@ -190,7 +190,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Warehouse Purchase Order Register");
       ws.columns = [
-        { header: "PO No", key: "po_no", width: 14 },
+        { header: "Purchase No", key: "po_no", width: 14 },
         { header: "PO Date", key: "po_date", width: 12 },
         { header: "Supplier", key: "supplier", width: 22 },
         { header: "Warehouse", key: "warehouse", width: 22 },
@@ -262,8 +262,8 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
   return (
     <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden">
       <PageHeader
-        title="Warehouse Purchase Orders"
-        subtitle="Create, approve and track warehouse purchase orders to suppliers before the goods arrive at the warehouse."
+        title="Supplier Purchases"
+        subtitle="Record supplier purchases and track purchased materials for warehouse inventory."
         actions={
           <div className="flex flex-wrap gap-2">
             {permissions?.warehouse_purchase_orders?.can_export && (
@@ -273,7 +273,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
             )}
             {permissions?.warehouse_purchase_orders?.can_create && (
               <button onClick={() => { resetForm(); setShow(true); }} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#7367F0] px-3 text-[14px] font-semibold text-white hover:bg-[#6354D8]">
-                <Plus size={16} /> New PO
+                <Plus size={16} /> New Supplier Purchase
               </button>
             )}
           </div>
@@ -282,17 +282,17 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
-        <KpiCard icon={FileText} label="POs This Month" value={kpis.thisMonth} isDark={isDark} />
-        <KpiCard icon={Package} label="Open PO Value" value={`₹${kpis.openValue.toFixed(2)}`} isDark={isDark} />
+        <KpiCard icon={FileText} label="Purchases This Month" value={kpis.thisMonth} isDark={isDark} />
+        <KpiCard icon={Package} label="Open Purchase Value" value={`₹${kpis.openValue.toFixed(2)}`} isDark={isDark} />
         <KpiCard icon={ClipboardCheck} label="Pending Approval" value={kpis.pendingApproval} isDark={isDark} />
         <KpiCard icon={Send} label="Awaiting Delivery" value={kpis.awaitingDelivery} isDark={isDark} />
         <KpiCard icon={Truck} label="Partially Received" value={kpis.partiallyReceived} isDark={isDark} />
-        <KpiCard icon={XCircle} label="Overdue POs" value={kpis.overdue} isDark={isDark} />
+        <KpiCard icon={XCircle} label="Overdue Purchases" value={kpis.overdue} isDark={isDark} />
       </div>
 
       <FilterBar isDark={isDark} title="Filters">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search PO / supplier" className={`w-full rounded-md py-2 pl-9 pr-3 text-sm ${inputClass}`} /></div>
+          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8AAAE]" /><input value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})} placeholder="Search purchase / supplier" className={`w-full rounded-md py-2 pl-9 pr-3 text-sm ${inputClass}`} /></div>
           <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Status</option>{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
           <select value={filters.supplier_id} onChange={e => setFilters({...filters, supplier_id: e.target.value})} className={`w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">All Suppliers</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select>
           <button onClick={() => setFilters({ search: "", status: "", supplier_id: "" })} className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm ${isDark ? "border-[#3B405A] bg-[#2F3349] text-[#D0D2D6]" : "border-[#EBE9F1] bg-white text-[#2F2B3D]"}`}><RotateCcw size={16} /> Reset</button>
@@ -304,7 +304,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
           <table className="w-full border-collapse text-[13px]">
             <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#2F3349]" : "bg-white"}`}>
               <tr className={`border-b text-left text-[11px] font-semibold uppercase tracking-wide ${isDark ? "border-[#3B405A] text-[#A5A8B6]" : "border-[#EBE9F1] text-[#6F6B7D]"}`}>
-                <th className="px-3 py-3">PO No</th>
+                <th className="px-3 py-3">Purchase No</th>
                 <th className="px-3 py-3">Date</th>
                 <th className="px-3 py-3">Supplier</th>
                 <th className="px-3 py-3">Warehouse</th>
@@ -317,7 +317,7 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
             </thead>
             <tbody>
               {loading ? <LoadingRows rows={5} cols={9} isDark={isDark} /> : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-10"><EmptyState isDark={isDark} message="No warehouse purchase orders found" subMessage="Create a warehouse purchase order to begin procurement" /></td></tr>
+                <tr><td colSpan={9} className="px-4 py-10"><EmptyState isDark={isDark} message="No supplier purchases found" subMessage="Create a supplier purchase to begin procurement" /></td></tr>
               ) : filtered.map(p => (
                 <tr key={p.id} className={`border-b ${isDark ? "border-[#3B405A]" : "border-[#F3F2F7]"}`}>
                   <td className="px-3 py-3 font-medium">{p.po_no}</td>
@@ -352,11 +352,11 @@ export default function PurchaseOrders({ locationId, locations, materials, suppl
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${isDark ? "border-[#3B405A] bg-[#2F3349]" : "border-[#EBE9F1] bg-white"}`}>
             <div className={`sticky top-0 z-10 border-b p-4 ${isDark ? "border-[#3B405A]" : "border-[#EBE9F1]"}`}>
-              <h3 className="text-lg font-semibold">{form.id ? "Edit Warehouse Purchase Order" : "New Warehouse Purchase Order"}</h3>
+              <h3 className="text-lg font-semibold">{form.id ? "Edit Supplier Purchase" : "New Supplier Purchase"}</h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>PO Date *</label><input type="date" value={form.po_date} onChange={e => setForm({...form, po_date: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`} /></div>
+                <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Purchase Date *</label><input type="date" value={form.po_date} onChange={e => setForm({...form, po_date: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`} /></div>
                 <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Supplier *</label><select value={form.supplier_id} onChange={e => setForm({...form, supplier_id: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`}><option value="">Select</option>{suppliers.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}</select></div>
                 <div><label className={`text-[13px] ${isDark ? "text-[#A5A8B6]" : "text-[#6F6B7D]"}`}>Expected Delivery</label><input type="date" value={form.expected_delivery_date} onChange={e => setForm({...form, expected_delivery_date: e.target.value})} className={`mt-1 w-full rounded-md px-3 py-2 text-sm ${inputClass}`} /></div>
               </div>
