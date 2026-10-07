@@ -39,7 +39,7 @@ const tabs = [
   { key: "warehouse-wastage", label: "Warehouse Wastage", icon: Trash2, moduleKey: "warehouse_wastage" },
   { key: "batch-expiry", label: "Batch & Expiry", icon: Scale, moduleKey: "warehouse_batch_expiry" },
   { key: "purchase-returns", label: "Purchase Returns", icon: Truck, moduleKey: "warehouse_purchase_returns" },
-  { key: "purchase-orders", label: "Warehouse Purchase Orders", icon: FileText, moduleKey: "warehouse_purchase_orders" },
+  { key: "purchase-orders", label: "Supplier Purchases", icon: FileText, moduleKey: "warehouse_purchase_orders" },
   { key: "supplier-history", label: "Supplier Transaction History", icon: TrendingUp, moduleKey: "warehouse_supplier_history" },
   { key: "low-stock-reorder", label: "Low Stock & Reordering", icon: AlertTriangle, moduleKey: "warehouse_reorder" },
   { key: "reports", label: "Reports", icon: BookOpen, moduleKey: "warehouse_reports" },
